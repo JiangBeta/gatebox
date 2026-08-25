@@ -46,7 +46,29 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 命令
 
-> 项目尚未实现，无 build/test 命令。落地后补全。
+> **NixOS 环境**：`go` 与 `gcc` 都不在默认 PATH（store 路径随系统更新变化）：
+> ```bash
+> export PATH="$(dirname $(ls /nix/store/*-go-*/bin/go | head -1)):$(dirname $(ls /nix/store/*gcc-wrapper*/bin/gcc | head -1)):$PATH"
+> ```
+
+### 后端（`backend/`）
+
+```bash
+CGO_ENABLED=0 go build ./...            # 构建（交付形态，项目无 cgo 依赖）
+CGO_ENABLED=0 go test ./...             # 全部测试
+CGO_ENABLED=1 go test ./... -race       # 竞态检测（需 gcc，并发代码改动后必跑）
+gofmt -l ./internal ./cmd               # 格式检查：有输出即不合规
+go vet ./...
+```
+
+**Docker 集成测试**：对接真实 daemon，`/var/run/docker.sock` 不可用时自动跳过；`GATEBOX_SKIP_DOCKER_IT=1` 显式跳过。其中 `exec_integration_test.go` 会在容器内执行**只读**命令（echo / exit / shell 探测），不写文件、不改配置。
+
+### 前端（`frontend/`）
+
+```bash
+pnpm dev      # 开发服务器
+pnpm build    # 构建并输出到 backend/internal/web/dist（由 go:embed 内嵌）
+```
 
 ## 开发工作方法
 
