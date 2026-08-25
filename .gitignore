@@ -1,0 +1,17 @@
+# 前端
+frontend/node_modules/
+
+# 前端构建产物(内嵌到后端 embed,仅保留占位以通过编译)
+backend/internal/web/dist/*
+!backend/internal/web/dist/.gitkeep
+
+# 后端构建产物
+backend/gatebox
+
+# 运行时数据
+data/
+backend/data/
+*.db
+
+# 外部工具二进制(ADR-011:装入 $DATA_DIR/tools/,由安装脚本放置,不入库)
+tools/
