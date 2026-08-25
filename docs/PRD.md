@@ -44,20 +44,21 @@ GateBox（控制面：Go + Vue3 + BoltDB）
 | 代理 | 生成 Caddyfile → Caddy Admin API `/load` |
 | 证书 | Caddy ACME，DNS-01 默认（预装 cloudflare / dnspod.cn / aliyun 插件） |
 | DDNS | 外部 ddnsgo（改写 YAML + 服务重启） |
-| Docker | Docker Engine API（moby SDK）+ `docker compose` CLI；表单生成 `docker-compose.yaml` |
+| Docker | Docker Engine API（**自研轻量 HTTP 封装**，非 moby SDK——ADR-014）+ `docker compose` CLI；表单 ⇄ YAML 双向同步生成 `docker-compose.yaml` |
 
 ## 6. 领域模型
 
 ```
+ComposeInstance (1) ──< Container (N) ──< App (M, M ≤ N)    # ADR-015
 App (1) ──< ProxyRoute (N)
 App.source ∈ { docker, manual, host }
 ProxyRoute.type ∈ { reverse_proxy, file_server, tcp_stream }
 Domain ── DDNS 上报（ddnsgo）+ 证书（caddy）
-ComposeInstance ── docker-compose.yaml
 DNSCredential（统一管理，加密存储）
 ```
 
-- **App**：可被代理的最小单元；`docker` 由 label 自动发现，`manual` 为手动 IP:端口（可多个 = 负载均衡），`host` 为宿主机服务。
+- **ComposeInstance**：一个 compose 项目 = 一个部署单位，起 N 个容器，其中只有需要被代理的容器升格为 App（**M ≤ N**）。主键为 `projectName`，落盘于 `appData/<projectName>/`（ADR-015）。
+- **App**：可被代理的最小单元；`docker` 由 label 自动发现，`manual` 为手动 IP:端口（可多个 = 负载均衡），`host` 为宿主机服务。**指向容器的稳定标识为 `project + service`**，不用会变的容器 ID / IP（ADR-016）。
 - **ProxyRoute**：`reverse_proxy`（后端 http/https，https 后端需处理自签证书信任，如 PVE 8006）、`file_server`（静态网页）、`tcp_stream`（L4 透传）。
 - 证书、DNS 记录**不建独立实体**——由 caddy / ddnsgo 托管，本工具只读写其配置并展示状态。
 
@@ -70,7 +71,7 @@ DNSCredential（统一管理，加密存储）
 ```
 $DATA_DIR/
 ├── gatebox                # 本工具二进制
-├── db/appgateway.db                # BoltDB
+├── db/gatebox.db                   # BoltDB
 ├── tools/                          # 外部工具（项目目录统一管理）
 │   ├── caddy/
 │   │   ├── caddy                   # caddy 二进制
@@ -81,7 +82,7 @@ $DATA_DIR/
 │   │   └── .ddns_go_config.yaml    # 生成的 ddnsgo 配置
 │   └── docker/docker-compose       # docker-compose 二进制
 └── appData/
-    └── <appName>/
+    └── <projectName>/              # 单位是 compose 项目，非 App（ADR-015）
         ├── docker-compose.yaml     # 该应用的 compose 文件
         ├── www/                    # file_server 静态站点文件
         └── conf/                   # 该应用的设置 & 数据
@@ -90,7 +91,7 @@ $DATA_DIR/
 ### 代码仓库结构
 
 ```
-backend/    # Go：cmd/appgateway + internal/{config,models,store,caddy,ddns,docker,api,server}
+backend/    # Go：cmd/gatebox + internal/{config,models,store,caddy,ddns,docker,api,server}
 frontend/   # Vue3：src/{api,views,components,stores,router,locales}
 scripts/    # install.sh（多发行版/架构安装）、build.sh（build → go:embed → 单二进制）
 configs/    # systemd/openrc/procd 服务单元模板
@@ -102,14 +103,14 @@ docs/       # PRD + glossary + adr/
 - **添加 Docker 应用**：读容器 `caddy.*` label → 建 App + ProxyRoute → 生成 Caddyfile → `/load`
 - **添加手动代理**：建 App（IP:端口，可多个）→ 同上
 - **添加域名**：写 ddnsgo YAML → 重启 ddnsgo 上报 → Caddy DNS-01 签证书
-- **生成 compose**：表单 → 落盘 `appData/<app>/docker-compose.yaml` → `docker compose up -d`
-- **查看运行状态**：Docker API 读容器/stats/日志（WebSocket 推送）
+- **生成 compose**：表单 ⇄ YAML → stdin 校验（`config -q`）→ 通过才落盘 `appData/<projectName>/docker-compose.yaml` → `docker compose up -d`
+- **查看运行状态**：stats 由后端单例采集器聚合成快照供前端轮询；日志 / exec / 拉取 / 部署各走一条 WebSocket（docs/docker.md §5.2）
 
 ## 9. 功能范围
 
-**MVP 内**：上述四个能力的最小闭环 + 5 页 UI（仪表盘 / 应用 / 域名 / Docker / 设置）。
+**MVP 内**：上述四个能力的最小闭环 + 5 页 UI（仪表盘 / 网关 / Docker / 域名 / 设置）。
 
-**MVP 外（后置）**：多用户 / RBAC、UDP 代理、独立证书签发、多宿主机、发行版原生包。
+**MVP 外（后置）**：多用户 / RBAC、UDP 代理、独立证书签发、发行版原生包、**多主机控制**（单一控制面管理多台主机，数据模型预留扩展点，后续实现）、**内网 DNS 记录自动下发**（adguardHome / MosDNS / RouterOS / OpenWRT 等内网解析服务器的记录自动写入）。
 
 ## 10. 部署交付
 
@@ -131,11 +132,11 @@ docs/       # PRD + glossary + adr/
 
 逐需求「讨论 → 开发 → 验证 → 进入下一项」：
 
-1. 页面布局 & 域名
-2. Docker
-3. 应用
+1. 页面布局 & 域名（设计已定，见 [docs/domain.md](docs/domain.md)）
+2. Docker（设计已定，见 [docs/docker.md](docs/docker.md)）
+3. 网关
 4. 控制台 & 设置（含用户认证）
 
 ## 14. ADR 索引
 
-见 `docs/adr/`：ADR-001 ~ ADR-011。
+见 `docs/adr/`：ADR-001 ~ ADR-016。

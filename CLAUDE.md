@@ -15,7 +15,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - Caddy：生成 Caddyfile → Admin API `/load` 原子加载（**先校验、失败回退、成功写盘、零中断**）。
 - DDNS：依赖外部 ddnsgo（改写其 YAML + 服务重启）。
-- Docker：容器生命周期走 Docker Engine API（moby SDK）；compose 编排走 `docker compose` CLI。
+- Docker：容器生命周期走 Docker Engine API（**自研轻量 HTTP 封装**，非 moby SDK，见 ADR-014）；compose 编排走 `docker compose` CLI。
 - 证书：Caddy ACME，**DNS-01 默认**，预装 cloudflare / dnspod.cn / aliyun 插件（dnspod.cn 非 .com）。
 
 ## 技术选型
@@ -30,7 +30,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 文件架构
 
-- 运行时数据根目录 `$DATA_DIR`（用户指定，安装脚本创建并写入 DB）：`gatebox` 二进制、`db/appgateway.db`、`tools/{caddy,ddnsgo,docker}`、`appData/<app>/`（compose + www + conf）。
+- 运行时数据根目录 `$DATA_DIR`（用户指定，安装脚本创建并写入 DB）：`gatebox` 二进制、`db/gatebox.db`、`tools/{caddy,ddnsgo,docker}`、`appData/<projectName>/`（compose + www + conf）。
 - 代码：`backend/`（internal/{config,models,store,caddy,ddns,docker,api,server}）+ `frontend/`（src/{api,views,components,stores,router,locales}）+ `scripts/` + `configs/`。
 
 ## 约定
@@ -38,11 +38,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **沟通、思考、代码注释一律中文**。
 - **MVP 优先**：单用户 admin；多用户/RBAC、UDP 代理、独立证书等后置。
 - 生成的 Caddyfile 预留 `import` 扩展点（`tools/caddy/user/`），不覆盖用户手改。
-- Docker label 复用 `caddy.*` 约定 + `appgateway.*` 扩展。
+- Docker label 复用 `caddy.*` 约定 + `gatebox.*` 扩展。
 
 ## 文档导航
 
-- [PRD](docs/PRD.md) · [术语表](docs/glossary.md) · [ADR](docs/adr/)（ADR-001 ~ ADR-011）
+- [PRD](docs/PRD.md) · [术语表](docs/glossary.md) · [ADR](docs/adr/)（ADR-001 ~ ADR-016）· [域名功能](docs/domain.md) · [Docker 功能](docs/docker.md) · [页面布局](docs/layout.md)
 
 ## 命令
 
@@ -65,7 +65,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 开发工作计划（逐需求：讨论 → 开发 → 验证 → 进入下一项）
 
-1. 页面布局 & 域名
-2. Docker
+1. 页面布局 & 域名（设计见 [docs/domain.md](docs/domain.md)）
+2. Docker（设计见 [docs/docker.md](docs/docker.md)）
 3. 网关
 4. 控制台 & 设置（含用户认证）
