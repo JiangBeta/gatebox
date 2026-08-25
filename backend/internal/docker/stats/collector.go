@@ -224,6 +224,15 @@ func (c *Collector) Subscribe() (unsubscribe func()) {
 	}
 }
 
+// Touch 表明近期仍有查看者,供**轮询式**访问使用。
+//
+// 效果等同于订阅后立即退订:采集会保持运行,并在最后一次 Touch 之后的
+// 冷却期结束时停止。前端每次拉取容器列表调用一次即可,无需显式管理订阅。
+func (c *Collector) Touch() {
+	unsub := c.Subscribe()
+	unsub()
+}
+
 // Subscribers 返回当前订阅者数量。
 func (c *Collector) Subscribers() int {
 	c.mu.Lock()

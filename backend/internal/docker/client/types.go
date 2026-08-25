@@ -80,16 +80,7 @@ type ContainerDetail struct {
 	Image   string          `json:"Image"`
 	Config  ContainerConfig `json:"Config"`
 
-	HostConfig *struct {
-		NetworkMode   string `json:"NetworkMode"`
-		RestartPolicy struct {
-			Name              string `json:"Name"`
-			MaximumRetryCount int    `json:"MaximumRetryCount"`
-		} `json:"RestartPolicy"`
-		Binds        []string                 `json:"Binds"`
-		PortBindings map[string][]PortBinding `json:"PortBindings"`
-		Privileged   bool                     `json:"Privileged"`
-	} `json:"HostConfig,omitempty"`
+	HostConfig *HostConfig `json:"HostConfig,omitempty"`
 
 	NetworkSettings *struct {
 		Networks map[string]EndpointSettings `json:"Networks"`
@@ -104,6 +95,33 @@ func (d *ContainerDetail) TrimmedName() string {
 		return d.Name[1:]
 	}
 	return d.Name
+}
+
+// HostConfig 容器的宿主机侧配置。
+type HostConfig struct {
+	NetworkMode   string `json:"NetworkMode"`
+	RestartPolicy struct {
+		Name              string `json:"Name"`
+		MaximumRetryCount int    `json:"MaximumRetryCount"`
+	} `json:"RestartPolicy"`
+	Binds        []string                 `json:"Binds"`
+	PortBindings map[string][]PortBinding `json:"PortBindings"`
+	Privileged   bool                     `json:"Privileged"`
+
+	// LogConfig 该容器的日志驱动,可覆盖 daemon 默认值。
+	// 判断某个容器的日志能否回读必须看这里,而非只看 daemon 的全局设置(docs §5.5)。
+	LogConfig struct {
+		Type   string            `json:"Type"`
+		Config map[string]string `json:"Config"`
+	} `json:"LogConfig"`
+}
+
+// LogDriver 返回该容器实际使用的日志驱动;未显式设置时返回空串(表示随 daemon 默认)。
+func (d *ContainerDetail) LogDriver() string {
+	if d.HostConfig == nil {
+		return ""
+	}
+	return d.HostConfig.LogConfig.Type
 }
 
 // ContainerState 容器运行状态。
