@@ -44,7 +44,7 @@ func main() {
 		defer coll.Close()
 	}
 
-	handler := server.New(st, cm, dc, coll)
+	handler := server.New(st, cm, dc, coll, cfg.DaemonJSONPath, cfg.DataDir)
 
 	log.Printf("GateBox 启动: 监听 %s,数据目录 %s", cfg.Addr, cfg.DataDir)
 	if err := http.ListenAndServe(cfg.Addr, handler); err != nil {

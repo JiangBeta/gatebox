@@ -10,18 +10,24 @@ import (
 	"time"
 
 	"github.com/JiangBeta/gatebox/internal/docker/client"
+	"github.com/JiangBeta/gatebox/internal/docker/compose"
 	"github.com/JiangBeta/gatebox/internal/docker/stats"
+	"github.com/JiangBeta/gatebox/internal/store"
 )
 
 // dockerAPI Docker 页的处理器。
 type dockerAPI struct {
-	cli  *client.Client
-	coll *stats.Collector
+	cli     *client.Client
+	coll    *stats.Collector
+	s       *store.Store // 私有仓库凭证、编排项目等落库实体
+	dj      string       // daemon.json 路径(docs §3.3.1)
+	cmp     *compose.CLI // compose CLI 封装(docs §5.3)
+	dataDir string       // 运行时数据根目录(定位 appData/)
 }
 
 // RegisterDocker 注册 Docker 相关路由。
-func RegisterDocker(mux *http.ServeMux, cli *client.Client, coll *stats.Collector) {
-	d := &dockerAPI{cli: cli, coll: coll}
+func RegisterDocker(mux *http.ServeMux, cli *client.Client, coll *stats.Collector, s *store.Store, daemonJSON, dataDir string) {
+	d := &dockerAPI{cli: cli, coll: coll, s: s, dj: daemonJSON, cmp: compose.New(dataDir), dataDir: dataDir}
 
 	mux.HandleFunc("GET /api/v1/docker/info", d.info)
 	mux.HandleFunc("GET /api/v1/docker/containers", d.listContainers)
@@ -32,9 +38,47 @@ func RegisterDocker(mux *http.ServeMux, cli *client.Client, coll *stats.Collecto
 	mux.HandleFunc("DELETE /api/v1/docker/containers/{id}", d.removeContainer)
 	mux.HandleFunc("GET /api/v1/docker/containers/{id}/shells", d.detectShell)
 
+	// 镜像(docs §3.3)
+	mux.HandleFunc("GET /api/v1/docker/images", d.listImages)
+	mux.HandleFunc("DELETE /api/v1/docker/images", d.removeImage) // ?ref=
+	mux.HandleFunc("POST /api/v1/docker/images/load", d.loadImage)
+
+	// 网络(docs §3.4)
+	mux.HandleFunc("GET /api/v1/docker/networks", d.listNetworks)
+	mux.HandleFunc("POST /api/v1/docker/networks", d.createNetwork)
+	mux.HandleFunc("GET /api/v1/docker/networks/{id}", d.inspectNetwork)
+	mux.HandleFunc("DELETE /api/v1/docker/networks/{id}", d.removeNetwork)
+
+	// 存储卷(docs §3.5)
+	mux.HandleFunc("GET /api/v1/docker/volumes", d.listVolumes)
+	mux.HandleFunc("POST /api/v1/docker/volumes", d.createVolume)
+	mux.HandleFunc("DELETE /api/v1/docker/volumes", d.removeVolume) // ?name=
+	mux.HandleFunc("POST /api/v1/docker/volumes/prune", d.pruneVolumes)
+
+	// 私有仓库 + daemon 配置(docs §3.3.1)
+	mux.HandleFunc("GET /api/v1/docker/registries", d.listRegistries)
+	mux.HandleFunc("POST /api/v1/docker/registries", d.createRegistry)
+	mux.HandleFunc("PUT /api/v1/docker/registries/{id}", d.updateRegistry)
+	mux.HandleFunc("DELETE /api/v1/docker/registries/{id}", d.deleteRegistry)
+	mux.HandleFunc("GET /api/v1/docker/daemon", d.getDaemon)
+	mux.HandleFunc("PUT /api/v1/docker/daemon", d.updateDaemon)
+
+	// 编排(docs §3.2,见 docker_compose.go)
+	mux.HandleFunc("GET /api/v1/docker/compose", d.listCompose)
+	mux.HandleFunc("POST /api/v1/docker/compose", d.createCompose)
+	mux.HandleFunc("POST /api/v1/docker/compose/validate", d.validateCompose)
+	mux.HandleFunc("GET /api/v1/docker/compose/{project}", d.getCompose)
+	mux.HandleFunc("PUT /api/v1/docker/compose/{project}", d.saveCompose)
+	mux.HandleFunc("POST /api/v1/docker/compose/{project}/down", d.downCompose)
+	mux.HandleFunc("POST /api/v1/docker/compose/{project}/restart", d.restartCompose)
+	mux.HandleFunc("POST /api/v1/docker/compose/{project}/restore", d.restoreCompose)
+	mux.HandleFunc("DELETE /api/v1/docker/compose/{project}", d.deleteCompose)
+
 	// WebSocket(见 docker_ws.go)
 	mux.HandleFunc("GET /api/v1/docker/containers/{id}/logs", d.wsLogs)
 	mux.HandleFunc("GET /api/v1/docker/containers/{id}/exec", d.wsExec)
+	mux.HandleFunc("GET /api/v1/docker/images/pull", d.wsPullImage)
+	mux.HandleFunc("GET /api/v1/docker/compose/{project}/deploy", d.wsDeploy)
 }
 
 // --- 视图模型 ---
@@ -125,9 +169,11 @@ func (d *dockerAPI) listContainers(w http.ResponseWriter, r *http.Request) {
 		snap = d.coll.SnapshotAll()
 	}
 
+	managed := d.managedProjects(r.Context())
+
 	out := make([]containerView, 0, len(list))
 	for _, ct := range list {
-		out = append(out, buildView(ct, details[ct.ID], snap[ct.ID]))
+		out = append(out, buildView(ct, details[ct.ID], snap[ct.ID], managed))
 	}
 	// 运行中的排前面,其次按名称,保证列表顺序稳定
 	sort.SliceStable(out, func(i, j int) bool {
@@ -173,7 +219,25 @@ func (d *dockerAPI) inspectAll(ctx context.Context, list []client.Container) map
 	return out
 }
 
-func buildView(ct client.Container, det *client.ContainerDetail, sample stats.Sample) containerView {
+// managedProjects 返回托管编排项目的 projectName 集合,供容器三态判定。
+func (d *dockerAPI) managedProjects(ctx context.Context) map[string]bool {
+	out := map[string]bool{}
+	if d.s == nil {
+		return out
+	}
+	insts, err := d.s.ListComposeInstances()
+	if err != nil {
+		return out
+	}
+	for _, inst := range insts {
+		if inst.Managed {
+			out[inst.ProjectName] = true
+		}
+	}
+	return out
+}
+
+func buildView(ct client.Container, det *client.ContainerDetail, sample stats.Sample, managed map[string]bool) containerView {
 	v := containerView{
 		ID:        ct.ID,
 		Name:      ct.Name(),
@@ -188,8 +252,13 @@ func buildView(ct client.Container, det *client.ContainerDetail, sample stats.Sa
 
 	v.Source = sourceLoose
 	if v.Project != "" {
-		// 托管与外部的区分需要编排数据层,当前统一按外部处理
-		v.Source = sourceExternal
+		// 三态判定(docs §2.3):项目在编排数据层且 managed=true 才算「托管」,
+		// 其余 compose 容器是「外部编排」;无 project label 的是「游离」。
+		if managed[v.Project] {
+			v.Source = sourceManaged
+		} else {
+			v.Source = sourceExternal
+		}
 	}
 
 	for _, p := range ct.Ports {

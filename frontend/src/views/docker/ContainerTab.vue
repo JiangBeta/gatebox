@@ -1,9 +1,13 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, h, computed } from 'vue'
+import { ref, onMounted, onUnmounted, h, computed, type Component } from 'vue'
 import {
   NDataTable, NTag, NButton, NSpace, NPopover, NAlert, NModal, NCheckbox,
-  NText, NSpin, useMessage,
+  NText, NSpin, NIcon, NTooltip, NEllipsis, useMessage,
 } from 'naive-ui'
+import {
+  DocumentTextOutline, TerminalOutline, PlayOutline, StopOutline,
+  RefreshOutline, TrashOutline,
+} from '@vicons/ionicons5'
 import {
   listContainers, dockerInfo, startContainer, stopContainer, restartContainer,
   removeContainer, type ContainerView, type DockerInfo, type PortMapping,
@@ -110,11 +114,20 @@ function renderPorts(row: ContainerView) {
     NPopover,
     { trigger: 'hover', placement: 'right' },
     {
-      trigger: () => h(NText, { style: 'cursor: default; border-bottom: 1px dashed #aaa' }, { default: () => `端口：${row.ports.length}` }),
+      // 蓝色 + 虚线下划线:一眼看出可 hover(仅移动触发,无需点击)
+      trigger: () => h(NText, {
+        style: 'cursor: default; color: #4098fc; border-bottom: 1px dashed #4098fc',
+      }, { default: () => `端口：${row.ports.length}` }),
       default: () =>
         h('div', { style: 'display: flex; flex-direction: column; gap: 6px' },
           row.ports.map((p: PortMapping) =>
-            h('div', { style: 'display: flex; align-items: center; gap: 6px; white-space: nowrap' }, [
+            // 每一条映射一块底,一眼区分「一条映射」。
+            // 用 popover 的 divider 色做底,深浅主题下都与 popover 背景有明显差异
+            h('div', {
+              style: 'display: flex; align-items: center; gap: 6px; white-space: nowrap;' +
+                ' padding: 3px 8px; border-radius: 4px;' +
+                ' background: var(--n-divider-color); border: 1px solid var(--n-divider-color)',
+            }, [
               p.host
                 ? h(NTag, { size: 'small', type: p.ip === '0.0.0.0' || p.ip === '::' ? 'warning' : 'success', bordered: false },
                     { default: () => `${p.ip || '0.0.0.0'}:${p.host}` })
@@ -128,41 +141,78 @@ function renderPorts(row: ContainerView) {
   )
 }
 
+/**
+ * 操作列的图标按钮:hover 出文字提示,替代原先的文字按钮以节省横向空间。
+ * trigger 外面套 span 是必要的——disabled 的按钮自身不派发鼠标事件,
+ * 而「为什么这个按钮是灰的」恰恰是最需要提示的场景。
+ */
+function iconBtn(opts: {
+  icon: Component
+  tip: string
+  onClick?: () => void
+  disabled?: boolean
+  loading?: boolean
+  type?: 'default' | 'primary' | 'error'
+  /** 自定义图标/文字颜色(如 stop/restart 用红、start 用绿)。禁用态自动淡化 */
+  color?: string
+}) {
+  const color = opts.disabled ? undefined : opts.color
+  return h(NTooltip, { trigger: 'hover', delay: 300 }, {
+    trigger: () =>
+      h('span', { style: 'display: inline-flex' }, [
+        h(NButton, {
+          size: 'small',
+          quaternary: true,
+          circle: true,
+          type: opts.type,
+          disabled: opts.disabled,
+          loading: opts.loading,
+          onClick: opts.onClick,
+        }, { icon: () => h(NIcon, { color }, { default: () => h(opts.icon) }) }),
+      ]),
+    default: () => opts.tip,
+  })
+}
+
 const columns = computed(() => [
   {
     title: '名称',
     key: 'name',
+    minWidth: 220,
     render: (row: ContainerView) => {
       const meta = sourceMeta[row.source] || sourceMeta.loose
-      return h('div', { style: 'display: flex; flex-direction: column; gap: 2px' }, [
-        h('div', { style: 'display: flex; align-items: center; gap: 6px' }, [
-          h('span', { style: 'font-weight: 600' }, row.name),
+      return h('div', { style: 'display: flex; flex-direction: column; gap: 2px; min-width: 0' }, [
+        h('div', { style: 'display: flex; align-items: center; gap: 6px; min-width: 0' }, [
+          // min-width:0 + flex:1 是让 ellipsis 在 flex 容器里真正生效的前提
+          h(NEllipsis, { style: 'font-weight: 600; flex: 1; min-width: 0' }, { default: () => row.name }),
           h(NPopover, { trigger: 'hover' }, {
-            trigger: () => h(NTag, { size: 'tiny', type: meta.type, bordered: false }, { default: () => meta.label }),
+            trigger: () => h(NTag, { size: 'tiny', type: meta.type, bordered: false, style: 'flex-shrink: 0' }, { default: () => meta.label }),
             default: () => meta.tip,
           }),
           row.health
-            ? h(NTag, { size: 'tiny', type: row.health === 'healthy' ? 'success' : 'warning', bordered: false },
+            ? h(NTag, { size: 'tiny', type: row.health === 'healthy' ? 'success' : 'warning', bordered: false, style: 'flex-shrink: 0' },
                 { default: () => row.health })
             : null,
+          // 隐形占位:吸走名称列的剩余宽度,让标签贴着名称而不是被推到列右缘
+          h('span', { style: 'flex: 1' }),
         ]),
-        h(NText, { depth: 3, style: 'font-size: 12px' }, { default: () => row.image }),
+        h(NEllipsis, { depth: 3, style: 'font-size: 12px' }, { default: () => row.image }),
       ])
     },
   },
   {
     title: '状态',
     key: 'state',
-    width: 110,
+    width: 90,
     render: (row: ContainerView) =>
       h(NTag, { size: 'small', type: row.state === 'running' ? 'success' : 'default', bordered: false },
         { default: () => (row.state === 'running' ? '运行中' : row.state === 'exited' ? '已停止' : row.state) }),
   },
-  { title: '端口', key: 'ports', width: 110, render: renderPorts },
+  { title: '端口', key: 'ports', width: 88, render: renderPorts },
   {
     title: 'CPU',
     key: 'cpu',
-    width: 100,
+    width: 88,
     render: (row: ContainerView) => {
       if (row.state !== 'running') return h(NText, { depth: 3 }, { default: () => '-' })
       if (!row.hasStats) return h(NSpin, { size: 12 })
@@ -172,7 +222,7 @@ const columns = computed(() => [
   {
     title: '内存',
     key: 'memory',
-    width: 160,
+    width: 138,
     render: (row: ContainerView) => {
       if (row.state !== 'running') return h(NText, { depth: 3 }, { default: () => '-' })
       if (!row.hasStats) return h(NSpin, { size: 12 })
@@ -183,42 +233,64 @@ const columns = computed(() => [
       ])
     },
   },
-  { title: '创建时间', key: 'createdAt', width: 140, render: (row: ContainerView) => fmtTime(row.createdAt) },
-  { title: '运行时间', key: 'uptime', width: 130, render: (row: ContainerView) => fmtUptime(row.startedAt) },
+  { title: '创建时间', key: 'createdAt', width: 132, render: (row: ContainerView) => fmtTime(row.createdAt) },
+  { title: '运行时间', key: 'uptime', width: 116, render: (row: ContainerView) => fmtUptime(row.startedAt) },
   {
     title: '操作',
     key: 'actions',
-    width: 330,
+    width: 152,
+    // 固定在右侧:横向滚动时操作按钮始终可达
+    fixed: 'right' as const,
     render: (row: ContainerView) => {
       const isBusy = !!busy.value[row.id]
       const running = row.state === 'running'
-      return h(NSpace, { size: 4, wrap: false }, {
+      // 槽位数量恒定(启停共用一个槽),避免行与行之间图标错位
+      return h(NSpace, { size: 0, wrap: false, align: 'center' }, {
         default: () => [
-          h(NButton, { size: 'tiny', onClick: () => (logsTarget.value = row) }, { default: () => '日志' }),
-          h(NButton, {
-            size: 'tiny',
+          iconBtn({
+            icon: DocumentTextOutline,
+            tip: '日志',
+            onClick: () => (logsTarget.value = row),
+          }),
+          iconBtn({
+            icon: TerminalOutline,
+            tip: running ? '控制台' : '容器未运行,无法进入控制台',
             disabled: !running,
             onClick: () => (execTarget.value = row),
-          }, { default: () => '控制台' }),
+          }),
           running
-            ? h(NButton, { size: 'tiny', loading: isBusy, onClick: () => act(row, restartContainer, '重启') },
-                { default: () => '重启' })
-            : h(NButton, { size: 'tiny', type: 'primary', ghost: true, loading: isBusy, onClick: () => act(row, startContainer, '启动') },
-                { default: () => '启动' }),
-          running
-            ? h(NButton, { size: 'tiny', loading: isBusy, onClick: () => act(row, stopContainer, '停止') },
-                { default: () => '停止' })
-            : null,
-          h(NButton, {
-            size: 'tiny',
-            type: 'error',
-            ghost: true,
+            ? iconBtn({
+                icon: StopOutline,
+                tip: '停止',
+                color: '#e88080',
+                loading: isBusy,
+                onClick: () => act(row, stopContainer, '停止'),
+              })
+            : iconBtn({
+                icon: PlayOutline,
+                tip: '启动',
+                color: '#18a058',
+                loading: isBusy,
+                onClick: () => act(row, startContainer, '启动'),
+              }),
+          iconBtn({
+            icon: RefreshOutline,
+            tip: running ? '重启' : '容器未运行,请直接启动',
+            disabled: !running,
+            color: '#e88080',
+            loading: isBusy && running,
+            onClick: () => act(row, restartContainer, '重启'),
+          }),
+          iconBtn({
+            icon: TrashOutline,
             // 只有已停止的容器可删除(docs §4.5):强删会跳过优雅停止,可能损坏数据
+            tip: running ? '运行中的容器不可删除,请先停止' : '删除',
+            type: 'error',
             disabled: running,
-            loading: isBusy,
+            loading: isBusy && !running,
             onClick: () => confirmRemove(row),
-          }, { default: () => '删除' }),
-        ].filter(Boolean),
+          }),
+        ],
       })
     },
   },
@@ -261,11 +333,13 @@ onUnmounted(() => {
     </n-tag>
   </div>
 
+  <!-- scroll-x = 各列宽度之和。窄屏时横向滚动,而不是把「名称」压到换行 -->
   <n-data-table
     :columns="columns"
     :data="containers"
     :loading="loading"
     :row-key="(row: ContainerView) => row.id"
+    :scroll-x="1024"
     size="small"
   />
 

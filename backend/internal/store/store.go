@@ -21,6 +21,8 @@ import (
 var (
 	bucketDomains     = []byte("domains")
 	bucketCredentials = []byte("dns_credentials")
+	bucketRegistries  = []byte("registries")
+	bucketCompose     = []byte("compose_instances")
 )
 
 // ErrNotFound 记录不存在。
@@ -43,7 +45,7 @@ func Open(dataDir string) (*Store, error) {
 		return nil, err
 	}
 	if err := db.Update(func(tx *bolt.Tx) error {
-		for _, b := range [][]byte{bucketDomains, bucketCredentials} {
+		for _, b := range [][]byte{bucketDomains, bucketCredentials, bucketRegistries, bucketCompose} {
 			if _, err := tx.CreateBucketIfNotExists(b); err != nil {
 				return err
 			}
@@ -198,6 +200,82 @@ func (s *Store) decodeCredential(v []byte) (*models.DNSCredential, error) {
 	return &c, nil
 }
 
+// --- 私有镜像仓库(docs §3.3.1) ---
+
+// SaveRegistry 创建或更新仓库凭证(整体加密存储)。
+func (s *Store) SaveRegistry(r *models.Registry) error {
+	plain, err := json.Marshal(r)
+	if err != nil {
+		return err
+	}
+	enc, err := s.encrypt(plain)
+	if err != nil {
+		return err
+	}
+	return s.db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket(bucketRegistries).Put([]byte(r.ID), enc)
+	})
+}
+
+// ListRegistries 列出所有仓库凭证。
+func (s *Store) ListRegistries() ([]models.Registry, error) {
+	var out []models.Registry
+	err := s.db.View(func(tx *bolt.Tx) error {
+		return tx.Bucket(bucketRegistries).ForEach(func(_, v []byte) error {
+			r, err := s.decodeRegistry(v)
+			if err != nil {
+				return err
+			}
+			out = append(out, *r)
+			return nil
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+	if out == nil {
+		out = []models.Registry{}
+	}
+	return out, nil
+}
+
+// GetRegistry 获取单个仓库凭证。
+func (s *Store) GetRegistry(id string) (*models.Registry, error) {
+	var r *models.Registry
+	err := s.db.View(func(tx *bolt.Tx) error {
+		v := tx.Bucket(bucketRegistries).Get([]byte(id))
+		if v == nil {
+			return ErrNotFound
+		}
+		dec, err := s.decodeRegistry(v)
+		if err != nil {
+			return err
+		}
+		r = dec
+		return nil
+	})
+	return r, err
+}
+
+// DeleteRegistry 删除仓库凭证。
+func (s *Store) DeleteRegistry(id string) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket(bucketRegistries).Delete([]byte(id))
+	})
+}
+
+func (s *Store) decodeRegistry(v []byte) (*models.Registry, error) {
+	plain, err := s.decrypt(v)
+	if err != nil {
+		return nil, err
+	}
+	var r models.Registry
+	if err := json.Unmarshal(plain, &r); err != nil {
+		return nil, err
+	}
+	return &r, nil
+}
+
 // --- 域名 ---
 
 // SaveDomain 创建或更新域名。
@@ -255,5 +333,65 @@ func (s *Store) GetDomain(id string) (*models.Domain, error) {
 func (s *Store) DeleteDomain(id string) error {
 	return s.db.Update(func(tx *bolt.Tx) error {
 		return tx.Bucket(bucketDomains).Delete([]byte(id))
+	})
+}
+
+// --- 编排项目(docs §2.2) ---
+
+// SaveComposeInstance 创建或更新编排项目(明文存储,无敏感信息)。
+func (s *Store) SaveComposeInstance(c *models.ComposeInstance) error {
+	plain, err := json.Marshal(c)
+	if err != nil {
+		return err
+	}
+	return s.db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket(bucketCompose).Put([]byte(c.ProjectName), plain)
+	})
+}
+
+// ListComposeInstances 列出所有编排项目。
+func (s *Store) ListComposeInstances() ([]models.ComposeInstance, error) {
+	var out []models.ComposeInstance
+	err := s.db.View(func(tx *bolt.Tx) error {
+		return tx.Bucket(bucketCompose).ForEach(func(_, v []byte) error {
+			var c models.ComposeInstance
+			if err := json.Unmarshal(v, &c); err != nil {
+				return err
+			}
+			out = append(out, c)
+			return nil
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+	if out == nil {
+		out = []models.ComposeInstance{}
+	}
+	return out, nil
+}
+
+// GetComposeInstance 获取单个编排项目。
+func (s *Store) GetComposeInstance(project string) (*models.ComposeInstance, error) {
+	var c *models.ComposeInstance
+	err := s.db.View(func(tx *bolt.Tx) error {
+		v := tx.Bucket(bucketCompose).Get([]byte(project))
+		if v == nil {
+			return ErrNotFound
+		}
+		var dec models.ComposeInstance
+		if err := json.Unmarshal(v, &dec); err != nil {
+			return err
+		}
+		c = &dec
+		return nil
+	})
+	return c, err
+}
+
+// DeleteComposeInstance 删除编排项目记录(仅删 DB 记录,不碰 docker 或文件)。
+func (s *Store) DeleteComposeInstance(project string) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket(bucketCompose).Delete([]byte(project))
 	})
 }

@@ -7,6 +7,7 @@ backend/internal/web/dist/*
 
 # 后端构建产物
 backend/gatebox
+/gatebox
 
 # 运行时数据
 data/

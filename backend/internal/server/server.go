@@ -14,11 +14,11 @@ import (
 )
 
 // New 构造完整 HTTP handler。
-func New(s *store.Store, cm cert.CertManager, dc *client.Client, coll *stats.Collector) http.Handler {
+func New(s *store.Store, cm cert.CertManager, dc *client.Client, coll *stats.Collector, daemonJSON, dataDir string) http.Handler {
 	mux := http.NewServeMux()
 	api.Register(mux, s, cm)
 	if dc != nil {
-		api.RegisterDocker(mux, dc, coll)
+		api.RegisterDocker(mux, dc, coll, s, daemonJSON, dataDir)
 	}
 
 	// 内嵌前端(若已构建);缺失时仅提供 API。

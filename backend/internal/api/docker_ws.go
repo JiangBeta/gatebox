@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
@@ -211,6 +212,165 @@ func (d *dockerAPI) wsExec(w http.ResponseWriter, r *http.Request) {
 				_ = d.cli.ExecResize(ctx, execID, msg.Rows, msg.Cols)
 			}
 		}
+	}
+}
+
+// pullProgress 推送给前端的一条拉取进度。
+type pullProgress struct {
+	Percent      float64                `json:"percent"`      // 0-100
+	Status       string                 `json:"status"`       // 最近一条全局状态文本
+	Done         bool                   `json:"done"`         // 拉取完成
+	ByteWeighted bool                   `json:"byteWeighted"` // false 表示已降级为按层数计
+	Layers       []client.LayerProgress `json:"layers"`
+	Error        string                 `json:"error,omitempty"`
+}
+
+// wsPullImage 拉取镜像并推送聚合进度。
+//
+// 查询参数:ref(name[:tag])、platform(如 linux/amd64,空则按宿主机)。
+// Engine API 没有取消拉取的端点,「终止」即断开连接、取消 ctx(docs §4.4)。
+func (d *dockerAPI) wsPullImage(w http.ResponseWriter, r *http.Request) {
+	ref := r.URL.Query().Get("ref")
+	platform := r.URL.Query().Get("platform")
+	if ref == "" {
+		writeErr(w, http.StatusBadRequest, "缺少镜像名")
+		return
+	}
+
+	conn, err := acceptWS(w, r)
+	if err != nil {
+		return
+	}
+	defer conn.CloseNow()
+
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+
+	rc, err := d.cli.PullImage(ctx, ref, platform, nil)
+	if err != nil {
+		_ = writeJSONMsg(ctx, conn, pullProgress{Error: errMessage(err)})
+		return
+	}
+	defer rc.Close()
+
+	// 前端关闭连接即代表取消
+	go func() {
+		conn.Read(ctx)
+		cancel()
+	}()
+
+	err = client.DecodePullStream(ctx, rc, func(p client.PullProgress) error {
+		return writeJSONMsg(ctx, conn, pullProgress{
+			Percent:      p.Percent,
+			Status:       p.Status,
+			Done:         p.Done,
+			ByteWeighted: p.ByteWeighted,
+			Layers:       p.Layers,
+		})
+	})
+	// 正常结束(err 为 nil)由最后的 done 消息通知;用户取消(context.Canceled)静默返回;
+	// 其余错误(如镜像不存在)补一条错误消息。
+	if err != nil && !errors.Is(err, context.Canceled) {
+		_ = writeJSONMsg(ctx, conn, pullProgress{Error: errMessage(err)})
+	}
+}
+
+// deployProgress 推送给前端的一条部署进度。
+type deployProgress struct {
+	ID     string `json:"id"`              // "Container x" / "Image y" / "Network z"
+	Status string `json:"status"`          // Working / Done / Error
+	Text   string `json:"text"`            // "Starting" / "Pulling" / ...
+	Error  string `json:"error,omitempty"` // 整体失败信息
+	Done   bool   `json:"done"`            // 整个部署结束(成功)
+}
+
+// composeEvent compose --progress json 输出的一行(字段可能随版本增减,只取用到的)。
+type composeEvent struct {
+	ID     string `json:"id"`
+	Status string `json:"status"`
+	Text   string `json:"text"`
+}
+
+// wsDeploy 部署编排(docs §4.1 ⑤):up --progress json 流式推送。
+//
+// 流程:项目锁 → 读盘 YAML → up → 逐行推送 → 成功后写 lastDeployedYAML。
+// 同 projectName 并发部署直接 409 拒绝,不排队(docs §4.1 Q16)。
+func (d *dockerAPI) wsDeploy(w http.ResponseWriter, r *http.Request) {
+	project := r.PathValue("project")
+
+	inst, err := d.s.GetComposeInstance(project)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "项目不存在")
+		return
+	}
+
+	if !d.cmp.TryLock(project) {
+		writeErr(w, http.StatusConflict, "该应用正在部署中")
+		return
+	}
+	defer d.cmp.Unlock(project)
+
+	conn, err := acceptWS(w, r)
+	if err != nil {
+		return
+	}
+	defer conn.CloseNow()
+
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+
+	file, dir := d.composePaths(inst)
+	yamlBytes, _ := os.ReadFile(file)
+
+	st, err := d.cmp.Up(ctx, project, dir)
+	if err != nil {
+		_ = writeJSONMsg(ctx, conn, deployProgress{Error: errMessage(err)})
+		return
+	}
+	defer st.Close()
+
+	// 前端关闭连接即代表取消
+	go func() {
+		conn.Read(ctx)
+		cancel()
+	}()
+
+	dec := json.NewDecoder(st)
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		var ev composeEvent
+		if err := dec.Decode(&ev); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			break // 解析失败视为流结束
+		}
+		if ev.ID == "" {
+			continue
+		}
+		msg := deployProgress{ID: ev.ID, Status: ev.Status, Text: ev.Text}
+		if ev.Status == "Error" {
+			msg.Error = ev.Text
+		}
+		if writeJSONMsg(ctx, conn, msg) != nil {
+			return
+		}
+	}
+
+	// 进程结束,用 exit code 判定成败(docs §4.1:启动期失败部分残留时 exit 非 0)
+	if werr := st.Wait(); werr != nil && ctx.Err() == nil {
+		_ = writeJSONMsg(ctx, conn, deployProgress{Error: errMessage(werr)})
+		return
+	}
+
+	// 成功:写入 lastDeployedYAML(docs §4.1 Q16',纯数据,供「恢复」按钮)
+	if ctx.Err() == nil {
+		inst.LastDeployedYAML = string(yamlBytes)
+		inst.LastDeployedAt = time.Now()
+		_ = d.s.SaveComposeInstance(inst)
+		_ = writeJSONMsg(ctx, conn, deployProgress{Done: true})
 	}
 }
 
