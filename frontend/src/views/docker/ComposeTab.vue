@@ -4,7 +4,7 @@ import {
   NDataTable, NTag, NButton, NSpace, NModal, NAlert, NText, NCheckbox, NProgress, useMessage,
 } from 'naive-ui'
 import {
-  listCompose, downCompose, restartCompose, restoreCompose, deleteCompose, wsURL,
+  listCompose, downCompose, restartCompose, restoreCompose, deleteCompose, adoptCompose, wsURL,
   type ComposeView, type DeployProgress,
 } from '../../api/docker'
 import ComposeEditorModal from '../../components/ComposeEditorModal.vue'
@@ -20,6 +20,7 @@ const editorProject = ref<string | null>(null)
 const editorReadOnly = ref(false)
 
 const downTarget = ref<ComposeView | null>(null)
+const adoptTarget = ref<ComposeView | null>(null)
 const deleteTarget = ref<ComposeView | null>(null)
 const deleteData = ref(false)
 const deleteVolumes = ref(false)
@@ -95,6 +96,13 @@ async function doDown() {
   if (!row) return
   downTarget.value = null
   await act(row, downCompose, '停止')
+}
+
+async function doAdopt() {
+  const row = adoptTarget.value
+  if (!row) return
+  adoptTarget.value = null
+  await act(row, adoptCompose, '接管')
 }
 
 function confirmDelete(row: ComposeView) {
@@ -211,6 +219,9 @@ const columns = computed(() => [
       if (row.editable) {
         btns.push(h(NButton, { size: 'tiny', onClick: () => openEdit(row) }, { default: () => '编辑' }))
       } else if (row.deployed) {
+        if (row.source === 'external') {
+          btns.push(h(NButton, { size: 'tiny', type: 'warning', ghost: true, onClick: () => (adoptTarget.value = row) }, { default: () => '接管' }))
+        }
         btns.push(h(NButton, { size: 'tiny', onClick: () => openView(row) }, { default: () => '查看' }))
       }
       if (row.source === 'managed') {
@@ -262,6 +273,26 @@ onMounted(load)
     @close="downTarget = null"
   >
     确定停止 <b>{{ downTarget?.displayName }}</b> 吗？将删除该项目的所有容器（数据卷保留）。
+  </n-modal>
+
+  <!-- 接管确认 -->
+  <n-modal
+    :show="!!adoptTarget"
+    preset="dialog"
+    type="warning"
+    title="接管外部项目"
+    positive-text="确认接管"
+    negative-text="取消"
+    @positive-click="doAdopt"
+    @negative-click="adoptTarget = null"
+    @close="adoptTarget = null"
+  >
+    <div style="display: flex; flex-direction: column; gap: 8px">
+      <span>接管 <b>{{ adoptTarget?.displayName }}</b> 后即可在 GateBox 中编辑其 compose 文件。</span>
+      <n-text depth="3" style="font-size: 12px">
+        注意：保存时将重写该文件，原始注释与格式会丢失。若该文件在 git 仓库中，建议先提交。
+      </n-text>
+    </div>
   </n-modal>
 
   <!-- 删除确认 -->

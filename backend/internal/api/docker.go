@@ -37,6 +37,8 @@ func RegisterDocker(mux *http.ServeMux, cli *client.Client, coll *stats.Collecto
 	mux.HandleFunc("POST /api/v1/docker/containers/{id}/restart", d.restartContainer)
 	mux.HandleFunc("DELETE /api/v1/docker/containers/{id}", d.removeContainer)
 	mux.HandleFunc("GET /api/v1/docker/containers/{id}/shells", d.detectShell)
+	mux.HandleFunc("POST /api/v1/docker/containers/{id}/convert-preview", d.convertPreview)
+	mux.HandleFunc("POST /api/v1/docker/containers/{id}/convert", d.convertContainer)
 
 	// 镜像(docs §3.3)
 	mux.HandleFunc("GET /api/v1/docker/images", d.listImages)
@@ -72,7 +74,11 @@ func RegisterDocker(mux *http.ServeMux, cli *client.Client, coll *stats.Collecto
 	mux.HandleFunc("POST /api/v1/docker/compose/{project}/down", d.downCompose)
 	mux.HandleFunc("POST /api/v1/docker/compose/{project}/restart", d.restartCompose)
 	mux.HandleFunc("POST /api/v1/docker/compose/{project}/restore", d.restoreCompose)
+	mux.HandleFunc("POST /api/v1/docker/compose/{project}/adopt", d.adoptCompose)
 	mux.HandleFunc("DELETE /api/v1/docker/compose/{project}", d.deleteCompose)
+
+	// 跨单位接口:供网关单位消费(docs §5.6 / Task 13)
+	mux.HandleFunc("GET /api/v1/docker/proxyable", d.listProxyable)
 
 	// WebSocket(见 docker_ws.go)
 	mux.HandleFunc("GET /api/v1/docker/containers/{id}/logs", d.wsLogs)

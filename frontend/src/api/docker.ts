@@ -333,8 +333,8 @@ export async function saveCompose(
   await http.put(`/docker/compose/${project}`, input)
 }
 
-export async function validateCompose(input: { project: string; yaml: string }): Promise<void> {
-  await http.post('/docker/compose/validate', input)
+export async function validateCompose(input: { project: string; yaml: string }): Promise<{ warnings: string[] }> {
+  return (await http.post('/docker/compose/validate', input)).data
 }
 
 export async function downCompose(project: string): Promise<void> {
@@ -354,4 +354,33 @@ export async function deleteCompose(
   opts: { removeData: boolean; removeVolumes: boolean },
 ): Promise<void> {
   await http.delete(`/docker/compose/${project}`, { params: opts })
+}
+
+export async function adoptCompose(project: string): Promise<void> {
+  await http.post(`/docker/compose/${project}/adopt`)
+}
+
+// --- 游离容器转编排(docs §4.3) ---
+
+export async function convertPreview(id: string): Promise<{ projectName: string; yaml: string }> {
+  return (await http.post(`/docker/containers/${id}/convert-preview`)).data
+}
+
+export async function convertContainer(id: string, project: string): Promise<void> {
+  await http.post(`/docker/containers/${id}/convert`, { project })
+}
+
+// --- 跨单位接口(docs §5.6) ---
+
+export interface ProxyableContainer {
+  project: string
+  service: string
+  containerName: string
+  hostPort: number
+  labels: Record<string, string>
+  state: string
+}
+
+export async function listProxyable(): Promise<ProxyableContainer[]> {
+  return (await http.get('/docker/proxyable')).data
 }

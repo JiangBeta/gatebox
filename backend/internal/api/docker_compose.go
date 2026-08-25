@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/JiangBeta/gatebox/internal/docker/client"
 	"github.com/JiangBeta/gatebox/internal/docker/compose"
 	"github.com/JiangBeta/gatebox/internal/models"
 	"github.com/JiangBeta/gatebox/internal/store"
@@ -285,7 +286,7 @@ func (d *dockerAPI) saveCompose(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-// validateCompose 独立校验端点:只校验 YAML,不写盘。
+// validateCompose 独立校验端点:config -q + 三项本地校验,不写盘。
 func (d *dockerAPI) validateCompose(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Project string `json:"project"`
@@ -301,7 +302,9 @@ func (d *dockerAPI) validateCompose(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "校验失败: "+err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	warnings := d.localValidate(r.Context(), in.YAML, dir)
+	warnings = append(warnings, d.detectUndefinedVars(in.YAML, dir)...)
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "warnings": warnings})
 }
 
 // downCompose 停止并删除项目容器。
@@ -416,4 +419,117 @@ func (d *dockerAPI) composePaths(inst *models.ComposeInstance) (file, dir string
 	}
 	file = firstConfigFile(inst.ConfigFiles)
 	return file, filepath.Dir(file)
+}
+
+// adoptCompose 接管外部项目(docs §4.2):原地标记可编辑。
+//
+// 拒绝多文件项目(逗号分隔)与用了 include:/extends: 的项目——这两类
+// 「原地读写」的写要赌用户文件的复杂度,而赌注是别人 git 仓库里的文件。
+func (d *dockerAPI) adoptCompose(w http.ResponseWriter, r *http.Request) {
+	inst, ok := d.loadCompose(w, r)
+	if !ok {
+		return
+	}
+	if inst.Managed {
+		writeErr(w, http.StatusConflict, "该项目已是托管状态")
+		return
+	}
+	if strings.Contains(inst.ConfigFiles, ",") {
+		writeErr(w, http.StatusConflict, "该项目由多文件组成,请在源文件中编辑")
+		return
+	}
+
+	file, _ := d.composePaths(inst)
+	content, err := os.ReadFile(file)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if usesIncludeOrExtends(string(content)) {
+		writeErr(w, http.StatusConflict, "该项目使用了 include: / extends:,请在源文件中编辑")
+		return
+	}
+
+	inst.Editable = true
+	if err := d.s.SaveComposeInstance(inst); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// usesIncludeOrExtends 检测 compose 文件是否用了 include: / extends: 指令。
+func usesIncludeOrExtends(content string) bool {
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		for _, kw := range []string{"include:", "extends:"} {
+			if strings.HasPrefix(trimmed, kw) || strings.HasPrefix(trimmed, "- "+kw) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// listProxyable 跨单位接口:返回可被代理的容器(docs §5.6 / Task 13)。
+//
+// 稳定标识 = project + service,不含容器 ID 与 IP——从接口层面杜绝下游依赖易变值。
+func (d *dockerAPI) listProxyable(w http.ResponseWriter, r *http.Request) {
+	list, err := d.cli.ListContainers(r.Context(), client.ListContainersOptions{All: false})
+	if err != nil {
+		writeDockerErr(w, err)
+		return
+	}
+
+	out := make([]proxyableContainer, 0, len(list))
+	for _, ct := range list {
+		if ct.State != "running" {
+			continue // 只有运行中的容器才可被代理
+		}
+		pc := proxyableContainer{
+			Project:       ct.ComposeProject(),
+			Service:       ct.ComposeService(),
+			ContainerName: ct.Name(),
+			Labels:        proxyableLabels(ct.Labels),
+			State:         ct.State,
+		}
+		for _, p := range ct.Ports {
+			if p.PublicPort > 0 {
+				pc.HostPort = int(p.PublicPort)
+				break
+			}
+		}
+		out = append(out, pc)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Project != out[j].Project {
+			return out[i].Project < out[j].Project
+		}
+		return out[i].Service < out[j].Service
+	})
+	writeJSON(w, http.StatusOK, out)
+}
+
+// proxyableContainer 暴露给网关单位的容器视图(docs §5.6)。
+type proxyableContainer struct {
+	Project       string            `json:"project"`
+	Service       string            `json:"service"`
+	ContainerName string            `json:"containerName"`
+	HostPort      int               `json:"hostPort"` // 0 = 未映射到宿主机
+	Labels        map[string]string `json:"labels"`   // 仅 caddy.* / gatebox.*
+	State         string            `json:"state"`
+}
+
+// proxyableLabels 只保留 caddy.* 与 gatebox.* 前缀的 label。
+func proxyableLabels(labels map[string]string) map[string]string {
+	out := map[string]string{}
+	for k, v := range labels {
+		if strings.HasPrefix(k, "caddy") || strings.HasPrefix(k, "gatebox") {
+			out[k] = v
+		}
+	}
+	return out
 }

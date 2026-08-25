@@ -2,15 +2,16 @@
 import { ref, onMounted, onUnmounted, h, computed, type Component } from 'vue'
 import {
   NDataTable, NTag, NButton, NSpace, NPopover, NAlert, NModal, NCheckbox,
-  NText, NSpin, NIcon, NTooltip, NEllipsis, useMessage,
+  NText, NSpin, NIcon, NTooltip, NEllipsis, NInput, useMessage,
 } from 'naive-ui'
 import {
   DocumentTextOutline, TerminalOutline, PlayOutline, StopOutline,
-  RefreshOutline, TrashOutline,
+  RefreshOutline, TrashOutline, SwapHorizontalOutline,
 } from '@vicons/ionicons5'
 import {
   listContainers, dockerInfo, startContainer, stopContainer, restartContainer,
-  removeContainer, type ContainerView, type DockerInfo, type PortMapping,
+  removeContainer, convertPreview, convertContainer,
+  type ContainerView, type DockerInfo, type PortMapping,
 } from '../../api/docker'
 import ContainerLogsModal from '../../components/ContainerLogsModal.vue'
 import ContainerExecModal from '../../components/ContainerExecModal.vue'
@@ -30,6 +31,13 @@ const execTarget = ref<ContainerView | null>(null)
 
 const removeTarget = ref<ContainerView | null>(null)
 const removeVolumes = ref(false)
+
+// 游离容器转编排(docs §4.3)
+const convertTarget = ref<ContainerView | null>(null)
+const convertYaml = ref('')
+const convertProject = ref('')
+const convertLoading = ref(false)
+const convertBusy = ref(false)
 
 let pollTimer: number | undefined
 let tickTimer: number | undefined
@@ -106,6 +114,43 @@ async function doRemove() {
   if (!row) return
   removeTarget.value = null
   await act(row, (id) => removeContainer(id, removeVolumes.value), '删除')
+}
+
+async function openConvert(row: ContainerView) {
+  convertTarget.value = row
+  convertLoading.value = true
+  convertYaml.value = ''
+  convertProject.value = ''
+  try {
+    const res = await convertPreview(row.id)
+    convertYaml.value = res.yaml
+    convertProject.value = res.projectName
+  } catch (e: any) {
+    message.error('反推 compose 失败 — ' + e.message)
+    convertTarget.value = null
+  } finally {
+    convertLoading.value = false
+  }
+}
+
+async function doConvert() {
+  const row = convertTarget.value
+  if (!row) return
+  if (!convertProject.value.trim()) {
+    message.warning('请填写 projectName')
+    return
+  }
+  convertBusy.value = true
+  try {
+    await convertContainer(row.id, convertProject.value.trim())
+    message.success('已转为编排,请到「编排」Tab 部署')
+    convertTarget.value = null
+    await load()
+  } catch (e: any) {
+    message.error('转换失败 — ' + e.message)
+  } finally {
+    convertBusy.value = false
+  }
 }
 
 function renderPorts(row: ContainerView) {
@@ -238,7 +283,7 @@ const columns = computed(() => [
   {
     title: '操作',
     key: 'actions',
-    width: 152,
+    width: 176,
     // 固定在右侧:横向滚动时操作按钮始终可达
     fixed: 'right' as const,
     render: (row: ContainerView) => {
@@ -290,6 +335,14 @@ const columns = computed(() => [
             loading: isBusy && !running,
             onClick: () => confirmRemove(row),
           }),
+          // 游离容器可转为编排(docs §4.3)
+          ...(row.source === 'loose'
+            ? [iconBtn({
+                icon: SwapHorizontalOutline,
+                tip: '转为编排',
+                onClick: () => openConvert(row),
+              })]
+            : []),
         ],
       })
     },
@@ -376,6 +429,38 @@ onUnmounted(() => {
         匿名卷可能保存着应用数据。不确定时请保持不勾选——孤儿卷可稍后在「存储卷」中清理。
       </n-text>
     </div>
+  </n-modal>
+
+  <!-- 游离容器转编排 -->
+  <n-modal
+    :show="!!convertTarget"
+    preset="card"
+    title="转为编排"
+    style="width: 720px"
+    :mask-closable="!convertBusy"
+    @close="convertTarget = null"
+  >
+    <n-spin :show="convertLoading">
+      <div style="display: flex; flex-direction: column; gap: 12px">
+        <n-alert type="warning" :show-icon="true">
+          转换将删除原容器并重建为编排项目，存在数据风险。请核对下方反推的配置。
+        </n-alert>
+        <div>
+          <n-text depth="3" style="font-size: 12px">projectName</n-text>
+          <n-input v-model:value="convertProject" placeholder="my-app" />
+        </div>
+        <div>
+          <n-text depth="3" style="font-size: 12px">反推的 docker-compose.yaml</n-text>
+          <pre style="font-size: 12px; background: #f7f7f7; padding: 10px; border-radius: 4px; overflow: auto; max-height: 300px">{{ convertYaml }}</pre>
+        </div>
+      </div>
+    </n-spin>
+    <template #footer>
+      <n-space justify="end">
+        <n-button type="primary" :loading="convertBusy" :disabled="convertLoading" @click="doConvert">确认转换</n-button>
+        <n-button :disabled="convertBusy" @click="convertTarget = null">取消</n-button>
+      </n-space>
+    </template>
   </n-modal>
 </template>
 
