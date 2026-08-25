@@ -46,19 +46,39 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 命令
 
-> **NixOS 环境**：`go` 与 `gcc` 都不在默认 PATH（store 路径随系统更新变化）：
-> ```bash
-> export PATH="$(dirname $(ls /nix/store/*-go-*/bin/go | head -1)):$(dirname $(ls /nix/store/*gcc-wrapper*/bin/gcc | head -1)):$PATH"
-> ```
+开发工具链由 **mise** 管理（见 `mise.toml`）。首次进入项目：
+
+```bash
+mise trust && mise install     # 安装 go / node / pnpm
+```
+
+> `mise.toml` 里固化了两个必需设置，都是踩过的坑：
+> - `node.compile = false` —— 否则 mise 会下载 node **源码**并 `./configure` 编译，而编译需要 python。
+> - `disable_tools = ["python"]` —— 全局配置（home-manager 生成）声明了 python，但 pyenv 要从源码编译、需要 gcc；**装不上会阻塞所有 `mise exec`**，连 `go version` 都跑不到。
+
+### 任务
+
+```bash
+mise run test     # 后端全部测试
+mise run build    # 构建后端二进制
+mise run dev      # 后端开发服务（0.0.0.0:8099）
+mise run web      # 前端开发服务器（0.0.0.0）
+```
 
 ### 后端（`backend/`）
 
 ```bash
-CGO_ENABLED=0 go build ./...            # 构建（交付形态，项目无 cgo 依赖）
-CGO_ENABLED=0 go test ./...             # 全部测试
-CGO_ENABLED=1 go test ./... -race       # 竞态检测（需 gcc，并发代码改动后必跑）
-gofmt -l ./internal ./cmd               # 格式检查：有输出即不合规
+go build ./...              # CGO_ENABLED=0 已由 mise.toml 的 [env] 提供
+go test ./...
+gofmt -l ./internal ./cmd   # 有输出即不合规
 go vet ./...
+```
+
+**竞态检测需要 C 编译器**，mise 不提供，NixOS 上须另行定位（store 路径随系统更新变化）：
+
+```bash
+export PATH="$(dirname $(ls /nix/store/*gcc-wrapper*/bin/gcc | head -1)):$PATH"
+CGO_ENABLED=1 go test ./... -race       # 并发代码改动后必跑
 ```
 
 **Docker 集成测试**：对接真实 daemon，`/var/run/docker.sock` 不可用时自动跳过；`GATEBOX_SKIP_DOCKER_IT=1` 显式跳过。其中 `exec_integration_test.go` 会在容器内执行**只读**命令（echo / exit / shell 探测），不写文件、不改配置。
@@ -66,9 +86,15 @@ go vet ./...
 ### 前端（`frontend/`）
 
 ```bash
-pnpm dev      # 开发服务器
-pnpm build    # 构建并输出到 backend/internal/web/dist（由 go:embed 内嵌）
+pnpm build              # 输出到 backend/internal/web/dist（由 go:embed 内嵌）
+pnpm dev --host 0.0.0.0
 ```
+
+### 开发环境约定
+
+- **服务一律绑 `0.0.0.0`，不要绑 `127.0.0.1`** —— 需要从局域网其他设备访问。
+- 开发端口用 **8099**：本机 `8080` 被 traefik、`8090` 被 gateway-manager 占用。
+- 改了前端后，后端**必须重新编译**才能生效（`go:embed` 在编译期嵌入 `dist`）。
 
 ## 开发工作方法
 

@@ -1,0 +1,44 @@
+# GateBox 开发工具链(mise 管理)
+#
+# 用法:进入项目目录后 `mise install` 安装,之后 go / node / pnpm 直接可用。
+# 注意:race 检测需要的 C 编译器不由 mise 提供,见 CLAUDE.md「命令」章节。
+
+[tools]
+go = "1.26"
+node = "22"
+pnpm = "11"
+
+[settings]
+# 必须关闭:mise 默认会下载 node 源码并 ./configure 编译,
+# 而编译过程需要 python —— 本机没有 python 时必然失败。
+# 关闭后直接取官方预编译二进制,秒装。
+node.compile = false
+
+# 本项目不需要 python。屏蔽它是因为全局配置(home-manager 生成)里声明了
+# python,而 pyenv 要从源码编译、需要 gcc;一旦装不上,**任何** mise exec
+# 都会卡在这里,连 go 都跑不起来。项目配置不该被这个问题拖累。
+disable_tools = ["python"]
+
+[env]
+# 项目无 cgo 依赖,交付形态即以此构建
+CGO_ENABLED = "0"
+
+[tasks.build]
+description = "构建后端(前端需先 pnpm build)"
+dir = "backend"
+run = "go build -o ../gatebox ./cmd/gatebox"
+
+[tasks.test]
+description = "后端全部测试"
+dir = "backend"
+run = "go test ./..."
+
+[tasks.dev]
+description = "启动后端开发服务(绑 0.0.0.0 以便局域网访问)"
+dir = "backend"
+run = "GATEBOX_ADDR=0.0.0.0:8099 GATEBOX_DATA_DIR=./data go run ./cmd/gatebox"
+
+[tasks.web]
+description = "启动前端开发服务器(绑 0.0.0.0)"
+dir = "frontend"
+run = "pnpm dev --host 0.0.0.0"
