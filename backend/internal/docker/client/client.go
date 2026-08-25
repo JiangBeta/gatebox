@@ -139,20 +139,38 @@ func (c *Client) buildURL(path string, q url.Values) string {
 
 // do 发起请求并把 >=400 的响应转成 *Error。调用方负责关闭 resp.Body。
 func (c *Client) do(ctx context.Context, method, path string, q url.Values, body any) (*http.Response, error) {
-	var rdr io.Reader
-	if body != nil {
-		b, err := json.Marshal(body)
+	return c.doWith(ctx, method, path, q, body, nil)
+}
+
+// doWith 同 do,但可附加自定义请求头(如拉取镜像的 X-Registry-Auth)。
+//
+// body 为 io.Reader 时按原始流发送(用于上传 tar),否则按 JSON 序列化。
+func (c *Client) doWith(ctx context.Context, method, path string, q url.Values, body any, headers map[string]string) (*http.Response, error) {
+	var (
+		rdr         io.Reader
+		contentType string
+	)
+	switch b := body.(type) {
+	case nil:
+	case io.Reader:
+		rdr, contentType = b, "application/x-tar"
+	default:
+		raw, err := json.Marshal(body)
 		if err != nil {
 			return nil, fmt.Errorf("序列化请求体: %w", err)
 		}
-		rdr = bytes.NewReader(b)
+		rdr, contentType = bytes.NewReader(raw), "application/json"
 	}
+
 	req, err := http.NewRequestWithContext(ctx, method, c.buildURL(path, q), rdr)
 	if err != nil {
 		return nil, err
 	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
 	}
 	resp, err := c.hc.Do(req)
 	if err != nil {
@@ -208,7 +226,12 @@ func (c *Client) deleteReq(ctx context.Context, path string, q url.Values, out a
 // stream 发起流式请求,返回未读取的响应体。调用方负责 Close。
 // 用于 logs follow / stats / events / pull 等长连接端点。
 func (c *Client) stream(ctx context.Context, method, path string, q url.Values, body any) (io.ReadCloser, error) {
-	resp, err := c.do(ctx, method, path, q, body)
+	return c.streamWith(ctx, method, path, q, body, nil)
+}
+
+// streamWith 同 stream,但可附加自定义请求头。
+func (c *Client) streamWith(ctx context.Context, method, path string, q url.Values, body any, headers map[string]string) (io.ReadCloser, error) {
+	resp, err := c.doWith(ctx, method, path, q, body, headers)
 	if err != nil {
 		return nil, err
 	}
