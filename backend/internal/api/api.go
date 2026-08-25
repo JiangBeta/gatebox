@@ -186,13 +186,13 @@ func (a *api) overview(w http.ResponseWriter, r *http.Request) {
 	total, expiring, expired := certStats(certs, now)
 
 	resp := overviewResponse{
-		DomainCount:     len(domains),
-		CredentialCount: len(creds),
-		ProviderCount:   distinctProviders(creds),
-		CertTotal:       total,
+		DomainCount:      len(domains),
+		CredentialCount:  len(creds),
+		ProviderCount:    distinctProviders(creds),
+		CertTotal:        total,
 		CertExpiringSoon: expiring,
-		CertExpired:     expired,
-		Domains:         make([]domainOverview, 0, len(domains)),
+		CertExpired:      expired,
+		Domains:          make([]domainOverview, 0, len(domains)),
 	}
 
 	for _, d := range domains {

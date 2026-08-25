@@ -70,7 +70,8 @@ Tab 顺序 **容器 / 编排 / 镜像 / 网络 / 存储卷**，**默认落在「
 
 - **端口**：正常显示数量（「端口：6」），hover 弹层显示明细（`0.0.0.0:1234 -> 1234/tcp`），每条用 tag 区隔协议。
 - **CPU**（Q8）：`(Δtotal_usage / Δsystem_cpu_usage) × online_cpus × 100`。实测 `online_cpus` 字段存在（值 8），直接用。
-- **内存**（Q8）：**对齐 `docker stats` CLI 而非 ctop**——cgroup v2 用 `usage - stats.inactive_file`，cgroup v1 用 `usage - stats.cache`，按 cgroup 版本分支。
+- **内存**（Q8）：**对齐 `docker stats` CLI 而非 ctop**——cgroup v1 扣 `stats.total_inactive_file`，cgroup v2 扣 `stats.inactive_file`，按版本分支。
+  > 勘误：本文档初稿写的是「cgroup v1 用 `stats.cache`」，实现时核对 docker CLI 源码（`cli/command/container/stats_helpers.go` 的 `calculateMemUsageUnixNoCache`）发现它用的是 **`total_inactive_file`**。既然决策是「对齐 `docker stats`」，就以 CLI 的真实实现为准。
   > 实测：本机 cgroup v2，`memory_stats.stats` 下**无 `cache` 字段**，有 `file` / `active_file` / `inactive_file`。同一容器三种口径能差 1.7 倍（30.6MB / 29.8MB / 17.7MB）。选 `docker stats` 口径是因为**用户一定会开终端敲 `docker stats` 对照，对不上就是 bug 工单**。
 
 **操作**：日志（弹层，可查找/下载）· 控制台（exec）· 启动/重启/停止/删除 · 目录（后置）
@@ -253,7 +254,20 @@ Tab 顺序 **容器 / 编排 / 镜像 / 网络 / 存储卷**，**默认落在「
 - **安全提示为弹层顶部常驻一行小字**，不做每次弹窗——弹窗会被无脑点掉。
 - 会话不持久化，30 分钟无输入自动断开。
 
-### 5.5 与网关单位的接口（Q6 / Q13）
+### 5.5 日志可读性取决于日志驱动（实现期实测发现）
+
+容器日志能否回读**由 daemon 的日志驱动决定**，不是所有容器都能在 UI 里看日志：
+
+| 驱动 | 可回读 |
+|---|---|
+| `json-file`（Docker 默认）、`local`、`journald` | ✅ |
+| `syslog`、`fluentd`、`gelf`、`awslogs` … | ❌ daemon 直接返回错误 |
+
+- **本机实测**：daemon 默认驱动是 **`journald`**（NixOS 配置），可正常回读——`socket-proxy` 读出 9 帧 748 字节。
+- UI 必须把「驱动不支持回读」这个错误翻译成人话（如「当前日志驱动 `fluentd` 不支持在线查看日志」），而不是抛一段 daemon 原始报错。
+- **另一个坑**：容器可能日志驱动正常但**本身就没有输出**（本机 traefik 即是，`journalctl` 显示 `No entries`）。UI 上「无日志」与「读不了日志」是两种状态，不能都显示成空白面板。
+
+### 5.6 与网关单位的接口（Q6 / Q13）
 
 **代理寻址用 `127.0.0.1:宿主机映射端口`**（GateBox 自动分配高位端口并绑 `127.0.0.1`，不暴露公网）。容器 IP 作为高级选项。
 
