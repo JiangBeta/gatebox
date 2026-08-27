@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, onBeforeUnmount, computed } from 'vue'
 import {
-  NModal, NInput, NButton, NSpace, NAlert, NText, NTag, NRadioGroup, NRadioButton,
+  NDrawer, NInput, NButton, NSpace, NAlert, NText, NTag, NRadioGroup, NRadioButton,
   NCollapse, NCollapseItem, NInputNumber, NSelect, useMessage,
 } from 'naive-ui'
 import {
@@ -327,14 +327,16 @@ function textToEnv(text: string): Record<string, string> {
 </script>
 
 <template>
-  <n-modal
+  <n-drawer
     :show="show"
-    preset="card"
-    :title="isNew ? '创建应用' : `编辑 ${displayName || projectName}`"
-    style="width: 960px"
+    placement="right"
+    width="min(960px, 100vw)"
     :mask-closable="!deploying"
-    @update:show="(v) => emit('update:show', v)"
+    @update:show="(v: boolean) => emit('update:show', v)"
   >
+    <template #header>
+      <span style="font-size: 15px; font-weight: 600">{{ isNew ? '创建应用' : `编辑 ${displayName || projectName}` }}</span>
+    </template>
     <div style="display: flex; flex-direction: column; gap: 12px">
       <div style="display: flex; gap: 12px">
         <div style="flex: 1">
@@ -579,5 +581,5 @@ function textToEnv(text: string): Record<string, string> {
         <n-button size="small" @click="emit('update:show', false)">关闭</n-button>
       </n-space>
     </template>
-  </n-modal>
+  </n-drawer>
 </template>

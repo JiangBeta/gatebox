@@ -3,12 +3,13 @@ import { ref, onMounted, h } from 'vue'
 import {
   NButton,
   NDataTable,
-  NModal,
+  NDrawer,
   NForm,
   NFormItem,
   NInput,
   NSelect,
   NPopconfirm,
+  NSpace,
   useMessage,
 } from 'naive-ui'
 import { listDomains, createDomain, updateDomain, deleteDomain, type Domain } from '../../api/domains'
@@ -121,12 +122,15 @@ onMounted(load)
   </div>
   <n-data-table :columns="columns" :data="domains" />
 
-  <n-modal
+  <n-drawer
     v-model:show="showModal"
-    preset="dialog"
-    :title="editing ? '编辑域名' : '添加域名'"
+    placement="right"
+    width="min(480px, 100vw)"
     :z-index="2000"
   >
+    <template #header>
+      <span style="font-size: 15px; font-weight: 600">{{ editing ? '编辑域名' : '添加域名' }}</span>
+    </template>
     <n-form label-placement="top">
       <n-form-item label="域名">
         <n-input v-model:value="form.name" placeholder="如 neob.cn" />
@@ -144,11 +148,13 @@ onMounted(load)
         </div>
       </n-form-item>
     </n-form>
-    <template #action>
-      <n-button @click="showModal = false">取消</n-button>
-      <n-button type="primary" @click="save">保存</n-button>
+    <template #footer>
+      <n-space justify="end">
+        <n-button @click="showModal = false">取消</n-button>
+        <n-button type="primary" @click="save">保存</n-button>
+      </n-space>
     </template>
-  </n-modal>
+  </n-drawer>
 
   <CredentialFormModal v-model:show="showCredModal" :editing="null" :z-index="2100" @saved="onCredentialSaved" />
 </template>

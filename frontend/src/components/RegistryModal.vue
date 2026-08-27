@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, h } from 'vue'
 import {
-  NModal, NTabs, NTabPane, NButton, NDataTable, NInput, NSelect, NSpace,
+  NDrawer, NTabs, NTabPane, NButton, NDataTable, NInput, NSelect, NSpace,
   NText, NTag, NAlert, NPopconfirm, NInputNumber, NSwitch, useMessage,
 } from 'naive-ui'
 import {
@@ -171,12 +171,17 @@ watch(show, (v) => {
 </script>
 
 <template>
-  <n-modal
+  <n-drawer
     v-model:show="show"
-    preset="card"
-    title="仓库管理"
-    style="width: 760px"
+    placement="right"
+    width="min(760px, 100vw)"
   >
+    <template #header>
+      <div style="display: flex; align-items: center; justify-content: space-between">
+        <span style="font-size: 15px; font-weight: 600">仓库管理</span>
+        <n-button quaternary circle size="small" @click="show = false">✕</n-button>
+      </div>
+    </template>
     <n-tabs type="line" default-value="registries">
       <n-tab-pane name="registries" tab="私有仓库">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px">
@@ -279,5 +284,5 @@ watch(show, (v) => {
         </div>
       </n-tab-pane>
     </n-tabs>
-  </n-modal>
+  </n-drawer>
 </template>

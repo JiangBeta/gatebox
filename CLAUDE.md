@@ -105,7 +105,7 @@ pnpm dev --host 0.0.0.0
 ## 页面布局
 
 - 一级导航（左侧）：仪表盘 / 网关 / Docker / 域名 / 设置 + 底部「退出」。
-- 二级导航：右上 Tab；三级操作用 button + 弹出层。
+- 二级导航：右上 Tab；三级操作用 button + 弹出层（表单/详情用 `n-drawer` 右滑，确认用 `n-modal preset="dialog"`，见 `docs/layout.md` §4）。
 - 网关页 Tab：代理应用列表 / 代理规则维护 / caddy 控制。
 - 去 footer（官网/文档/版本信息下沉「设置 → 关于」）。
 - 侧边栏底部（退出上方，小字）：Github 链接 / 文档链接 / 🌐 语言切换 / 🌓 主题（深/浅/auto）。

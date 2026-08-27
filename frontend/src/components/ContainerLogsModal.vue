@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
-import { NModal, NInput, NButton, NSpace, NSwitch, NTag, NAlert, NText } from 'naive-ui'
+import { NDrawer, NInput, NButton, NSpace, NSwitch, NTag, NAlert, NText } from 'naive-ui'
 import { wsURL, type ContainerView, type LogMessage } from '../api/docker'
 
 const props = defineProps<{ container: ContainerView }>()
@@ -118,17 +118,22 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <n-modal
+  <n-drawer
     :show="true"
-    preset="card"
-    :title="title"
-    style="width: 90vw; max-width: 1100px"
-    @close="emit('close')"
+    placement="right"
+    width="min(800px, 100vw)"
+    @update:show="(v: boolean) => !v && emit('close')"
   >
-    <template #header-extra>
-      <n-tag :type="connected ? 'success' : 'default'" size="small" :bordered="false">
-        {{ connected ? '已连接' : '已断开' }}
-      </n-tag>
+    <template #header>
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px">
+        <span style="font-size: 15px; font-weight: 600">{{ title }}</span>
+        <div style="display: flex; align-items: center; gap: 8px">
+          <n-tag :type="connected ? 'success' : 'default'" size="small" :bordered="false">
+            {{ connected ? '已连接' : '已断开' }}
+          </n-tag>
+          <n-button quaternary circle size="small" @click="emit('close')">✕</n-button>
+        </div>
+      </div>
     </template>
 
     <n-alert v-if="errorMsg" type="warning" style="margin-bottom: 10px" :show-icon="true">
@@ -168,7 +173,7 @@ onUnmounted(() => {
         :class="{ stderr: l.stream === 'stderr' }"
       >{{ l.text }}</div>
     </div>
-  </n-modal>
+  </n-drawer>
 </template>
 
 <style scoped>

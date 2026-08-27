@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { NModal, NForm, NFormItem, NInput, NSelect, NButton, useMessage } from 'naive-ui'
+import { NDrawer, NForm, NFormItem, NInput, NSelect, NButton, NSpace, useMessage } from 'naive-ui'
 import { createCredential, updateCredential, verifyCredential, type DNSCredential } from '../api/credentials'
 
 const props = defineProps<{
@@ -78,13 +78,16 @@ async function save() {
 </script>
 
 <template>
-  <n-modal
+  <n-drawer
     :show="show"
-    preset="dialog"
-    :title="editing ? '编辑凭证' : '添加凭证'"
+    placement="right"
+    width="min(480px, 100vw)"
     :z-index="zIndex"
     @update:show="(v: boolean) => emit('update:show', v)"
   >
+    <template #header>
+      <span style="font-size: 15px; font-weight: 600">{{ editing ? '编辑凭证' : '添加凭证' }}</span>
+    </template>
     <n-form label-placement="top">
       <n-form-item label="供应商">
         <n-select v-model:value="form.provider" :options="providerOptions" :disabled="!!editing" />
@@ -99,10 +102,12 @@ async function save() {
         {{ verifyResult }}
       </div>
     </n-form>
-    <template #action>
-      <n-button @click="doVerify">验证</n-button>
-      <n-button @click="emit('update:show', false)">取消</n-button>
-      <n-button type="primary" @click="save">保存</n-button>
+    <template #footer>
+      <n-space justify="end">
+        <n-button @click="doVerify">验证</n-button>
+        <n-button @click="emit('update:show', false)">取消</n-button>
+        <n-button type="primary" @click="save">保存</n-button>
+      </n-space>
     </template>
-  </n-modal>
+  </n-drawer>
 </template>

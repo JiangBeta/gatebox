@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, h, computed } from 'vue'
 import {
-  NDataTable, NTag, NButton, NSpace, NModal, NInput, NProgress, NText,
+  NDataTable, NTag, NButton, NSpace, NModal, NDrawer, NInput, NProgress, NText,
   NTooltip, NEllipsis, NUpload, NUploadDragger, useMessage,
 } from 'naive-ui'
 import {
@@ -259,14 +259,16 @@ onMounted(async () => {
   />
 
   <!-- 拉取镜像 -->
-  <n-modal
+  <n-drawer
     v-model:show="pullShow"
-    preset="card"
-    title="拉取镜像"
-    style="width: 480px"
+    placement="right"
+    width="min(480px, 100vw)"
     :mask-closable="!pullActive"
     @after-leave="closePull"
   >
+    <template #header>
+      <span style="font-size: 15px; font-weight: 600">拉取镜像</span>
+    </template>
     <div style="display: flex; flex-direction: column; gap: 14px">
       <div>
         <n-text depth="3" style="font-size: 12px">镜像名</n-text>
@@ -303,15 +305,20 @@ onMounted(async () => {
         <n-button :disabled="pullActive" @click="pullShow = false">关闭</n-button>
       </n-space>
     </template>
-  </n-modal>
+  </n-drawer>
 
   <!-- 导入镜像(多文件拖拽上传) -->
-  <n-modal
+  <n-drawer
     v-model:show="importShow"
-    preset="card"
-    title="导入镜像"
-    style="width: 560px"
+    placement="right"
+    width="min(560px, 100vw)"
   >
+    <template #header>
+      <div style="display: flex; align-items: center; justify-content: space-between">
+        <span style="font-size: 15px; font-weight: 600">导入镜像</span>
+        <n-button quaternary circle size="small" @click="importShow = false">✕</n-button>
+      </div>
+    </template>
     <n-upload
       multiple
       :max="10"
@@ -326,7 +333,7 @@ onMounted(async () => {
         </div>
       </n-upload-dragger>
     </n-upload>
-  </n-modal>
+  </n-drawer>
 
   <!-- 仓库管理 -->
   <RegistryModal v-model:show="registryShow" />

@@ -37,6 +37,7 @@
 ## 4. 三级操作（button + 弹出层）
 
 - 三级操作以 button 放置于右上 Tab 下侧，点击弹出层操作。
+- **弹出层规范**：表单 / 详情 / 编辑器类弹出层一律用 **Drawer（`n-drawer`）**，从右向左滑出（`placement="right"`）；确认类对话框（删除 / 接管等「是 / 否」）用 `n-modal preset="dialog"`。
 
 ## 5. 顶部
 

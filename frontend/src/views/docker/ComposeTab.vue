@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, h, computed } from 'vue'
 import {
-  NDataTable, NTag, NButton, NSpace, NModal, NAlert, NText, NCheckbox, NProgress, useMessage,
+  NDataTable, NTag, NButton, NSpace, NModal, NDrawer, NAlert, NText, NCheckbox, NProgress, useMessage,
 } from 'naive-ui'
 import {
   listCompose, downCompose, restartCompose, restoreCompose, deleteCompose, adoptCompose, wsURL,
@@ -319,14 +319,16 @@ onMounted(load)
   </n-modal>
 
   <!-- 部署进度 -->
-  <n-modal
+  <n-drawer
     v-model:show="deployShow"
-    preset="card"
-    :title="`部署 ${deployTarget?.displayName || ''}`"
-    style="width: 600px"
+    placement="right"
+    width="min(600px, 100vw)"
     :mask-closable="!deploying"
     @after-leave="closeDeploy"
   >
+    <template #header>
+      <span style="font-size: 15px; font-weight: 600">部署 {{ deployTarget?.displayName || '' }}</span>
+    </template>
     <div style="display: flex; flex-direction: column; gap: 10px; max-height: 360px; overflow: auto">
       <n-progress
         v-if="deploying"
@@ -348,5 +350,5 @@ onMounted(load)
     <template #footer>
       <n-button size="small" :disabled="deploying" @click="closeDeploy">关闭</n-button>
     </template>
-  </n-modal>
+  </n-drawer>
 </template>

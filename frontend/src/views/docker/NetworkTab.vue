@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, h } from 'vue'
 import {
-  NDataTable, NTag, NButton, NSpace, NModal, NInput, NSelect, NSwitch, NText,
+  NDataTable, NTag, NButton, NSpace, NModal, NDrawer, NInput, NSelect, NSwitch, NText,
   NDescriptions, NDescriptionsItem, NEmpty, useMessage,
 } from 'naive-ui'
 import {
@@ -177,12 +177,14 @@ onMounted(load)
   />
 
   <!-- 创建网络 -->
-  <n-modal
+  <n-drawer
     v-model:show="createShow"
-    preset="card"
-    title="创建网络"
-    style="width: 440px"
+    placement="right"
+    width="min(440px, 100vw)"
   >
+    <template #header>
+      <span style="font-size: 15px; font-weight: 600">创建网络</span>
+    </template>
     <div style="display: flex; flex-direction: column; gap: 14px">
       <div>
         <n-text depth="3" style="font-size: 12px">名称</n-text>
@@ -213,10 +215,16 @@ onMounted(load)
         <n-button @click="createShow = false">取消</n-button>
       </n-space>
     </template>
-  </n-modal>
+  </n-drawer>
 
   <!-- 网络详情 -->
-  <n-modal v-model:show="detailShow" preset="card" title="网络详情" style="width: 560px">
+  <n-drawer v-model:show="detailShow" placement="right" width="min(560px, 100vw)">
+    <template #header>
+      <div style="display: flex; align-items: center; justify-content: space-between">
+        <span style="font-size: 15px; font-weight: 600">网络详情</span>
+        <n-button quaternary circle size="small" @click="detailShow = false">✕</n-button>
+      </div>
+    </template>
     <n-descriptions v-if="detail" :column="2" label-placement="left" bordered size="small">
       <n-descriptions-item label="名称">{{ detail.name }}</n-descriptions-item>
       <n-descriptions-item label="驱动">{{ detail.driver }}</n-descriptions-item>
@@ -240,7 +248,7 @@ onMounted(load)
         </div>
       </div>
     </div>
-  </n-modal>
+  </n-drawer>
 
   <!-- 删除确认 -->
   <n-modal

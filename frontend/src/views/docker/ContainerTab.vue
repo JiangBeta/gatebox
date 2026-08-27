@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, h, computed, type Component } from 'vue'
 import {
-  NDataTable, NTag, NButton, NSpace, NPopover, NAlert, NModal, NCheckbox,
+  NDataTable, NTag, NButton, NSpace, NPopover, NAlert, NModal, NDrawer, NCheckbox,
   NText, NSpin, NIcon, NTooltip, NEllipsis, NInput, useMessage,
 } from 'naive-ui'
 import {
@@ -432,14 +432,16 @@ onUnmounted(() => {
   </n-modal>
 
   <!-- 游离容器转编排 -->
-  <n-modal
+  <n-drawer
     :show="!!convertTarget"
-    preset="card"
-    title="转为编排"
-    style="width: 720px"
+    placement="right"
+    width="min(720px, 100vw)"
     :mask-closable="!convertBusy"
-    @close="convertTarget = null"
+    @update:show="convertTarget = null"
   >
+    <template #header>
+      <span style="font-size: 15px; font-weight: 600">转为编排</span>
+    </template>
     <n-spin :show="convertLoading">
       <div style="display: flex; flex-direction: column; gap: 12px">
         <n-alert type="warning" :show-icon="true">
@@ -461,7 +463,7 @@ onUnmounted(() => {
         <n-button :disabled="convertBusy" @click="convertTarget = null">取消</n-button>
       </n-space>
     </template>
-  </n-modal>
+  </n-drawer>
 </template>
 
 <style scoped>

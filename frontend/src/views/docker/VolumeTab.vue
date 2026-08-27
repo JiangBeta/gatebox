@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, h, computed } from 'vue'
 import {
-  NDataTable, NTag, NButton, NSpace, NModal, NText, NTooltip, NEllipsis, NInput, NSelect, useMessage,
+  NDataTable, NTag, NButton, NSpace, NModal, NDrawer, NText, NTooltip, NEllipsis, NInput, NSelect, useMessage,
 } from 'naive-ui'
 import { listVolumes, removeVolume, pruneVolumes, createVolume, type VolumeView } from '../../api/docker'
 
@@ -213,12 +213,14 @@ onMounted(load)
   </n-modal>
 
   <!-- 创建卷 -->
-  <n-modal
+  <n-drawer
     v-model:show="createShow"
-    preset="card"
-    title="创建卷"
-    style="width: 440px"
+    placement="right"
+    width="min(440px, 100vw)"
   >
+    <template #header>
+      <span style="font-size: 15px; font-weight: 600">创建卷</span>
+    </template>
     <div style="display: flex; flex-direction: column; gap: 14px">
       <div>
         <n-text depth="3" style="font-size: 12px">卷名</n-text>
@@ -235,7 +237,7 @@ onMounted(load)
         <n-button @click="createShow = false">取消</n-button>
       </n-space>
     </template>
-  </n-modal>
+  </n-drawer>
 
   <!-- 删除确认 -->
   <n-modal
