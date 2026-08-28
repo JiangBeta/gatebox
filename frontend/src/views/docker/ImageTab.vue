@@ -266,10 +266,9 @@ onMounted(async () => {
     :mask-closable="!pullActive"
     @after-leave="closePull"
   >
-    <template #header>
-      <span style="font-size: 15px; font-weight: 600">拉取镜像</span>
-    </template>
-    <div style="display: flex; flex-direction: column; gap: 14px">
+    <div style="display: flex; flex-direction: column; height: 100%">
+      <div style="padding: 14px 24px; border-bottom: 1px solid #eee; font-size: 16px; font-weight: 600; flex-shrink: 0">拉取镜像</div>
+      <div style="flex: 1; overflow: auto; padding: 16px 24px; display: flex; flex-direction: column; gap: 14px">
       <div>
         <n-text depth="3" style="font-size: 12px">镜像名</n-text>
         <n-input v-model:value="pullName" placeholder="nginx 或 registry.example.com/foo" :disabled="pullActive" />
@@ -296,15 +295,14 @@ onMounted(async () => {
           <template v-if="!pullByteWeighted && !pullStatus">（按层数估算）</template>
         </n-text>
       </div>
-    </div>
+      </div>
 
-    <template #footer>
-      <n-space justify="end">
+      <div style="padding: 14px 24px; border-top: 1px solid #eee; display: flex; justify-content: flex-end; gap: 8px; flex-shrink: 0">
         <n-button v-if="pullActive" type="warning" @click="closePull">终止</n-button>
         <n-button v-else type="primary" @click="startPull">拉取</n-button>
         <n-button :disabled="pullActive" @click="pullShow = false">关闭</n-button>
-      </n-space>
-    </template>
+      </div>
+    </div>
   </n-drawer>
 
   <!-- 导入镜像(多文件拖拽上传) -->
@@ -313,12 +311,12 @@ onMounted(async () => {
     placement="right"
     width="min(560px, 100vw)"
   >
-    <template #header>
-      <div style="display: flex; align-items: center; justify-content: space-between">
-        <span style="font-size: 15px; font-weight: 600">导入镜像</span>
+    <div style="display: flex; flex-direction: column; height: 100%">
+      <div style="padding: 14px 24px; border-bottom: 1px solid #eee; font-size: 16px; font-weight: 600; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0">
+        <span>导入镜像</span>
         <n-button quaternary circle size="small" @click="importShow = false">✕</n-button>
       </div>
-    </template>
+      <div style="flex: 1; overflow: auto; padding: 16px 24px">
     <n-upload
       multiple
       :max="10"
@@ -333,6 +331,8 @@ onMounted(async () => {
         </div>
       </n-upload-dragger>
     </n-upload>
+      </div>
+    </div>
   </n-drawer>
 
   <!-- 仓库管理 -->

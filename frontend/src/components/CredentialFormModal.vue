@@ -85,10 +85,10 @@ async function save() {
     :z-index="zIndex"
     @update:show="(v: boolean) => emit('update:show', v)"
   >
-    <template #header>
-      <span style="font-size: 15px; font-weight: 600">{{ editing ? '编辑凭证' : '添加凭证' }}</span>
-    </template>
-    <n-form label-placement="top">
+    <div style="display: flex; flex-direction: column; height: 100%">
+      <div style="padding: 14px 24px; border-bottom: 1px solid #eee; font-size: 16px; font-weight: 600; flex-shrink: 0">{{ editing ? '编辑凭证' : '添加凭证' }}</div>
+      <div style="flex: 1; overflow: auto; padding: 16px 24px">
+        <n-form label-placement="top">
       <n-form-item label="供应商">
         <n-select v-model:value="form.provider" :options="providerOptions" :disabled="!!editing" />
       </n-form-item>
@@ -102,12 +102,12 @@ async function save() {
         {{ verifyResult }}
       </div>
     </n-form>
-    <template #footer>
-      <n-space justify="end">
+      </div>
+      <div style="padding: 14px 24px; border-top: 1px solid #eee; display: flex; justify-content: flex-end; gap: 8px; flex-shrink: 0">
         <n-button @click="doVerify">验证</n-button>
         <n-button @click="emit('update:show', false)">取消</n-button>
         <n-button type="primary" @click="save">保存</n-button>
-      </n-space>
-    </template>
+      </div>
+    </div>
   </n-drawer>
 </template>

@@ -182,10 +182,9 @@ onMounted(load)
     placement="right"
     width="min(440px, 100vw)"
   >
-    <template #header>
-      <span style="font-size: 15px; font-weight: 600">创建网络</span>
-    </template>
-    <div style="display: flex; flex-direction: column; gap: 14px">
+    <div style="display: flex; flex-direction: column; height: 100%">
+      <div style="padding: 14px 24px; border-bottom: 1px solid #eee; font-size: 16px; font-weight: 600; flex-shrink: 0">创建网络</div>
+      <div style="flex: 1; overflow: auto; padding: 16px 24px; display: flex; flex-direction: column; gap: 14px">
       <div>
         <n-text depth="3" style="font-size: 12px">名称</n-text>
         <n-input v-model:value="createName" placeholder="my-network" />
@@ -208,24 +207,23 @@ onMounted(load)
         </div>
         <n-switch v-model:value="createAttachable" />
       </div>
-    </div>
-    <template #footer>
-      <n-space justify="end">
+      </div>
+      <div style="padding: 14px 24px; border-top: 1px solid #eee; display: flex; justify-content: flex-end; gap: 8px; flex-shrink: 0">
         <n-button type="primary" :loading="createBusy" @click="doCreate">创建</n-button>
         <n-button @click="createShow = false">取消</n-button>
-      </n-space>
-    </template>
+      </div>
+    </div>
   </n-drawer>
 
   <!-- 网络详情 -->
   <n-drawer v-model:show="detailShow" placement="right" width="min(560px, 100vw)">
-    <template #header>
-      <div style="display: flex; align-items: center; justify-content: space-between">
-        <span style="font-size: 15px; font-weight: 600">网络详情</span>
+    <div style="display: flex; flex-direction: column; height: 100%">
+      <div style="padding: 14px 24px; border-bottom: 1px solid #eee; font-size: 16px; font-weight: 600; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0">
+        <span>网络详情</span>
         <n-button quaternary circle size="small" @click="detailShow = false">✕</n-button>
       </div>
-    </template>
-    <n-descriptions v-if="detail" :column="2" label-placement="left" bordered size="small">
+      <div style="flex: 1; overflow: auto; padding: 16px 24px">
+        <n-descriptions v-if="detail" :column="2" label-placement="left" bordered size="small">
       <n-descriptions-item label="名称">{{ detail.name }}</n-descriptions-item>
       <n-descriptions-item label="驱动">{{ detail.driver }}</n-descriptions-item>
       <n-descriptions-item label="子网">{{ detail.subnet || '-' }}</n-descriptions-item>
@@ -246,6 +244,8 @@ onMounted(load)
           <span>{{ c.name }}</span>
           <n-text depth="3" style="font-size: 12px">{{ c.ipv4 }}</n-text>
         </div>
+      </div>
+    </div>
       </div>
     </div>
   </n-drawer>

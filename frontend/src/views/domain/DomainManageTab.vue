@@ -128,10 +128,10 @@ onMounted(load)
     width="min(480px, 100vw)"
     :z-index="2000"
   >
-    <template #header>
-      <span style="font-size: 15px; font-weight: 600">{{ editing ? '编辑域名' : '添加域名' }}</span>
-    </template>
-    <n-form label-placement="top">
+    <div style="display: flex; flex-direction: column; height: 100%">
+      <div style="padding: 14px 24px; border-bottom: 1px solid #eee; font-size: 16px; font-weight: 600; flex-shrink: 0">{{ editing ? '编辑域名' : '添加域名' }}</div>
+      <div style="flex: 1; overflow: auto; padding: 16px 24px">
+        <n-form label-placement="top">
       <n-form-item label="域名">
         <n-input v-model:value="form.name" placeholder="如 neob.cn" />
       </n-form-item>
@@ -148,12 +148,12 @@ onMounted(load)
         </div>
       </n-form-item>
     </n-form>
-    <template #footer>
-      <n-space justify="end">
+      </div>
+      <div style="padding: 14px 24px; border-top: 1px solid #eee; display: flex; justify-content: flex-end; gap: 8px; flex-shrink: 0">
         <n-button @click="showModal = false">取消</n-button>
         <n-button type="primary" @click="save">保存</n-button>
-      </n-space>
-    </template>
+      </div>
+    </div>
   </n-drawer>
 
   <CredentialFormModal v-model:show="showCredModal" :editing="null" :z-index="2100" @saved="onCredentialSaved" />

@@ -439,9 +439,9 @@ onUnmounted(() => {
     :mask-closable="!convertBusy"
     @update:show="convertTarget = null"
   >
-    <template #header>
-      <span style="font-size: 15px; font-weight: 600">转为编排</span>
-    </template>
+    <div style="display: flex; flex-direction: column; height: 100%">
+      <div style="padding: 14px 24px; border-bottom: 1px solid #eee; font-size: 16px; font-weight: 600; flex-shrink: 0">转为编排</div>
+      <div style="flex: 1; overflow: auto; padding: 16px 24px">
     <n-spin :show="convertLoading">
       <div style="display: flex; flex-direction: column; gap: 12px">
         <n-alert type="warning" :show-icon="true">
@@ -457,12 +457,12 @@ onUnmounted(() => {
         </div>
       </div>
     </n-spin>
-    <template #footer>
-      <n-space justify="end">
+      </div>
+      <div style="padding: 14px 24px; border-top: 1px solid #eee; display: flex; justify-content: flex-end; gap: 8px; flex-shrink: 0">
         <n-button type="primary" :loading="convertBusy" :disabled="convertLoading" @click="doConvert">确认转换</n-button>
         <n-button :disabled="convertBusy" @click="convertTarget = null">取消</n-button>
-      </n-space>
-    </template>
+      </div>
+    </div>
   </n-drawer>
 </template>
 

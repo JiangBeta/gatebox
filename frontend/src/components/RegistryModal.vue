@@ -176,13 +176,13 @@ watch(show, (v) => {
     placement="right"
     width="min(760px, 100vw)"
   >
-    <template #header>
-      <div style="display: flex; align-items: center; justify-content: space-between">
-        <span style="font-size: 15px; font-weight: 600">仓库管理</span>
+    <div style="display: flex; flex-direction: column; height: 100%">
+      <div style="padding: 14px 24px; border-bottom: 1px solid #eee; font-size: 16px; font-weight: 600; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0">
+        <span>仓库管理</span>
         <n-button quaternary circle size="small" @click="show = false">✕</n-button>
       </div>
-    </template>
-    <n-tabs type="line" default-value="registries">
+      <div style="flex: 1; overflow: auto; padding: 16px 24px">
+        <n-tabs type="line" default-value="registries">
       <n-tab-pane name="registries" tab="私有仓库">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px">
           <n-text depth="3" style="font-size: 12px">
@@ -284,5 +284,7 @@ watch(show, (v) => {
         </div>
       </n-tab-pane>
     </n-tabs>
+      </div>
+    </div>
   </n-drawer>
 </template>

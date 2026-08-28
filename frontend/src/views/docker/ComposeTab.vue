@@ -326,10 +326,9 @@ onMounted(load)
     :mask-closable="!deploying"
     @after-leave="closeDeploy"
   >
-    <template #header>
-      <span style="font-size: 15px; font-weight: 600">部署 {{ deployTarget?.displayName || '' }}</span>
-    </template>
-    <div style="display: flex; flex-direction: column; gap: 10px; max-height: 360px; overflow: auto">
+    <div style="display: flex; flex-direction: column; height: 100%">
+      <div style="padding: 14px 24px; border-bottom: 1px solid #eee; font-size: 16px; font-weight: 600; flex-shrink: 0">部署 {{ deployTarget?.displayName || '' }}</div>
+      <div style="flex: 1; overflow: auto; padding: 16px 24px; display: flex; flex-direction: column; gap: 10px">
       <n-progress
         v-if="deploying"
         type="line"
@@ -346,9 +345,10 @@ onMounted(load)
       </div>
       <n-text v-if="deployError" type="error" style="font-size: 12px">{{ deployError }}</n-text>
       <n-text v-if="deployDone" type="success" style="font-size: 13px">✓ 部署完成</n-text>
+      </div>
+      <div style="padding: 14px 24px; border-top: 1px solid #eee; display: flex; justify-content: flex-end; gap: 8px; flex-shrink: 0">
+        <n-button size="small" :disabled="deploying" @click="closeDeploy">关闭</n-button>
+      </div>
     </div>
-    <template #footer>
-      <n-button size="small" :disabled="deploying" @click="closeDeploy">关闭</n-button>
-    </template>
   </n-drawer>
 </template>

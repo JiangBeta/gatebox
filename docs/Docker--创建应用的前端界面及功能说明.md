@@ -177,4 +177,13 @@
     - 使用maple-mono字体显示：npm按需精准引入（不要全量包）
     - 复制按钮：一键复制Compose代码
 
+---
+
+## 实现说明（2026-08-28）
+
+编辑器已按上述设计实现，关键取舍：
+- YAML 编辑器用**裸 CodeMirror 6**（未用 `codemirror-editor-vue3`，避免重复依赖），动态 import 懒加载。
+- 已实现：查找替换（中文面板）、Theme 切换（默认 dark）、字号选择、**字体选择**（默认 Maple Mono，可切 JetBrains Mono / Fira Code / Cascadia Code / Source Code Pro / IBM Plex Mono / 系统等宽）、空格显示为点、tab 显示为箭头、2 空格缩进、一键复制。
+- 后置（尽力而为）：docker-compose 字段级补全、Schema 格式检查（需 yaml-language-server）、缩进辅助线（需第三方包）。
+
 

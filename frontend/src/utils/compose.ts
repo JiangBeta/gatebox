@@ -12,6 +12,7 @@ import { parse, stringify } from 'yaml'
 export interface CaddyRoute {
   domain?: string
   path?: string
+  port?: string // 指向端口(表单用,不落 label,见 ADR-017 §2)
   customDirectives?: string[]
 }
 
@@ -23,15 +24,23 @@ export interface HealthcheckConfig {
   start_period?: string
 }
 
+export interface NetworkRef {
+  name: string
+  aliases?: string[]
+  ipv4?: string
+}
+
 export interface ServiceConfig {
   // 基础
   image?: string
   container_name?: string
   restart?: string
+  pid?: string // 关联宿主机 PID → pid: "host"
+  hostname?: string // 容器主机名(可选,不默认下发,ADR-017)
   ports?: string[]
   environment?: Record<string, string>
   volumes?: string[]
-  networks?: string[]
+  networks?: NetworkRef[]
   // 高级
   devices?: string[]
   network_mode?: string
@@ -39,12 +48,18 @@ export interface ServiceConfig {
   command?: string
   entrypoint?: string
   cap_add?: string[]
+  extra_hosts?: string[] // 关联宿主机网络 → extra_hosts: ["host:ip"]
   logging?: { driver: string; options?: Record<string, string> }
   healthcheck?: HealthcheckConfig
   build?: string | { context: string; dockerfile?: string; args?: Record<string, string> }
   labels?: Record<string, string>
   depends_on?: string[]
   deploy?: { replicas?: number }
+  // 资源限制(单机非 swarm,ADR-017 §5):shm_size/cpus/mem_limit/gpus
+  shm_size?: string
+  cpus?: string
+  mem_limit?: string
+  gpus?: string
   // 从 labels 提取的 caddy 路由
   caddyRoutes?: CaddyRoute[]
   // 兜底桶:未识别字段(_rawConfigs)与非 caddy 原生 label(_rawLabels)
@@ -61,9 +76,10 @@ export interface ComposeState {
 
 /** UI 识别的服务字段。不在其中的键一律进 _rawConfigs(无损兜底)。 */
 const KNOWN_KEYS = new Set([
-  'image', 'container_name', 'restart', 'ports', 'environment', 'volumes',
-  'networks', 'devices', 'network_mode', 'user', 'command', 'entrypoint',
+  'image', 'container_name', 'restart', 'pid', 'hostname', 'ports', 'environment', 'volumes',
+  'networks', 'devices', 'extra_hosts', 'network_mode', 'user', 'command', 'entrypoint',
   'cap_add', 'logging', 'healthcheck', 'build', 'labels', 'depends_on', 'deploy',
+  'shm_size', 'cpus', 'mem_limit', 'gpus',
 ])
 
 // --- YAML → State ---
@@ -102,9 +118,19 @@ function parseService(raw: Record<string, any>): ServiceConfig {
       case 'image':
       case 'container_name':
       case 'restart':
+      case 'pid':
+      case 'hostname':
       case 'network_mode':
       case 'user':
         if (typeof val === 'string') (cfg as any)[key] = val
+        else rawConfigs[key] = val
+        break
+      case 'shm_size':
+      case 'cpus':
+      case 'mem_limit':
+      case 'gpus':
+        // 资源字段:数字(cpus: 2)或字符串("64m")都归一为字符串
+        if (typeof val === 'string' || typeof val === 'number') (cfg as any)[key] = String(val)
         else rawConfigs[key] = val
         break
       case 'ports':
@@ -114,6 +140,7 @@ function parseService(raw: Record<string, any>): ServiceConfig {
       case 'volumes':
       case 'devices':
       case 'cap_add':
+      case 'extra_hosts':
       case 'depends_on':
         cfg[key] = stringArray(val)
         break
@@ -177,11 +204,14 @@ function stringArray(val: any): string[] {
   return val.map((v) => (typeof v === 'string' ? v : stringify(v)?.trim() ?? '')).filter(Boolean)
 }
 
-function parseNetworks(val: any): string[] {
-  if (Array.isArray(val)) return val.map(String)
+function parseNetworks(val: any): NetworkRef[] {
+  if (Array.isArray(val)) return val.map((v) => ({ name: String(v) }))
   if (val && typeof val === 'object') {
-    // 对象形式 {net: {aliases: [...]}} 只取键名
-    return Object.keys(val)
+    return Object.entries(val).map(([name, cfg]: [string, any]) => ({
+      name,
+      aliases: cfg?.aliases ? (Array.isArray(cfg.aliases) ? cfg.aliases : [String(cfg.aliases)]) : undefined,
+      ipv4: cfg?.ipv4_address ? String(cfg.ipv4_address) : undefined,
+    }))
   }
   return []
 }
@@ -306,10 +336,12 @@ function serializeService(cfg: ServiceConfig): Record<string, any> {
   if (cfg.image) out.image = cfg.image
   if (cfg.container_name) out.container_name = cfg.container_name
   if (cfg.restart) out.restart = cfg.restart
+  if (cfg.pid) out.pid = cfg.pid
+  if (cfg.hostname) out.hostname = cfg.hostname
   if (cfg.ports?.length) out.ports = cfg.ports
   if (cfg.environment && Object.keys(cfg.environment).length > 0) out.environment = cfg.environment
   if (cfg.volumes?.length) out.volumes = cfg.volumes
-  if (cfg.networks?.length) out.networks = cfg.networks
+  if (cfg.networks?.length) out.networks = serializeNetworks(cfg.networks)
 
   if (cfg.devices?.length) out.devices = cfg.devices
   if (cfg.network_mode) out.network_mode = cfg.network_mode
@@ -317,11 +349,17 @@ function serializeService(cfg: ServiceConfig): Record<string, any> {
   if (cfg.command) out.command = cfg.command
   if (cfg.entrypoint) out.entrypoint = cfg.entrypoint
   if (cfg.cap_add?.length) out.cap_add = cfg.cap_add
+  if (cfg.extra_hosts?.length) out.extra_hosts = cfg.extra_hosts
   if (cfg.logging) out.logging = cfg.logging
   if (cfg.healthcheck && Object.keys(cfg.healthcheck).length > 0) out.healthcheck = serializeHealthcheck(cfg.healthcheck)
   if (cfg.build) out.build = serializeBuild(cfg.build)
   if (cfg.depends_on?.length) out.depends_on = cfg.depends_on
   if (cfg.deploy?.replicas != null) out.deploy = { replicas: cfg.deploy.replicas }
+
+  if (cfg.shm_size) out.shm_size = cfg.shm_size
+  if (cfg.cpus) out.cpus = cfg.cpus
+  if (cfg.mem_limit) out.mem_limit = cfg.mem_limit
+  if (cfg.gpus) out.gpus = cfg.gpus
 
   // labels = _rawLabels(非 caddy 原生)+ caddy 路由(算法 1)
   const labels: Record<string, string> = { ...(cfg._rawLabels || {}) }
@@ -364,4 +402,18 @@ function serializeBuild(build: ServiceConfig['build']): any {
     return context
   }
   return build
+}
+
+/** 网络:全为简单名时输出数组,含别名/IPV4 时输出对象映射。 */
+function serializeNetworks(nets: NetworkRef[]): any {
+  const hasStructure = nets.some((n) => n.aliases?.length || n.ipv4)
+  if (!hasStructure) return nets.map((n) => n.name)
+  const out: Record<string, any> = {}
+  for (const n of nets) {
+    const cfg: Record<string, any> = {}
+    if (n.aliases?.length) cfg.aliases = n.aliases
+    if (n.ipv4) cfg.ipv4_address = n.ipv4
+    out[n.name] = cfg
+  }
+  return out
 }

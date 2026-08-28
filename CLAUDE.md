@@ -90,6 +90,9 @@ pnpm build              # 输出到 backend/internal/web/dist（由 go:embed 内
 pnpm dev --host 0.0.0.0
 ```
 
+> **naive-ui 2.40 的 `n-drawer` 坑**：该版本 Drawer 只渲染 default 槽，**忽略 `#header` / `#footer` 槽，且内容容器无内边距**。抽屉的头部标题/底部按钮必须自己放进 default 槽，用 flex 布局 + 手动 padding/border 拼出来（见 `ComposeEditorModal.vue`）。
+> **CodeMirror 坑**：`codemirror` 包只导出 `EditorView`/`basicSetup`，`ViewPlugin`/`Decoration`/`WidgetType` 需从 `@codemirror/view` 显式 import；`@codemirror/state`/`view` 等需显式 `pnpm add`（pnpm 不提升传递依赖）。
+
 ### 开发环境约定
 
 - **服务一律绑 `0.0.0.0`，不要绑 `127.0.0.1`** —— 需要从局域网其他设备访问。

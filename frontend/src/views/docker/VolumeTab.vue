@@ -218,10 +218,9 @@ onMounted(load)
     placement="right"
     width="min(440px, 100vw)"
   >
-    <template #header>
-      <span style="font-size: 15px; font-weight: 600">创建卷</span>
-    </template>
-    <div style="display: flex; flex-direction: column; gap: 14px">
+    <div style="display: flex; flex-direction: column; height: 100%">
+      <div style="padding: 14px 24px; border-bottom: 1px solid #eee; font-size: 16px; font-weight: 600; flex-shrink: 0">创建卷</div>
+      <div style="flex: 1; overflow: auto; padding: 16px 24px; display: flex; flex-direction: column; gap: 14px">
       <div>
         <n-text depth="3" style="font-size: 12px">卷名</n-text>
         <n-input v-model:value="createName" placeholder="my-volume" />
@@ -230,13 +229,12 @@ onMounted(load)
         <n-text depth="3" style="font-size: 12px">驱动</n-text>
         <n-select v-model:value="createDriver" :options="driverOptions" />
       </div>
-    </div>
-    <template #footer>
-      <n-space justify="end">
+      </div>
+      <div style="padding: 14px 24px; border-top: 1px solid #eee; display: flex; justify-content: flex-end; gap: 8px; flex-shrink: 0">
         <n-button type="primary" :loading="createBusy" @click="doCreate">创建</n-button>
         <n-button @click="createShow = false">取消</n-button>
-      </n-space>
-    </template>
+      </div>
+    </div>
   </n-drawer>
 
   <!-- 删除确认 -->

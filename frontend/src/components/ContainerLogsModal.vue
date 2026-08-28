@@ -124,9 +124,9 @@ onUnmounted(() => {
     width="min(800px, 100vw)"
     @update:show="(v: boolean) => !v && emit('close')"
   >
-    <template #header>
-      <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px">
-        <span style="font-size: 15px; font-weight: 600">{{ title }}</span>
+    <div style="display: flex; flex-direction: column; height: 100%">
+      <div style="padding: 14px 24px; border-bottom: 1px solid #eee; font-size: 16px; font-weight: 600; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0">
+        <span>{{ title }}</span>
         <div style="display: flex; align-items: center; gap: 8px">
           <n-tag :type="connected ? 'success' : 'default'" size="small" :bordered="false">
             {{ connected ? '已连接' : '已断开' }}
@@ -134,7 +134,7 @@ onUnmounted(() => {
           <n-button quaternary circle size="small" @click="emit('close')">✕</n-button>
         </div>
       </div>
-    </template>
+      <div style="flex: 1; overflow: auto; padding: 16px 24px">
 
     <n-alert v-if="errorMsg" type="warning" style="margin-bottom: 10px" :show-icon="true">
       {{ errorMsg }}
@@ -172,6 +172,8 @@ onUnmounted(() => {
         class="log-line"
         :class="{ stderr: l.stream === 'stderr' }"
       >{{ l.text }}</div>
+    </div>
+      </div>
     </div>
   </n-drawer>
 </template>
