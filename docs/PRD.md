@@ -1,50 +1,78 @@
 # GateBox · PRD（产品需求文档）
 
-> 状态：规划阶段（需求分析与架构决策已敲定，见 `docs/adr/`）
-> 参考项目：Charon、caddy-docker-proxy、ctop、lazydocker
+> 状态：规划阶段 v2（2026-09「缝合怪」重构版）；架构已升级至 **v3**（组件运行时 + 数据驱动插件 + 分层标准），总纲见 [`docs/architecture.md`](architecture.md)。
+> v2 变更背景：证书签发从 caddy 内置 ACME 改为 **acme.sh 全面接管**；新增 **flame（导航）/ mosdns（内网 DNS）/ Tailscale（组网）** 三个外部组件；目录架构重构；导航重构为 6 顶级入口。
+> v3 变更背景：确立「组件生命周期边界（配方归上游、运行态归 GateBox）」「组件运行时接口」「数据驱动插件 + 静态索引」「核心/插件分类」「后端/前端分层标准」；原代码保留于 `./old/`。见 ADR-027 ~ ADR-032。
+> 上一版存档于 `docs/PRD-v1.md`。
+> 参考项目：Charon、caddy-docker-proxy、ctop、lazydocker、flame、mosdns、acme.sh
 
 ## 1. 定位
 
-为 HomeLab 打造的**极简、可视化 AppGateway**：一个控制面统一「应用代理、域名证书、二级域名 DNS、Docker 容器运维」。用户点几下就能把应用挂到自己的域名上，零配置、零外部依赖。
+为 HomeLab 打造的**缝合怪应用网关**：以统一界面 + 针对 HomeLab 的自动化需求，整合现有成熟的外部组件，让用户点几下就能把应用挂到自己的域名上，零配置、零外部依赖（除了被缝合的工具本身）。
+
+**整体思路**：
+
+- 所有应用通过网关发布（Caddy）
+- 发布时自动 SSL（acme.sh）
+- Docker 应用通过 yaml（docker-compose）管理、自动发布（通过 label）
+- 外网访问通过 DDNS 自动指向（ddns-go）
+- 内网访问通过 DNS 自动指向（mosdns）
+- 跨网访问时使用 VPN（Tailscale）
+- 自动生成应用地图便于导航（flame）
 
 ## 2. 目标用户
 
 家庭 / 小型服务器用户（HomeLab），希望把 Docker 应用、静态站点、宿主机服务通过域名访问，且不想手写反向代理配置。
 
-## 3. 四个核心能力
+## 3. 核心能力
 
-1. **应用自动化代理** —— Docker 基于 label 的自动代理（复用 `caddy.*` 约定）；其他应用手动代理（IP:端口）。
-2. **域名证书自动化** —— 基于 Caddy 的 ACME，DNS-01 为默认 challenge。
-3. **二级域名 DNS 自动化** —— 基于 ddnsgo 自动上报（改写其配置 + 重启生效）。
-4. **Docker 应用运维** —— 表单生成 `docker-compose.yaml`；查看容器运行情况。
+| # | 能力 | 承担组件 | GateBox 职责 |
+|---|---|---|---|
+| 1 | 应用代理 | Caddy | 手工代理（IP:端口 / 静态文件）；docker label 自动代理；Caddyfile 生成 + Admin API `/load` |
+| 2 | SSL 证书 | acme.sh | 发布时自动签发 / 续期；证书状态展示（caddy 用文件证书加载） |
+| 3 | 应用编排 | docker + docker-compose | yaml 管理（表单 ⇄ YAML）；label 自动发布 |
+| 4 | 外网访问 | ddns-go | 二级域名 DNS 上报（改写配置 + 重启生效） |
+| 5 | 内网 DNS | mosdns | 内网域名记录自动指向 |
+| 6 | 跨网组网 | Tailscale | VPN 状态与操作 |
+| 7 | 应用地图导航 | flame | 页面内嵌 flame；应用地图自动生成 |
 
 ## 4. 系统架构
 
-**控制面 + 独立外部组件**（ADR-001）：
+**控制面 + 独立外部组件**：GateBox 本体是控制面（Go + Vue3 + BoltDB），caddy / acme.sh / docker / docker-compose / ddns-go / mosdns / tailscale / flame 均为独立进程，独立升级，GateBox **不接管其生命周期**，只负责「改写它们的配置」+「调用它们的 API/CLI」。
 
 ```
-GateBox（控制面：Go + Vue3 + BoltDB）
+GateBox（控制面：Go + Vue3 + BoltDB）    # conf/gatebox.db + secret.key 加密敏感字段
     │  改写配置 + 调 API/CLI
-    ├── caddy            （反向代理 + ACME 证书）
-    ├── ddnsgo           （动态 DNS 上报）
+    ├── caddy            （反向代理 + 文件证书加载）
+    ├── acme.sh          （证书签发与续期）
     ├── docker           （容器生命周期，Docker Engine API）
-    └── docker-compose   （编排，docker compose CLI）
+    ├── docker-compose   （编排，docker compose CLI）
+    ├── ddns-go          （外网 DDNS 上报）
+    ├── mosdns           （内网 DNS 记录）
+    ├── tailscale        （跨网组网）
+    └── flame            （应用地图导航，内嵌）
 ```
-
-- 外部组件独立进程、独立升级，本工具**不接管其生命周期**，只负责「改写它们的配置」+「调用它们的 API/CLI」。
-- 配置变更零中断：Caddy 走 Admin API `/load` 原子加载。
 
 ## 5. 技术选型
 
 | 层 | 选型 |
 |---|---|
-| 前端 | Vue3 + Vite + Naive UI；**i18n（默认中文，可扩展英文）** |
+| 前端 | Vue3 + Vite + **Ant Design Vue 4.x**（已从 naive-ui 迁移完成）；i18n（默认中文，可扩展英文） |
 | 后端 | Go（单二进制，`go:embed` 内嵌前端静态资源） |
-| 数据库 | BoltDB |
-| 代理 | 生成 Caddyfile → Caddy Admin API `/load` |
-| 证书 | Caddy ACME，DNS-01 默认（预装 cloudflare / dnspod.cn / aliyun 插件） |
-| DDNS | 外部 ddnsgo（改写 YAML + 服务重启） |
-| Docker | Docker Engine API（**自研轻量 HTTP 封装**，非 moby SDK——ADR-014）+ `docker compose` CLI；表单 ⇄ YAML 双向同步生成 `docker-compose.yaml` |
+| 数据库 | BoltDB（`conf/gatebox.db`）；敏感字段 AES-GCM（`secret.key`） |
+| 代理 | 生成 Caddyfile → Caddy Admin API `/load`（先校验、失败回退、成功写盘落 Caddyfile 备份） |
+| 证书 | **acme.sh 全面接管**（独立签发 / 续期 / 状态展示；DNS-01 依赖 ddns-go 或 DNS 凭证） |
+| Docker | Docker Engine API（**自研轻量 HTTP 封装**，非 moby SDK——ADR-014）+ `docker compose` CLI |
+| DDNS | 外部 ddns-go（改写 YAML + 服务重启） |
+| 内网 DNS | 外部 mosdns（改写配置 + 重启） |
+| 组网 | 外部 Tailscale |
+| 导航 | 外部 flame（页面内嵌联动） |
+
+**技术需求**：
+
+- 支持架构：amd64、arm
+- 支持系统：debian、ubuntu、openwrt、archlinux、armbian
+- 尽量简约、减少资源消耗
 
 ## 6. 领域模型
 
@@ -53,90 +81,164 @@ ComposeInstance (1) ──< Container (N) ──< App (M, M ≤ N)    # ADR-015
 App (1) ──< ProxyRoute (N)
 App.source ∈ { docker, manual, host }
 ProxyRoute.type ∈ { reverse_proxy, file_server, tcp_stream }
-Domain ── DDNS 上报（ddnsgo）+ 证书（caddy）
-DNSCredential（统一管理，加密存储）
+Domain ── DDNS 上报（ddns-go）+ 证书（acme.sh）
+DNSCredential（统一模型：证书签发与 DDNS 上报共用，加密存储）
 ```
 
 - **ComposeInstance**：一个 compose 项目 = 一个部署单位，起 N 个容器，其中只有需要被代理的容器升格为 App（**M ≤ N**）。主键为 `projectName`，落盘于 `appData/<projectName>/`（ADR-015）。
 - **App**：可被代理的最小单元；`docker` 由 label 自动发现，`manual` 为手动 IP:端口（可多个 = 负载均衡），`host` 为宿主机服务。**指向容器的稳定标识为 `project + service`**，不用会变的容器 ID / IP（ADR-016）。
 - **ProxyRoute**：`reverse_proxy`（后端 http/https，https 后端需处理自签证书信任，如 PVE 8006）、`file_server`（静态网页）、`tcp_stream`（L4 透传）。
-- 证书、DNS 记录**不建独立实体**——由 caddy / ddnsgo 托管，本工具只读写其配置并展示状态。
+- **证书记录不建独立实体**：由 acme.sh 托管，本工具读写其配置并展示状态。
+- **内网 DNS（mosdns）/ 组网（Tailscale）模型**：待讨论。
 
 ## 7. 文件架构
 
-### 运行时数据目录 `$DATA_DIR`（ADR-011）
+### 运行时目录 `$DATA_DIR`
 
-位置由用户指定，安装脚本创建并写入 DB 供全局调用：
+位置由用户指定，安装脚本创建并写入基础配置：
 
 ```
-$DATA_DIR/
-├── gatebox                # 本工具二进制
-├── db/gatebox.db                   # BoltDB
-├── tools/                          # 外部工具（项目目录统一管理）
-│   ├── caddy/
-│   │   ├── caddy                   # caddy 二进制
-│   │   ├── Caddyfile               # 生成的 Caddyfile（/load 成功后落盘）
-│   │   └── user/                   # 用户自定义 Caddyfile 片段（被 import）
-│   ├── ddnsgo/
-│   │   ├── ddnsgo                  # ddnsgo 二进制
-│   │   └── .ddns_go_config.yaml    # 生成的 ddnsgo 配置
-│   └── docker/docker-compose       # docker-compose 二进制
-└── appData/
-    └── <projectName>/              # 单位是 compose 项目，非 App（ADR-015）
-        ├── docker-compose.yaml     # 该应用的 compose 文件
-        ├── www/                    # file_server 静态站点文件
-        └── conf/                   # 该应用的设置 & 数据
+<DATA_DIR>/
+├── conf/                  # 配置文件目录
+│   ├── gatebox.db           # BoltDB 主库（App / ProxyRoute / Caddy 片段 / 域 / DNS 凭证等）
+│   ├── secret.key           # AES-GCM 密钥（加密 DNS 凭证、片段密钥、私有仓库密码等）
+│   └── gatebox.conf         # 基础配置：运行目录、前后端端口号等信息
+├── tools/                   # 第三方工具目录
+│   ├── caddy/             # caddy：主程序、user/*.caddy 用户扩展片段、logs/
+│   ├── acme/              # acme：acme.sh 主程序、ssl/ 证书目录、日志
+│   ├── .../               # 其它工具目录（ddns-go / mosdns / docker-compose 等）
+│   └── README.md          # tools 说明文件
+├── appData/               # compose 项目数据目录（1 项目 = 1 目录 = 1 compose）
+│   ├── <projectName>/       # 如 aria2 → docker-compose.yaml + 各服务配置/数据目录
+│   │   └── docker-compose.yaml
+│   └── README.md          # appData 说明文件
+├── Caddyfile              # 最近一次成功生成并 `/load` 的 Caddyfile 备份
+└── README.md              # 项目说明文件
 ```
+
+> 注：v2 改为 `conf/` 集中配置（原 `db/` 平铺根目录）；`Caddyfile` 备份上提至 `$DATA_DIR` 根（配置固化）。
 
 ### 代码仓库结构
 
 ```
-backend/    # Go：cmd/gatebox + internal/{config,models,store,caddy,ddns,docker,api,server}
+backend/    # Go：cmd/gatebox + internal/{config,models,store,caddy,acme,ddns,mosdns,network,docker,gateway,api,server,web}
 frontend/   # Vue3：src/{api,views,components,stores,router,locales}
 scripts/    # install.sh（多发行版/架构安装）、build.sh（build → go:embed → 单二进制）
 configs/    # systemd/openrc/procd 服务单元模板
 docs/       # PRD + glossary + adr/
 ```
 
-## 8. 核心流程
+## 8. 页面结构（1-2 级目录）
 
-- **添加 Docker 应用**：读容器 `caddy.*` label → 建 App + ProxyRoute → 生成 Caddyfile → `/load`
-- **添加手动代理**：建 App（IP:端口，可多个）→ 同上
-- **添加域名**：写 ddnsgo YAML → 重启 ddnsgo 上报 → Caddy DNS-01 签证书
+- **首页**：导航 / 仪表盘
+- **网关**：代理 / Caddy 片段 / 变量
+- **容器**（原 Docker）：概览 / 编排 / 镜像 / 网络 / 存储卷
+- **域名**：概览 / 域名 / 证书 / DDNS
+- **网络**：内网 DNS / Tailscale
+- **设置**：—
+
+> 术语统一：一级导航「Docker」改名「容器」，与领域名词对齐；域名页新增「DDNS」Tab（原证书侧栏并入各 Tab）。
+
+## 9. 模块需求说明
+
+### 9.1 网关（代理）
+
+代理相关应用。
+
+- **手工代理**：手工设置已有设备或应用（如 openwrt、PVE 主机等）；支持反向代理 & 静态文件。
+- **自动代理**：基于运行中的 docker label 数据自动代理；该数据由「容器」模块获取并实时发送到 caddy API（`/reverse_proxy/upstreams`）。
+- **配置固化**：新配置 `/load` 生效后，自动保存到 `$DATA_DIR/Caddyfile` 备份。
+- **Caddy 片段**：固化的中间件 / 路由规则，可供调用。**默认自动关联**：所有代理启用压缩、阻止常见漏洞、支持 websocket、按服务日志输出、主动健康检查；后端服务为 HTTPS 时自动启用「忽略后端证书校验」。可手动启停某代理的片段，也可自定义片段。
+- **变量**：避免硬编码；除系统指定外可自定义。
+
+> 完成情况：页面、手工代理、caddy 片段、变量功能已开发；**未验证**代理情况（Caddyfile validate）；未完成「片段与代理的关联（特别是自动关联）」「docker 自动代理打通（容器提供数据 → 网关给出 caddy api）」。
+> 存在问题（**待讨论**）：docker 应用自动变化（新增 / 变更 / 停止）后代理列表的显示——人工操作则由容器模块联动网关只显示最新状态；自动变化（docker 停止 / 运行错误导致未启动）则列表保留并显示报错。
+
+### 9.2 容器（原 Docker）
+
+容器编排、操作、监控；**将容器的代理信息发送给网关的 caddy api**。
+
+- 编排：compose yaml 表单 ⇄ YAML 双向同步（已开发）
+- 操作：容器起停 / 日志 / exec；镜像拉取 / 删除 / 导入；网络、存储卷 CRUD（已开发）
+- 监控：stats 采集（已开发）
+- **当前 bug**：页面无法打开（一直转圈，无法获取 docker 信息）——**需优先修复**。
+
+### 9.3 域名
+
+- 证书签发 **由 acme.sh 接管，需重构**（原 caddy 内置 ACME 废弃）：
+  - 发布时自动 SSL；独立签发 / 续期 / 状态展示（证书目录 `tools/acme/ssl/`）。
+- **DNS 供应商凭证与 DDNS 共用**：统一凭证模型（`DNSCredential`），证书签发（acme.sh provider）与 DDNS 上报（ddns-go）使用同一份凭证。
+- **新增 DDNS Tab**（使用 ddns-go）：查看 / 管理 DDNS 上报状态。
+
+### 9.4 网络（内网 DNS + Tailscale）
+
+- **内网 DNS（mosdns）**：内网域名记录自动指向。
+- **组网（Tailscale）**：跨网访问。
+- 接入深度**待讨论**（仅部署 + 引导 + 状态展示，还是完全接管改写配置 + 重启）。
+
+### 9.5 首页 & 设置
+
+- 首页：导航（**内嵌 flame**）+ 仪表盘（聚合状态）。
+- 设置：关于 / 主题（深 / 浅 / auto）/ 语言 / 版本信息（更新 NEW Badge）/ 退出；用户认证（单用户 admin，JWT——后置）。
+
+## 10. 核心流程
+
+- **添加 Docker 应用**：容器读 `gatebox.*` label → 建 App + ProxyRoute → docker 自动代理信息发给网关 → 生成 Caddyfile → `/load`
+- **添加手工代理**：建 App（IP:端口，可多个）→ 同上
+- **证书签发**：建域 / 用统一 DNS 凭证 → 触发 acme.sh 签发 / 续期 → caddy 文件证书加载
+- **外网访问**：写 ddns-go YAML → 重启 ddns-go 上报
+- **内网访问**：写 mosdns 配置 → 重启生效（深度待讨论）
 - **生成 compose**：表单 ⇄ YAML → stdin 校验（`config -q`）→ 通过才落盘 `appData/<projectName>/docker-compose.yaml` → `docker compose up -d`
-- **查看运行状态**：stats 由后端单例采集器聚合成快照供前端轮询；日志 / exec / 拉取 / 部署各走一条 WebSocket（docs/docker.md §5.2）
 
-## 9. 功能范围
+## 11. 功能范围
 
-**MVP 内**：上述四个能力的最小闭环 + 5 页 UI（仪表盘 / 网关 / Docker / 域名 / 设置）。
+**MVP 内**：6 页 UI（首页 / 网关 / 容器 / 域名 / 网络 / 设置）+ 网关手工 & 自动代理闭环 + acme.sh 证书 + ddns-go DDNS + mosdns 内网 DNS + Tailscale 状态 + flame 内嵌导航 + 容器编排运维。
 
-**MVP 外（后置）**：多用户 / RBAC、UDP 代理、独立证书签发、发行版原生包、**多主机控制**（单一控制面管理多台主机，数据模型预留扩展点，后续实现）、**内网 DNS 记录自动下发**（adguardHome / MosDNS / RouterOS / OpenWRT 等内网解析服务器的记录自动写入）。
+**MVP 外（后置）**：多用户 / RBAC、UDP 代理、独立证书管理 UI 高级功能（重新申请 / 私钥下载 / 申请历史）、发行版原生包、多主机控制。
 
-## 10. 部署交付
+## 12. 部署交付
 
-- 裸机单二进制，支持 debian / ubuntu / archlinux / armbian / nixos / openwrt，x86 & arm 多架构。
-- `install.sh` + 多架构 tarball（本体 + caddy + ddnsgo）；docker 走系统包管理器，其余装入 `$DATA_DIR/tools/`。
+- 裸机单二进制，支持 debian / ubuntu / archlinux / armbian / openwrt，amd64 & arm 多架构。
+- `install.sh` + 多架构 tarball（本体 + caddy + acme.sh + ddns-go + mosdns + flame）；docker 走系统包管理器。
 - 组件装成系统服务（systemd / openrc / procd）。
 
-## 11. 安全
+## 13. 安全
 
 - `docker.sock` 可写等价于宿主机 root —— 必须在 UI/文档显式告知。
-- DNS 凭证加密存储（BoltDB）。
-- 单用户 admin（JWT），认证/多用户后置。
+- DNS 凭证 / 片段密钥 / 私有仓库密码加密存储（`conf/secret.key` AES-GCM）。
 
-## 12. 非功能性
+## 14. 开发工作计划（v2）
 
-- 多发行版 / 多架构；配置变更零中断；MVP 优先、可增量扩展；i18n 可扩展。
+> **v3 重构分期（P0 地基 → P1 组件运行时 → P2 插件 → P3 前端重建 → P4 网络/首页/设置 → P5 部署交付）见 [`docs/architecture.md`](architecture.md) §15，以该分期为准。**
 
-## 13. 开发工作计划
+逐单位「讨论 → 撰写单位设计文档 → 开发 → 验证 → 进入下一项」。**当前阶段：先文档后代码**；网络模块深度待讨论。
 
-逐需求「讨论 → 开发 → 验证 → 进入下一项」：
+| # | 单位 | 设计文档 | 范围 | 依赖 |
+|---|---|---|---|---|
+| 1 | **架构与目录重构** | [infra.md](docs/infra.md) | `conf/`（gatebox.db / secret.key / gatebox.conf）+ `tools/acme` + Caddyfile 备份上提；config/store 路径重构；数据迁移；前端导航 6 入口 & 「Docker→容器」更名 | 旧版全部功能回归 |
+| 2 | **容器修复** | [docker.md](docs/docker.md) §12 | 修「一直转圈无法获取 docker 信息」bug；容器→网关 caddy api 代理数据联动；变化显示策略（人工 vs 自动） | 1 |
+| 3 | **网关收尾** | [gateway.md](docs/gateway.md) §9 | 片段-代理自动关联（默认片段 + HTTPS 后端忽略证书校验）；docker 自动代理打通；Caddyfile validate + 端到端验证 | 1、2 |
+| 4 | **域名重构** | [domain.md](docs/domain.md) §9 | acme.sh 全面接管（签发 / 续期 / 状态）；统一凭证模型（证书 + DDNS 共用）；域名页 4 Tab（概览 / 域名 / 证书 / DDNS） | 1、3 |
+| 5 | **网络模块** | [network.md](docs/network.md) | mosdns 内网 DNS；Tailscale。深度**待讨论**（D1） | 1 |
+| 6 | **首页 & 设置** | [home.md](docs/home.md) | flame 部署联动 + 页面内嵌导航；仪表盘聚合；设置页（关于 / 主题 / 语言 / 版本 / 退出） | 3、4 |
+| 7 | **部署交付** | [deploy.md](docs/deploy.md) | `install.sh` + 多架构 tarball（含 caddy / acme.sh / ddns-go / mosdns / flame）；systemd / openrc / procd 服务单元 | 1–6 |
 
-1. 页面布局 & 域名（设计已定，见 [docs/domain.md](docs/domain.md)）
-2. Docker（设计已定，见 [docs/docker.md](docs/docker.md)）
-3. 网关
-4. 控制台 & 设置（含用户认证）
+## 15. 待新增 / 修订 ADR
 
-## 14. ADR 索引
+| # | 主题 | 状态 |
+|---|---|---|
+| ADR-013 | 证书签发主体变更：caddy 内置 ACME → **acme.sh 全面接管**（caddy 文件证书加载） | **已修订**（2026-09-03，见文件内修订说明） |
+| ADR-022 | 目录架构 v2：`conf/` 集中配置 + `Caddyfile` 备份上提 | 新增 |
+| ADR-023 | 新增外部组件：flame（内嵌导航）、mosdns（内网 DNS）、tailscale（组网）接入边界 | 新增 |
+| ADR-024 | 统一 DNS 凭证模型（acme.sh 证书 + ddns-go 上报共用） | 新增 |
+| ADR-025 | 一级导航 v2：「Docker」→「容器」、6 入口、域名页 DDNS Tab | 新增 |
+| ADR-027 | 组件生命周期边界与升级本体（配方归上游 / 运行态归 GateBox / 制品源三通道） | 新增（v3） |
+| ADR-028 | 组件运行时接口（可选接口 + Capabilities 驱动 UI） | 新增（v3） |
+| ADR-029 | 插件模型与分发（数据驱动 + 三形态 + 静态索引，无服务端） | 新增（v3） |
+| ADR-030 | 核心/插件分类与运行时目录（core/optional + `$DATA_DIR/tools`） | 新增（v3） |
+| ADR-031 | 后端分层与仓库目录 v3（go-nunu 骨架 + `old/` + `go.work`） | 新增（v3） |
+| ADR-032 | 前端分层与设计 token 强制（AntD 四层 + lint 门禁） | 新增（v3） |
 
-见 `docs/adr/`：ADR-001 ~ ADR-016。
+## 16. ADR 索引
+
+见 `docs/adr/`：ADR-001 ~ ADR-032。v3 架构总纲见 [`docs/architecture.md`](architecture.md)。
