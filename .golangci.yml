@@ -1,0 +1,55 @@
+# golangci-lint 配置（分层边界门禁）
+#
+# 分层规则见 docs/architecture.md §8.2。依赖方向：
+#   handler → service → {repository, component, source} → model
+# model 依赖为零。
+#
+# 安装/运行：mise run lint:backend（见 mise.toml）。
+version: "2"
+
+run:
+  modules-download-mode: readonly
+
+linters:
+  default: none
+  enable:
+    - depguard
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+  settings:
+    depguard:
+      rules:
+        # model 层不得依赖任何内部包
+        model-layer:
+          files:
+            - "**/internal/model/**"
+          deny:
+            - pkg: "github.com/JiangBeta/gatebox/internal"
+              desc: "model 层禁止依赖任何内部包（docs/architecture.md §8.2）"
+        # handler 层禁止直接依赖 repository（须经 service）
+        handler-layer:
+          files:
+            - "**/internal/handler/**"
+          deny:
+            - pkg: "github.com/JiangBeta/gatebox/internal/repository"
+              desc: "handler 不得直接依赖 repository，须经 service（docs/architecture.md §8.2）"
+        # component/source/model 等基础层不得反向依赖 service/handler
+        infra-layer:
+          files:
+            - "**/internal/component/**"
+            - "**/internal/source/**"
+            - "**/internal/adapter/**"
+            - "**/internal/plugin/**"
+          deny:
+            - pkg: "github.com/JiangBeta/gatebox/internal/handler"
+              desc: "基础设施层不得依赖 handler"
+            - pkg: "github.com/JiangBeta/gatebox/internal/service"
+              desc: "基础设施层不得依赖 service"
+            - pkg: "github.com/JiangBeta/gatebox/internal/repository"
+              desc: "基础设施层不得依赖 repository"
+
+formatters:
+  enable:
+    - gofmt

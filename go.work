@@ -1,0 +1,8 @@
+// GateBox Go workspace：仅纳入活跃模块。
+//
+// old/backend 是重构前的冻结快照，与本模块同 module path，不能同时纳入 workspace。
+// 需要构建/查阅旧码时：
+//   cd old/backend && GOWORK=off go build ./...
+go 1.26
+
+use ./backend

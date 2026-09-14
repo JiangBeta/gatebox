@@ -33,6 +33,11 @@ description = "后端全部测试"
 dir = "backend"
 run = "go test ./..."
 
+[tasks.lint]
+description = "后端静态检查（vet + gofmt；分层边界另见 .golangci.yml 的 depguard）"
+dir = "backend"
+run = "go vet ./... && test -z \"$(gofmt -l ./internal ./cmd)\""
+
 [tasks.dev]
 description = "启动后端开发服务(绑 0.0.0.0 以便局域网访问)"
 dir = "backend"

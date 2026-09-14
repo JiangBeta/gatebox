@@ -1,33 +1,26 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
-import Components from 'unplugin-vue-components/vite'
-import { AntDesignVueResolver } from 'unplugin-vue-components/resolvers'
+import { fileURLToPath, URL } from 'node:url'
 
 export default defineConfig({
-  plugins: [
-    vue(),
-    Components({
-      resolvers: [
-        AntDesignVueResolver({
-          importStyle: false, // 按需加载样式
-        }),
-      ],
-    }),
-  ],
+  plugins: [vue()],
+  resolve: {
+    alias: {
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
+    },
+  },
   build: {
-    // 构建产物直接输出到后端 embed 目录,实现单二进制交付。
+    // 构建产物直接输出到后端 embed 目录，实现单二进制交付。
     outDir: '../backend/internal/web/dist',
     emptyOutDir: true,
   },
   server: {
-    // 固定端口:host 绑 0.0.0.0 供局域网访问,strictPort 防止被占用后漂移。
+    // 绑 0.0.0.0 供局域网访问；strictPort 防止端口漂移。
     host: '0.0.0.0',
     port: 5173,
     strictPort: true,
     proxy: {
-      // ws 必须开启:容器日志与 exec 控制台走 WebSocket,
-      // 不开的话开发模式下升级请求会被代理成普通 HTTP 而失败。
-      // 端口可用 GATEBOX_DEV_PORT 覆盖(本机 8080 被 traefik、8090 被其他服务占用)。
+      // ws 必须开启：日志/exec 控制台走 WebSocket。
       '/api': {
         target: `http://127.0.0.1:${process.env.GATEBOX_DEV_PORT || '8099'}`,
         ws: true,

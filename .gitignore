@@ -1,13 +1,15 @@
 # 前端
-frontend/node_modules/
+node_modules/
+components.d.ts
 
-# 前端构建产物(内嵌到后端 embed,仅保留占位以通过编译)
-backend/internal/web/dist/*
-!backend/internal/web/dist/.gitkeep
+# 前端构建产物（内嵌到后端 embed，仅保留占位以通过编译）
+**/internal/web/dist/*
+!**/internal/web/dist/.gitkeep
 
 # 后端构建产物
-backend/gatebox
 /gatebox
+/backend/gatebox
+/old/backend/gatebox
 
 # 运行时数据
 data/
