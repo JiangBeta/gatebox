@@ -1,0 +1,47 @@
+/* GateBox 抽屉/弹层全局排版规范
+   用于右侧 Drawer(及类似弹层)的统一样式:
+   - 段落标题:黑色 粗体 14px
+   - 控件标题:黑色 14px(必填项前加红色 *)
+   - 控件说明:灰色 12px
+   - 段落区隔线:每段之间
+   - 操作按钮区:整体居右
+*/
+.dw-section {
+  font-size: 14px;
+  font-weight: 700;
+  color: #000;
+  margin-bottom: 8px;
+}
+.dw-label {
+  font-size: 14px;
+  color: #000;
+  margin-bottom: 4px;
+  line-height: 1.5;
+}
+.dw-label .dw-required {
+  color: #ff4d4f;
+  margin-right: 2px;
+}
+.dw-desc {
+  font-size: 12px;
+  color: #999;
+  line-height: 1.5;
+}
+.dw-divider {
+  border-top: 1px solid #f0f0f0;
+  margin: 14px 0;
+}
+.dw-field {
+  margin-bottom: 12px;
+}
+.dw-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 0;
+}
+.dw-drawer-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #000;
+}

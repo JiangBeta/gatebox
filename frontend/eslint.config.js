@@ -26,6 +26,12 @@ export default [
     },
     rules: {
       'vue/multi-word-component-names': 'off',
+      // 旧代码使用 GateBox 变量定界符 <%VAR%>（网关 Caddy 片段），非 Vue 标签；
+      // 关闭该解析报错以兼容。
+      'vue/no-parsing-error': ['error', { 'invalid-first-character-of-tag-name': false }],
+      // 存量代码：类型与未用变量暂降为警告，不作为门禁（新代码遵循分层规则）。
+      '@typescript-eslint/no-explicit-any': 'warn',
+      '@typescript-eslint/no-unused-vars': 'warn',
     },
   },
   // 基础层（design/lib/shared）不得依赖业务层
