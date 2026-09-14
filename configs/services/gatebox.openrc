@@ -1,0 +1,15 @@
+#!/sbin/openrc-run
+# GateBox OpenRC 服务（Alpine / OpenWrt 之外使用 OpenRC 的系统）
+description="GateBox AppGateway control plane"
+command="/usr/local/bin/gatebox"
+command_background=true
+pidfile="/run/gatebox.pid"
+export GATEBOX_DATA_DIR="${GATEBOX_DATA_DIR:-/opt/gatebox}"
+export GATEBOX_ADDR="${GATEBOX_ADDR:-0.0.0.0:8080}"
+output_log="/var/log/gatebox.log"
+error_log="/var/log/gatebox.err"
+
+depend() {
+    need net
+    after docker
+}

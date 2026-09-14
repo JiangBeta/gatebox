@@ -10,6 +10,9 @@ import (
 
 // RegisterComponents 注册组件与插件相关路由。
 func RegisterComponents(mux *http.ServeMux, reg *component.CoreRegistry, mgr *plugin.Manager) {
+	mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	})
 	mux.HandleFunc("GET /api/v1/components", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, reg.List(r.Context()))
 	})

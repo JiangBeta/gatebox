@@ -11,6 +11,9 @@ components.d.ts
 /backend/gatebox
 /old/backend/gatebox
 
+# 发布产物
+dist/
+
 # 运行时数据
 data/
 backend/data/

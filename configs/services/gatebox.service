@@ -1,0 +1,21 @@
+[Unit]
+Description=GateBox — HomeLab AppGateway 控制面
+Documentation=https://github.com/JiangBeta/gatebox
+After=network-online.target docker.service
+Wants=network-online.target
+# docker 为可选外部组件：未安装时不应阻塞 GateBox 启动
+After=docker.service
+
+[Service]
+Type=simple
+# 数据目录与监听地址可用环境变量覆盖（与 conf/gatebox.conf 三源加载一致）
+Environment=GATEBOX_DATA_DIR=/opt/gatebox
+Environment=GATEBOX_ADDR=0.0.0.0:8080
+ExecStart=/usr/local/bin/gatebox
+Restart=on-failure
+RestartSec=3
+# docker.sock 可写等价于宿主机 root，请知悉后再放开
+# SupplementaryGroups=docker
+
+[Install]
+WantedBy=multi-user.target

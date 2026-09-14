@@ -23,6 +23,9 @@ import (
 	"github.com/JiangBeta/gatebox/internal/source"
 )
 
+// 版本号：构建时经 -ldflags "-X main.version=..." 注入。
+var version = "dev"
+
 func main() {
 	cfg := config.Load()
 
@@ -63,7 +66,7 @@ func main() {
 
 	handler := server.New(st, cm, dc, coll, caddyCli, health, cfg.DaemonJSONPath, cfg.DataDir, cfg.CaddyBin, cfg.CaddyHTTPPort, cfg.CaddyHTTPSPort, cfg.CaddyHTTPSExtraPorts, ac, reg, mgr)
 
-	log.Printf("GateBox 启动: 监听 %s,数据目录 %s", cfg.Addr, cfg.DataDir)
+	log.Printf("GateBox %s 启动: 监听 %s, 数据目录 %s", version, cfg.Addr, cfg.DataDir)
 	if err := http.ListenAndServe(cfg.Addr, handler); err != nil {
 		log.Fatalf("服务启动失败: %v", err)
 	}
