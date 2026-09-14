@@ -389,7 +389,7 @@ $DATA_DIR/
 
 ```
 gatebox/
-├── go.work                  # 纳入 root module + ./old/backend
+├── go.work                  # 仅纳入活跃模块 ./backend（old 同 path 不能共存）
 ├── backend/                 # 新后端（§8）
 ├── frontend/                # 新前端（§9）
 ├── plugins/                 # 内置插件 manifest + schema + 文档
@@ -401,7 +401,7 @@ gatebox/
 └── configs/                 # systemd / openrc / procd 服务单元模板
 ```
 
-- `old/backend` 自带独立 `go.mod`；根 `go.work` 同时纳入新旧 module → 旧码可编译、可测试、可查证，不污染新码。
+- `old/backend` 自带独立 `go.mod`，为**冻结快照**；因其与新 module 同 path（`github.com/JiangBeta/gatebox`），**不能同时纳入 `go.work`**——故 `go.work` 仅纳入 `./backend`。查阅/构建旧码：`cd old/backend && GOWORK=off go build ./...`。
 - `old/frontend` 不纳入新构建。
 - 仓库 `tools/` 仅作**离线引导制品**（首次安装无网络时使用）；在线升级走 §5 制品源。现有平铺结构（`caddy`/`ddns-go`/`docker-compose`/`flare-amd64`/`flare-arm64`/`caddy.bak`）重建时规范为 `tools/<id>/<os>-<arch>/`。
 

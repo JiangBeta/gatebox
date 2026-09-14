@@ -40,7 +40,7 @@
 
 ```
 gatebox/
-├── go.work                  # 纳入 root module + ./old/backend
+├── go.work                  # 仅纳入活跃模块 ./backend
 ├── backend/                 # 新后端（Go）
 ├── frontend/                # 新前端（Vue3）
 ├── plugins/                 # 内置插件 manifest + schema + 文档
