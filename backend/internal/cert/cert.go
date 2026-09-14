@@ -1,4 +1,4 @@
-// Package cert 提供证书管理器抽象:当前实现读 Caddy 的证书存储,未来可切换独立 acme 客户端。
+// Package cert 提供证书管理器抽象:当前实现读 acme.sh 的证书存储。
 package cert
 
 import (
@@ -19,29 +19,28 @@ type CertManager interface {
 	List(ctx context.Context) ([]models.Cert, error)
 }
 
-// CaddyCertManager 从 Caddy 的证书存储目录读取已签发证书。
+// AcmeCertManager 从 acme.sh 的证书存储目录读取已签发证书。
 //
-// Caddy 将签发的证书存于 <data>/caddy/certificates/<issuer>/<domain>/<domain>.crt,
-// 每个 .crt 是标准 x509 PEM,含 SAN / 有效期 / 颁发机构 / 序列号。
-type CaddyCertManager struct {
-	DataDir string // caddy 数据目录(内含 caddy/certificates)
+// acme.sh 将签发的证书装于 <CertsDir>/<fqdn>/(fullchain.pem + key.pem),
+// fullchain.pem 是标准 x509 PEM,含 SAN / 有效期 / 颁发机构 / 序列号。
+type AcmeCertManager struct {
+	CertsDir string // acme 证书根目录(如 data/tools/acme/certs)
 }
 
-// NewCaddy 构造 Caddy 证书管理器。
-func NewCaddy(dataDir string) *CaddyCertManager {
-	return &CaddyCertManager{DataDir: dataDir}
+// NewAcme 构造 acme.sh 证书管理器。
+func NewAcme(certsDir string) *AcmeCertManager {
+	return &AcmeCertManager{CertsDir: certsDir}
 }
 
-// List 遍历证书存储目录,解析所有 .crt 文件。
-func (c *CaddyCertManager) List(_ context.Context) ([]models.Cert, error) {
-	certsDir := filepath.Join(c.DataDir, "caddy", "certificates")
+// List 遍历证书存储目录,解析所有 fullchain.pem 文件。
+func (c *AcmeCertManager) List(_ context.Context) ([]models.Cert, error) {
 	var certs []models.Cert
 
-	err := filepath.WalkDir(certsDir, func(path string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(c.CertsDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil // 跳过不可读项
 		}
-		if d.IsDir() || filepath.Ext(path) != ".crt" {
+		if d.IsDir() || filepath.Base(path) != "fullchain.pem" {
 			return nil
 		}
 		cert, err := parseCertFile(path)

@@ -370,6 +370,7 @@ func (d *dockerAPI) wsDeploy(w http.ResponseWriter, r *http.Request) {
 		inst.LastDeployedYAML = string(yamlBytes)
 		inst.LastDeployedAt = time.Now()
 		_ = d.s.SaveComposeInstance(inst)
+		d.syncCaddyAsync(r) // 部署成功后容器已运行,自动同步到网关(ADR-026 §7)
 		_ = writeJSONMsg(ctx, conn, deployProgress{Done: true})
 	}
 }

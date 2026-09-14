@@ -14,5 +14,8 @@ data/
 backend/data/
 *.db
 
-# 外部工具二进制(ADR-011:装入 $DATA_DIR/tools/,由安装脚本放置,不入库)
-tools/
+# 日志与备份文件
+*.log
+*.bak
+
+# 注:仓库 tools/ 存放外部组件二进制并入库(ADR-011 修订,2026-09-07),勿再屏蔽。

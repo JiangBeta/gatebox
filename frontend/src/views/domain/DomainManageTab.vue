@@ -1,22 +1,21 @@
 <script setup lang="ts">
 import { ref, onMounted, h } from 'vue'
 import {
-  NButton,
-  NDataTable,
-  NDrawer,
-  NForm,
-  NFormItem,
-  NInput,
-  NSelect,
-  NPopconfirm,
-  NSpace,
-  useMessage,
-} from 'naive-ui'
+  Button,
+  Drawer,
+  Form,
+  FormItem,
+  Input,
+  Popconfirm,
+  Select,
+  Table,
+  message,
+} from 'ant-design-vue'
 import { listDomains, createDomain, updateDomain, deleteDomain, type Domain } from '../../api/domains'
 import { listCredentials, type DNSCredential } from '../../api/credentials'
 import CredentialFormModal from '../../components/CredentialFormModal.vue'
 
-const message = useMessage()
+const [messageApi, contextHolder] = message.useMessage()
 const domains = ref<Domain[]>([])
 const credentials = ref<DNSCredential[]>([])
 const showModal = ref(false)
@@ -34,22 +33,31 @@ function formatTime(s: string) {
 }
 
 const columns = [
-  { title: '域名', key: 'name' },
-  { title: '凭证', key: 'credentialId', render: (row: any) => credName(row.credentialId) },
-  { title: '创建时间', key: 'createdAt', render: (row: any) => formatTime(row.createdAt) },
+  { title: '域名', dataIndex: 'name', key: 'name' },
+  {
+    title: '凭证',
+    dataIndex: 'credentialId',
+    key: 'credentialId',
+    customRender: ({ record }: { record: any }) => credName(record.credentialId),
+  },
+  {
+    title: '创建时间',
+    dataIndex: 'createdAt',
+    key: 'createdAt',
+    customRender: ({ record }: { record: any }) => formatTime(record.createdAt),
+  },
   {
     title: '操作',
     key: 'actions',
-    render: (row: any) =>
+    customRender: ({ record }: { record: any }) =>
       h('div', [
-        h(NButton, { size: 'small', onClick: () => openEdit(row) }, { default: () => '编辑' }),
+        h(Button, { size: 'small', onClick: () => openEdit(record) }, { default: () => '编辑' }),
         h(
-          NPopconfirm,
-          { onPositiveClick: () => doDelete(row.id) },
+          Popconfirm,
+          { title: '确认删除该域名?', onConfirm: () => doDelete(record.id) },
           {
-            trigger: () =>
-              h(NButton, { size: 'small', type: 'error', style: 'margin-left: 8px' }, { default: () => '删除' }),
-            default: () => '确认删除该域名?',
+            default: () =>
+              h(Button, { size: 'small', danger: true, style: 'margin-left: 8px' }, { default: () => '删除' }),
           },
         ),
       ]),
@@ -68,12 +76,10 @@ function openEdit(d: Domain) {
   showModal.value = true
 }
 
-// 在添加域名弹层里,点「添加凭证」打开嵌套的凭证弹层
 function openCredential() {
   showCredModal.value = true
 }
 
-// 嵌套凭证保存成功后:刷新凭证列表,并自动选中刚建的凭证
 function onCredentialSaved(c: DNSCredential) {
   loadCredentials()
   form.value.credentialId = c.id
@@ -81,28 +87,32 @@ function onCredentialSaved(c: DNSCredential) {
 
 async function save() {
   if (!form.value.name.trim()) {
-    message.warning('请输入域名')
+    messageApi.warning('请输入域名')
     return
   }
   try {
     if (editing.value) {
       await updateDomain(editing.value.id, form.value)
-      message.success('已更新')
+      messageApi.success('已更新')
     } else {
       await createDomain(form.value)
-      message.success('已添加')
+      messageApi.success('已添加')
     }
     showModal.value = false
     await load()
   } catch (e: any) {
-    message.error(e.message)
+    messageApi.error(e.message)
   }
 }
 
 async function doDelete(id: string) {
-  await deleteDomain(id)
-  message.success('已删除')
-  await load()
+  try {
+    await deleteDomain(id)
+    messageApi.success('已删除')
+    await load()
+  } catch (e: any) {
+    messageApi.error(e.message)
+  }
 }
 
 async function load() {
@@ -117,44 +127,46 @@ onMounted(load)
 </script>
 
 <template>
+  <contextHolder />
   <div style="margin-bottom: 16px; display: flex; justify-content: flex-end">
-    <n-button type="primary" @click="openAdd">+ 添加域名</n-button>
+    <Button type="primary" @click="openAdd">+ 添加域名</Button>
   </div>
-  <n-data-table :columns="columns" :data="domains" />
+  <Table :columns="columns" :data-source="domains" />
 
-  <n-drawer
-    v-model:show="showModal"
+  <Drawer
+    :open="showModal"
     placement="right"
-    width="min(480px, 100vw)"
+    width="480"
     :z-index="2000"
+    @close="showModal = false"
   >
-    <div style="display: flex; flex-direction: column; height: 100%">
-      <div style="padding: 14px 24px; border-bottom: 1px solid #eee; font-size: 16px; font-weight: 600; flex-shrink: 0">{{ editing ? '编辑域名' : '添加域名' }}</div>
-      <div style="flex: 1; overflow: auto; padding: 16px 24px">
-        <n-form label-placement="top">
-      <n-form-item label="域名">
-        <n-input v-model:value="form.name" placeholder="如 neob.cn" />
-      </n-form-item>
-      <n-form-item label="凭证">
+    <template #title>
+      <span class="dw-drawer-title">{{ editing ? '编辑域名' : '添加域名' }}</span>
+    </template>
+    <Form layout="vertical">
+      <Form.Item label="域名" required>
+        <Input v-model:value="form.name" placeholder="如 neob.cn" />
+      </Form.Item>
+      <Form.Item label="凭证">
         <div style="display: flex; gap: 8px; width: 100%">
-          <n-select
+          <Select
             v-model:value="form.credentialId"
             :options="credentials.map((c) => ({ label: c.name, value: c.id }))"
             placeholder="选择 DNS 凭证"
-            clearable
+            allow-clear
             style="flex: 1"
           />
-          <n-button @click="openCredential">添加凭证</n-button>
+          <Button @click="openCredential">添加凭证</Button>
         </div>
-      </n-form-item>
-    </n-form>
+      </Form.Item>
+    </Form>
+    <template #footer>
+      <div class="dw-footer">
+        <Button @click="showModal = false">取消</Button>
+        <Button type="primary" @click="save">保存</Button>
       </div>
-      <div style="padding: 14px 24px; border-top: 1px solid #eee; display: flex; justify-content: flex-end; gap: 8px; flex-shrink: 0">
-        <n-button @click="showModal = false">取消</n-button>
-        <n-button type="primary" @click="save">保存</n-button>
-      </div>
-    </div>
-  </n-drawer>
+    </template>
+  </Drawer>
 
   <CredentialFormModal v-model:show="showCredModal" :editing="null" :z-index="2100" @saved="onCredentialSaved" />
 </template>

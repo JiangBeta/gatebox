@@ -92,6 +92,7 @@ func (d *dockerAPI) convertContainer(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	d.syncCaddyAsync(r) // 原容器已删,编排动作后自动同步到网关(ADR-026 §7)
 	writeJSON(w, http.StatusOK, map[string]string{"projectName": in.Project})
 }
 

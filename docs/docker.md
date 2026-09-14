@@ -1,12 +1,13 @@
-# GateBox · Docker 功能设计 & 开发计划
+# GateBox · 容器功能设计 & 开发计划
 
-> 状态：设计已定（讨论 Q1~Q24 全部 settled），待开发
-> 关联：`docs/PRD.md`、`docs/glossary.md`、`docs/adr/ADR-001`、`docs/layout.md`
+> 状态：核心已实现（PRD v1 单位②全落地）；PRD v2 单位②负责**修复 + 更名 + 网关联动**，见 §12
+> 关联：`docs/PRD.md`、`docs/glossary.md`、`docs/adr/ADR-001 / 014 / 015 / 016`、`docs/layout.md`、`docs/gateway.md`（跨单位接口）
+> 术语：PRD v2 起一级导航「Docker」更名「**容器**」，本文档同步
 > 本文档中标注「实测」的结论均来自本机真实执行（Docker 29.6.2 / API 1.55 / Compose 5.4.0 / cgroup v2），非推断。
 
 ## 1. 定位与范围
 
-Docker 页是控制面一级导航之一，负责**容器运维**与**应用编排**：
+容器页是控制面一级导航之一，负责**容器运维**与**应用编排**：
 
 - 管理对象：**容器、编排、镜像、网络、存储卷**
 - 状态读取：运行时状态、日志、CPU / 内存
@@ -25,11 +26,12 @@ Docker 页是控制面一级导航之一，负责**容器运维**与**应用编�
 ### 2.1 三层结构（Q1）
 
 ```
-ComposeInstance (1) ──< Container (N) ──< App (M, M ≤ N)
+ComposeInstance (1) ──< Container (N) ──< Service (M, M ≤ N)
 ```
 
-- 一个 compose 项目起 N 个容器，其中只有需要被代理的容器升格为 **App**（术语表：可被代理的最小单元）。
+- 一个 compose 项目起 N 个容器，其中只有需要被代理的容器在网关侧升格为 **Service**（术语表：可被代理的单元；= 网关「代理」列表里 `source=docker` 的派生行）。
 - 这一层次是「一个 compose 起 3 个容器、其中 2 个各自代理到不同域名」的唯一自洽建模，也是应用商店（一个商店应用 = 一个 compose）与多主机（compose 是部署单位）的落点。
+- **注意术语**：docker 侧的「可被代理容器」在网关模型里是 **Service**，与网关「应用（App）= 手动分组实体」**不是一回事**（ADR-018 修订）。docker 派生的 Service **不属任何手动 App**，进网关只读「Docker 自动」分组。
 - **推论**：PRD 第 7 节的 `appData/<appName>/` 应正名为 `appData/<projectName>/`。
 
 ### 2.2 BoltDB 实体
@@ -273,7 +275,7 @@ Tab 顺序 **容器 / 编排 / 镜像 / 网络 / 存储卷**，**默认落在「
 
 > **为什么不用容器 IP 或服务名**：caddy 是 `$DATA_DIR/tools/caddy/caddy`——**宿主机二进制、systemd 服务，不是容器**。docker 的内嵌 DNS（`127.0.0.11`）只在容器内部可用，宿主机上的 caddy 解析不了 `jellyfin:8096`。而容器 IP **每次 `up` 重建都会变**，用它就得背上一整套 docker events 监听 + 自动重新生成 Caddyfile 的机制——**为省一个本机端口，换来「容器重启后网站 502」这个经典故障源**。绑 `127.0.0.1` 同样不暴露公网，稳定性在 HomeLab 远比端口洁癖值钱。
 
-**App 的稳定标识 = `project + service`**（游离容器回退 `container_name`）。容器 ID 每次重建必变，`container_name` 很多人不设，而这一对 label 永远存在且永不变。
+**Service 的稳定标识 = `project + service`**（游离容器回退 `container_name`）。容器 ID 每次重建必变，`container_name` 很多人不设，而这一对 label 永远存在且永不变。
 
 **暴露给网关单位的接口**：
 
@@ -283,11 +285,21 @@ type ProxyableContainer struct {
     Project       string            // com.docker.compose.project
     Service       string            // com.docker.compose.service
     ContainerName string
-    HostPort      int
+    HostPort      int               // 首个宿主映射端口(兼容保留)
+    Ports         []ProxyablePort   // 全量 tcp 端口映射:Internal=容器内,Host=宿主
     Labels        map[string]string // caddy.* / gatebox.*
     State         string
 }
+type ProxyablePort struct{ Internal, Host uint16 }
 ```
+
+**反代 label 协议**（ADR-026，修订：行级绑定）：
+
+- 域名/协议/访问端口编码进 site 地址：`caddy: example.com`（https/443）、`http://example.com`（http/80）、`example.com:8443`（https/8443）、`http://example.com:8080`。
+- **每个站点(域名行)派生独立 Service**，各行独立反代目标与片段：
+  - 指向端口（行级覆盖继承服务级）：`caddy_N.reverse_proxy: "{{upstreams [https] [N]}}"` ＞ `caddy.reverse_proxy: "{{upstreams [https] [N]}}"`（服务级共享）＞ `gatebox.upstream_port: <宿主端口>` ＞ 唯一宿主端口。`N`=容器内部端口反向查宿主映射。
+  - 片段（行级覆盖）：`gatebox.fragments_N` ＞ `gatebox.fragments`；说明：`gatebox.description`。
+- **表单「指向端口」从「端口映射」行中选，序列化为该行 `caddy[.N].reverse_proxy: "{{upstreams <容器内部端口>}}"`**（caddy-docker-proxy 风格，Edit 区 label 中明确体现）。
 
 ## 6. 后端设计
 
@@ -376,7 +388,7 @@ type ProxyableContainer struct {
 
 **转换算法规范**：
 
-1. **Caddy label 双向转换**：State → Labels 时首个路由用无后缀 `caddy` 键，后续用 `caddy_1`、`caddy_2`；非 Caddy 的原生 label 合并写入 `_rawLabels`。Labels → State 时过滤 `caddy` 前缀键、按索引重组为 `caddyRoutes`，`caddy`/`caddy_0` 的值按空格拆为 `domain` 与 `path`，无法识别的高级指令归入 `customDirectives`。
+1. **Caddy label 双向转换**（ADR-026，修订：行级绑定）：State → Labels 时首个路由用无后缀 `caddy` 键，后续用 `caddy_1`、`caddy_2`；站点地址按 `[proto://]host[:port]` 序列化（裸 host=https/443，`http://`=http/80，显式 `:port`=custom）。**每个域名行**的「指向端口」→ 该行 `caddy[.N].reverse_proxy: "{{upstreams <容器内部端口>}}"`；「Caddy 片段」→ 该行 `gatebox.fragments[_N]`（行级覆盖继承服务级）；非 Caddy 的原生 label 合并写入 `_rawLabels`。Labels → State 时过滤 `caddy` 前缀键、按索引重组为 `caddyRoutes`（拆出 proto/port、行级 reverse_proxy 模板与片段），无法识别的高级指令归入 `customDirectives`。
 2. **`build` 智能简写**：解析时字符串自动转 `{context, dockerfile:'Dockerfile'}`；**仅当** `dockerfile === 'Dockerfile'` 且 `args` 为空时，导出降级为纯字符串。
 3. **`healthcheck` 规范化**：`test` 归一为 `{testType, command}`；导出时重组回 `[testType, ...command.split(' ')]`。
 4. **无损透传优先级**：导出时**先展开 `_rawConfigs` 作为基础对象，再覆盖写入 UI 识别的标准字段**——确保 UI 修改能覆盖旧值，而 `ulimits` / `sysctls` 等未修改的高级参数被完整保留。
@@ -422,7 +434,7 @@ type ProxyableContainer struct {
 | 位置 | 原 | 现 | 依据 |
 |---|---|---|---|
 | `docs/PRD.md` §5 | Docker 选型「moby SDK」 | 自研轻量 HTTP 封装 | Q7 / ADR-014 |
-| `docs/PRD.md` §6 | 无三层模型 | `ComposeInstance ──< Container ──< App` | Q1 / ADR-015 |
+| `docs/PRD.md` §6 | 无三层模型 | `ComposeInstance ──< Container ──< Service`（ADR-018 修订：可被代理容器 = 网关派生 Service） | Q1 / ADR-015 |
 | `docs/PRD.md` §7 | `appData/<appName>/`、`db/appgateway.db`、`cmd/appgateway` | `appData/<projectName>/`、`db/gatebox.db`、`cmd/gatebox` | Q1 / Q6 |
 | `docs/PRD.md` §8 | 「stats 走 WebSocket 推送」 | stats 后端聚合 + 轮询；会话型走 WS | Q5 |
 | `docs/PRD.md` §13 | 开发计划第 3 项写作「应用」 | 「网关」（与 layout.md §7 统一） | 遗留不一致 |
@@ -451,3 +463,62 @@ type ProxyableContainer struct {
 - **编排版本历史**：最近 N 次成功部署的版本列表（当前只留 `lastDeployedYAML` 一份）。
 - **stats 持久化曲线**：需降采样与保留策略，非 BoltDB 能承担。
 - **UDP 代理、独立证书签发**（PRD 既有 backlog）。
+
+## 12. PRD v2 变更（单位②）：修复、更名与网关联动
+
+> 对应 PRD §14 单位②。前置：单位①（导航路由 `/containers`、导航文案，已在 infra.md 定义）。本文档 §1~§11 为 v1 已落地设计，本节是 v2 增量。
+
+### 12.1 已知 bug：容器页无法打开（优先修复）
+
+**症状**（用户报告）：打开容器页一直转圈，无法获取 docker 信息。
+
+**候选成因**（开发时按序排查）：
+
+1. `frontend/src/views/docker/ContainerTab.vue` 的 `loadContainers`：`listContainers()` 抛错后 `loadError` 分支处理是否正确（`v-if` 只在特定错误文案显示）；`loading=false` 是否在 finally 中执行——**异常路径未复位 loading 会永久转圈**。
+2. 后端 `GET /api/v1/docker/info` / `/docker/containers`（`api/docker.go`）：docker daemon 不可达 / socket 权限不足时返回 500，前端是否吞错。
+3. stats 采集器（`internal/docker/stats`）单例在 daemon 异常时阻塞首屏轮询。
+4. 编排 Tab（`compose ls`）与容器 Tab 并行请求偶发 panic 导致整页挂起。
+
+**验收**：卸载 /var/run/docker.sock 时页面**明确报错不转圈**（错误占位 + 重试按钮）；daemon 正常时首屏 <1s。
+
+### 12.2 更名与 Tab 调整（配合单位①）
+
+- 一级导航「Docker」→「容器」，路由 `/docker` → `/containers`（前端文案）。
+- 原 Tab 1「容器」→「**概览**」，承载：容器列表摘要 + 编排项目状态 + 镜像/网络/卷数量卡片（聚合统计），容器明细操作并入同一 Tab（保持既有 5 Tab 结构：概览/编排/镜像/网络/存储卷）。
+
+### 12.3 容器 → 网关的代理数据联动
+
+**现状**：网关通过 `GET /docker/proxyable`（ADR-016 §3）在打开/刷新时拉取容器 label 派生数据，接入已有；接口不含容器 ID / IP。
+
+**v2 增量——「实时」语义**（对应 PRD §9.1「自动代理：基于运行中的 docker label 数据自动代理，该数据由容器模块获取并实时发送到 caddy api」）：
+
+- 容器模块为「**代理信息真相源**」：容器增 / 删 / 启 / 停 / 重建时，容器模块主动重新聚合 `proxyable` 快照并**推送**给网关模块（内存事件，不落库）。
+- 网关收到事件后刷新「Docker 自动」派生列表并评估是否增量 `/load`：
+  - **网关侧即时生效**（用户主动操作部署/停用后：事件到达 → 重新派生 → `/load`）——本期实现。
+  - **自动变化**（docker stop、异常退出、外部 `docker compose` 操作）：本期**不自动 `/load`**，仅更新列表 + 状态标记（安全起见，避免 GateBox 与外部 docker 操作互相覆盖 Caddyfile）；是否提供「一键同步到 caddy」按钮进入待讨论。
+- 事件来源：**docker events 流监听**（`/events` 长连接，复用自研 client），订阅过滤 `container` + label 判定是否代理相关；未启用时不监听（配置开关，默认开）。
+- 兜底：事件流断连（daemon 重启）后，列表刷新退回「打开页面时拉取 / 手动刷新」，保证不丢可用性。
+
+> 决策点（开发前讨论）：① 自动 `/load` 的触发范围；② 是否在 caddy 侧用「副本阈值」避免事件风暴（定义：N 秒内最多 `/load` 1 次，丢中间态）；③ 事件流不可达时的 UI 提示方式。
+
+### 12.4 应用变化 → 网关列表显示策略
+
+对应 PRD §9.1「存在问题及处理」，两个渠道：
+
+| 变化来源 | 处理 |
+|---|---|
+| **人工操作**（容器模块内新增/变更/停止/部署） | 容器模块向网关发事件；网关只显示最新状态（无历史残留） |
+| **自动变化**（docker 停止 / 运行错误 / 外部操作导致未启动） | 网关列表**保留显示**该派生 service，标「异常/未就绪」+ 原因（如 `State=exited(1)`），**不自动隐藏、不自动移除**；提供「忽略/移除」手工操作（移除仅隐藏显示，不碰 label） |
+
+- 异常判据：`State != running`（含 restarting / exited / dead / created）。
+- 列表顶部提供「同步状态」按钮（重新聚合 + 刷新），缓解事件流不可达时的陈旧显示。
+
+### 12.5 单位② 开发计划（含验证方案）
+
+| # | 任务 | 交付物 | AI 验证 | 人工验证 |
+|---|---|---|---|---|
+| 1 | 容器页转圈 bug 修复 | 前端加载态复位 + 错误兜底；后端错误可读化 | 组件测试：接口失败不再永转圈；集成：daemon 不可达返回结构化错误 | 拔 socket 看报错、恢复后重试成功 |
+| 2 | Tab 改名与「概览」聚合 | 概览卡片 + 既有 5 Tab 结构 | 组件测试：聚合计算 | 造数据看统计 |
+| 3 | proxyable 快照推送 + docker events 订阅 | 容器→网关内存事件总线 + `/events` 监听 | 单测：事件过滤/去抖；集成：真实 daemon 事件 | 外部 `docker compose up`，网关列表变化 |
+| 4 | 变化显示策略（保留异常项） | 异常标记 + 忽略操作 | 组件测试：三种 State 渲染 | 停容器看列表标红 |
+| 5 | 网关联动端到端 | 人工操作后网关自动刷新+`/load` | 集成：部署→事件→派生→/load 链路 | 重建容器确认代理不断 |

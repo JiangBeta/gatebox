@@ -57,13 +57,46 @@ type networkContainerView struct {
 // volumeView 存储卷列表项。InUse 由 volumeUsage 反查容器 Mounts 得出,
 // 因为 /volumes 的 UsageData 恒为 null(实测 daemon 不填充)。
 type volumeView struct {
-	Name       string    `json:"name"`
-	Driver     string    `json:"driver"`
-	Mountpoint string    `json:"mountpoint"`
-	Scope      string    `json:"scope"`
-	InUse      bool      `json:"inUse"`
-	Containers []string  `json:"containers,omitempty"`
-	CreatedAt  time.Time `json:"createdAt"`
+	Name        string    `json:"name"`
+	DisplayName string    `json:"displayName"`
+	Driver      string    `json:"driver"`
+	Mountpoint  string    `json:"mountpoint"`
+	Scope       string    `json:"scope"`
+	InUse       bool      `json:"inUse"`
+	Containers  []string  `json:"containers,omitempty"`
+	CreatedAt   time.Time `json:"createdAt"`
+}
+
+// volumeDisplayName 计算卷的友好名称:
+//   - compose 卷(label 带 com.docker.compose.project)剥离「project_」前缀;
+//   - 匿名卷(纯 64 位 hex 哈希、无 compose label)显示「匿名卷」;
+//   - 其余命名卷显示原名。
+func volumeDisplayName(v *client.Volume) string {
+	if proj := v.ComposeProject(); proj != "" {
+		prefix := proj + "_"
+		if strings.HasPrefix(v.Name, prefix) {
+			return v.Name[len(prefix):]
+		}
+		return v.Name
+	}
+	if isHexHash(v.Name, 64) {
+		return "匿名卷"
+	}
+	return v.Name
+}
+
+// isHexHash 判断 s 是否恰为 n 位小写十六进制。
+func isHexHash(s string, n int) bool {
+	if len(s) != n {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 // --- 镜像 ---
@@ -341,11 +374,12 @@ func (d *dockerAPI) listVolumes(w http.ResponseWriter, r *http.Request) {
 	out := make([]volumeView, 0, len(vols))
 	for _, v := range vols {
 		vv := volumeView{
-			Name:       v.Name,
-			Driver:     v.Driver,
-			Mountpoint: v.Mountpoint,
-			Scope:      v.Scope,
-			CreatedAt:  v.CreatedAt,
+			Name:        v.Name,
+			DisplayName: volumeDisplayName(&v),
+			Driver:      v.Driver,
+			Mountpoint:  v.Mountpoint,
+			Scope:       v.Scope,
+			CreatedAt:   v.CreatedAt,
 		}
 		if names := usage[v.Name]; len(names) > 0 {
 			vv.InUse = true

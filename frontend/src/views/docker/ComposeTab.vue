@@ -1,15 +1,20 @@
 <script setup lang="ts">
 import { ref, onMounted, h, computed } from 'vue'
+import { statCell } from '../../utils/cell'
 import {
-  NDataTable, NTag, NButton, NSpace, NModal, NDrawer, NAlert, NText, NCheckbox, NProgress, useMessage,
-} from 'naive-ui'
+  Table, Tag, Button, Space, Modal, Drawer, Alert, Checkbox, Progress, Tooltip, message, Typography,
+} from 'ant-design-vue'
 import {
-  listCompose, downCompose, restartCompose, restoreCompose, deleteCompose, adoptCompose, wsURL,
+  PlayCircleOutlined, PauseCircleOutlined, ReloadOutlined, EditOutlined, EyeOutlined,
+  SwapOutlined, DeleteOutlined,
+} from '@ant-design/icons-vue'
+import {
+  listCompose, downCompose, restartCompose, restoreCompose, deleteCompose, adoptCompose, syncCaddy, wsURL,
   type ComposeView, type DeployProgress,
 } from '../../api/docker'
 import ComposeEditorModal from '../../components/ComposeEditorModal.vue'
 
-const message = useMessage()
+const [messageApi, contextHolder] = message.useMessage()
 
 const projects = ref<ComposeView[]>([])
 const loading = ref(true)
@@ -33,6 +38,21 @@ const deployLines = ref<DeployProgress[]>([])
 const deployError = ref('')
 const deploying = ref(false)
 const deployDone = ref(false)
+
+// 手动「同步到网关」(ADR-026 §7):把运行中容器 label 派生进 Caddyfile 并 POST /load。
+const syncing = ref(false)
+async function doSyncCaddy() {
+  if (syncing.value) return
+  syncing.value = true
+  try {
+    await syncCaddy()
+    messageApi.success('已同步到网关')
+  } catch (e: any) {
+    messageApi.error('同步失败 — ' + e.message)
+  } finally {
+    syncing.value = false
+  }
+}
 let deploySocket: WebSocket | null = null
 
 function fmtTime(s?: string): string {
@@ -76,10 +96,10 @@ async function act(row: ComposeView, fn: (p: string) => Promise<void>, label: st
   busy.value = { ...busy.value, [row.projectName]: true }
   try {
     await fn(row.projectName)
-    message.success(`${row.displayName}:${label}成功`)
+    messageApi.success(`${row.displayName}:${label}成功`)
     await load()
   } catch (e: any) {
-    message.error(`${row.displayName}:${label}失败 — ${e.message}`)
+    messageApi.error(`${row.displayName}:${label}失败 — ${e.message}`)
   } finally {
     const next = { ...busy.value }
     delete next[row.projectName]
@@ -118,10 +138,10 @@ async function doDelete() {
   busy.value = { ...busy.value, [row.projectName]: true }
   try {
     await deleteCompose(row.projectName, { removeData: deleteData.value, removeVolumes: deleteVolumes.value })
-    message.success(`${row.displayName}:已删除`)
+    messageApi.success(`${row.displayName}:已删除`)
     await load()
   } catch (e: any) {
-    message.error(`${row.displayName}:删除失败 — ${e.message}`)
+    messageApi.error(`${row.displayName}:删除失败 — ${e.message}`)
   } finally {
     const next = { ...busy.value }
     delete next[row.projectName]
@@ -149,7 +169,7 @@ function startDeploy(row: ComposeView) {
     if (p.done) {
       deployDone.value = true
       deploying.value = false
-      message.success(`${row.displayName}:部署完成`)
+      messageApi.success(`${row.displayName}:部署完成`)
       load()
     }
   }
@@ -172,62 +192,70 @@ function closeDeploy() {
 function renderSource(row: ComposeView) {
   const tags = []
   if (row.source === 'managed') {
-    tags.push(h(NTag, { size: 'tiny', type: 'success', bordered: false }, { default: () => '托管' }))
+    tags.push(h(Tag, { color: 'success' }, { default: () => '托管' }))
   } else {
-    tags.push(h(NTag, { size: 'tiny', type: 'info', bordered: false }, { default: () => '外部' }))
+    tags.push(h(Tag, { color: 'processing' }, { default: () => '外部' }))
   }
   if (!row.deployed) {
-    tags.push(h(NTag, { size: 'tiny', bordered: false, style: 'margin-left: 4px' }, { default: () => '未部署' }))
+    tags.push(h(Tag, { style: 'margin-left: 4px' }, { default: () => '未部署' }))
   }
-  return h('span', { style: 'display: inline-flex; align-items: center; gap: 4px' }, tags)
+  return h('div', { style: 'display: inline-flex; align-items: center; gap: 4px' }, tags)
 }
 
 function renderStatus(row: ComposeView) {
-  if (!row.deployed) return h(NText, { depth: 3 }, { default: () => '未部署' })
-  if (row.status === 'running') return h(NTag, { size: 'small', type: 'success', bordered: false }, { default: () => '运行中' })
-  return h(NTag, { size: 'small', bordered: false }, { default: () => row.status || '已停止' })
+  if (!row.deployed) return h('div', { style: 'color: #888' }, '未部署')
+  if (row.status === 'running') return h(Tag, { color: 'success' }, { default: () => '运行中' })
+  return h(Tag, {}, { default: () => row.status || '已停止' })
 }
 
 const columns = computed(() => [
-  { title: '应用名', key: 'displayName', minWidth: 160, render: (row: ComposeView) => h('span', { style: 'font-weight: 600' }, row.displayName) },
-  { title: 'projectName', key: 'projectName', minWidth: 140, render: (row: ComposeView) => h(NText, { depth: 3 }, { default: () => row.projectName }) },
-  { title: '来源', key: 'source', width: 110, render: (row: ComposeView) => renderSource(row) },
+  { title: '项目名称', dataIndex: 'projectName', key: 'projectName', width: 160, customRender: ({ record }: { record: ComposeView }) => h('div', { style: 'font-weight: 600' }, record.projectName || record.displayName) },
+  { title: '来源', dataIndex: 'source', key: 'source', width: 110, customRender: ({ record }: { record: ComposeView }) => renderSource(record) },
   {
     title: '服务',
+    dataIndex: 'count',
     key: 'count',
     width: 70,
-    render: (row: ComposeView) => (row.deployed ? `${row.runningCount}/${row.totalCount}` : '-'),
+    customRender: ({ record }: { record: ComposeView }) => statCell(record.deployed ? `${record.runningCount}/${record.totalCount}` : '-'),
   },
-  { title: '状态', key: 'status', width: 90, render: (row: ComposeView) => renderStatus(row) },
-  { title: '上次部署', key: 'lastDeployedAt', width: 132, render: (row: ComposeView) => fmtTime(row.lastDeployedAt) },
+  { title: '状态', dataIndex: 'status', key: 'status', width: 90, customRender: ({ record }: { record: ComposeView }) => renderStatus(record) },
+  { title: '上次部署', dataIndex: 'lastDeployedAt', key: 'lastDeployedAt', width: 132, customRender: ({ record }: { record: ComposeView }) => statCell(fmtTime(record.lastDeployedAt)) },
   {
     title: '操作',
     key: 'actions',
-    width: 260,
+    width: 220,
     fixed: 'right' as const,
-    render: (row: ComposeView) => {
-      const isBusy = !!busy.value[row.projectName]
+    customRender: ({ record }: { record: ComposeView }) => {
+      const isBusy = !!busy.value[record.projectName]
       const btns: any[] = []
+      // tooltip 图标按钮:危险操作统一红色,其余按语义配色
+      const actBtn = (icon: any, label: string, color: string, onClick: () => void) =>
+        h(Tooltip, { title: label, trigger: 'hover' }, {
+          default: () => h(Button, {
+            size: 'small', type: 'text', shape: 'circle', disabled: isBusy, onClick,
+            style: { color },
+          }, { icon: () => h(icon) }),
+        })
       // 部署:未部署或托管项目都可一键 up 回盘上 YAML
-      if (!row.deployed || row.source === 'managed') {
-        btns.push(h(NButton, { size: 'tiny', type: 'primary', ghost: true, loading: isBusy, onClick: () => startDeploy(row) }, { default: () => '部署' }))
+      if (!record.deployed || record.source === 'managed') {
+        btns.push(actBtn(PlayCircleOutlined, '部署', '#52c41a', () => startDeploy(record)))
       }
-      if (row.deployed && row.status === 'running') {
-        btns.push(h(NButton, { size: 'tiny', loading: isBusy, onClick: () => confirmDown(row) }, { default: () => '停止' }))
-        btns.push(h(NButton, { size: 'tiny', loading: isBusy, onClick: () => act(row, restartCompose, '重启') }, { default: () => '重启' }))
+      if (record.deployed && record.status === 'running') {
+        btns.push(actBtn(PauseCircleOutlined, '停止', '#ff4d4f', () => confirmDown(record)))
+        btns.push(actBtn(ReloadOutlined, '重启', '#ff4d4f', () => act(record, restartCompose, '重启')))
       }
-      if (row.editable) {
-        btns.push(h(NButton, { size: 'tiny', onClick: () => openEdit(row) }, { default: () => '编辑' }))
-      } else if (row.deployed) {
-        if (row.source === 'external') {
-          btns.push(h(NButton, { size: 'tiny', type: 'warning', ghost: true, onClick: () => (adoptTarget.value = row) }, { default: () => '接管' }))
+      if (record.editable) {
+        btns.push(actBtn(EditOutlined, '编辑', '#1677ff', () => openEdit(record)))
+      } else if (record.deployed) {
+        if (record.source === 'external') {
+          btns.push(actBtn(SwapOutlined, '接管', '#faad14', () => (adoptTarget.value = record)))
         }
-        btns.push(h(NButton, { size: 'tiny', onClick: () => openView(row) }, { default: () => '查看' }))
+        btns.push(actBtn(EyeOutlined, '查看', '#8c8c8c', () => openView(record)))
       }
-      if (row.source === 'managed') {
-        btns.push(h(NButton, { size: 'tiny', type: 'error', ghost: true, onClick: () => confirmDelete(row) }, { default: () => '删除' }))
+      if (record.source === 'managed') {
+        btns.push(actBtn(DeleteOutlined, '删除', '#ff4d4f', () => confirmDelete(record)))
       }
-      return h(NSpace, { size: 4, wrap: false }, { default: () => btns })
+      return h(Space, { size: 0, wrap: false }, { default: () => btns })
     },
   },
 ])
@@ -236,20 +264,30 @@ onMounted(load)
 </script>
 
 <template>
-  <n-alert v-if="loadError" type="error" :show-icon="true" style="margin-bottom: 12px">
+  <contextHolder />
+  <Alert
+    v-if="loadError"
+    type="error"
+    :show-icon="true"
+    :style="{ marginBottom: '12px' }"
+  >
     {{ loadError }}
-  </n-alert>
+  </Alert>
 
-  <div style="display: flex; justify-content: flex-end; margin-bottom: 12px">
-    <n-button size="small" type="primary" @click="openCreate">+ 创建应用</n-button>
+  <div style="display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 12px">
+    <Button :loading="syncing" @click="doSyncCaddy">
+      <template #icon><SwapOutlined /></template>
+      同步到网关
+    </Button>
+    <Button type="primary" @click="openCreate">+ 创建应用</Button>
   </div>
 
-  <n-data-table
+  <Table
     :columns="columns"
-    :data="projects"
+    :data-source="projects"
     :loading="loading"
-    :row-key="(row: ComposeView) => row.projectName"
-    :scroll-x="962"
+    :row-key="(record: ComposeView) => record.projectName"
+    :scroll="{ x: 790 }"
     size="small"
   />
 
@@ -261,94 +299,92 @@ onMounted(load)
   />
 
   <!-- 停止确认 -->
-  <n-modal
-    :show="!!downTarget"
-    preset="dialog"
-    type="warning"
+  <Modal
+    :open="!!downTarget"
     title="停止项目"
-    positive-text="确认停止"
-    negative-text="取消"
-    @positive-click="doDown"
-    @negative-click="downTarget = null"
+    :ok-text="'确认停止'"
+    :cancel-text="'取消'"
+    @ok="doDown"
+    @cancel="downTarget = null"
     @close="downTarget = null"
   >
     确定停止 <b>{{ downTarget?.displayName }}</b> 吗？将删除该项目的所有容器（数据卷保留）。
-  </n-modal>
+  </Modal>
 
   <!-- 接管确认 -->
-  <n-modal
-    :show="!!adoptTarget"
-    preset="dialog"
-    type="warning"
+  <Modal
+    :open="!!adoptTarget"
     title="接管外部项目"
-    positive-text="确认接管"
-    negative-text="取消"
-    @positive-click="doAdopt"
-    @negative-click="adoptTarget = null"
+    :ok-text="'确认接管'"
+    :cancel-text="'取消'"
+    @ok="doAdopt"
+    @cancel="adoptTarget = null"
     @close="adoptTarget = null"
   >
     <div style="display: flex; flex-direction: column; gap: 8px">
       <span>接管 <b>{{ adoptTarget?.displayName }}</b> 后即可在 GateBox 中编辑其 compose 文件。</span>
-      <n-text depth="3" style="font-size: 12px">
+      <Typography.Text type="secondary" style="font-size: 12px">
         注意：保存时将重写该文件，原始注释与格式会丢失。若该文件在 git 仓库中，建议先提交。
-      </n-text>
+      </Typography.Text>
     </div>
-  </n-modal>
+  </Modal>
 
   <!-- 删除确认 -->
-  <n-modal
-    :show="!!deleteTarget"
-    preset="dialog"
-    type="error"
+  <Modal
+    :open="!!deleteTarget"
     title="删除项目"
-    positive-text="确认删除"
-    negative-text="取消"
-    @positive-click="doDelete"
-    @negative-click="deleteTarget = null"
+    :ok-text="'确认删除'"
+    :cancel-text="'取消'"
+    @ok="doDelete"
+    @cancel="deleteTarget = null"
     @close="deleteTarget = null"
   >
     <div style="display: flex; flex-direction: column; gap: 10px">
       <span>确定删除 <b>{{ deleteTarget?.displayName }}</b> 吗？将停止并删除其所有容器。</span>
-      <n-checkbox v-model:checked="deleteData">
-        同时删除数据目录 <n-text type="error" style="font-size: 12px">appData/{{ deleteTarget?.projectName }}</n-text>
-      </n-checkbox>
-      <n-checkbox v-model:checked="deleteVolumes">
-        同时删除关联的命名卷（<n-text type="error" style="font-size: 12px">数据不可恢复</n-text>）
-      </n-checkbox>
+      <Checkbox v-model:checked="deleteData">
+        同时删除数据目录 <Typography.Text type="danger" style="font-size: 12px">appData/{{ deleteTarget?.projectName }}</Typography.Text>
+      </Checkbox>
+      <Checkbox v-model:checked="deleteVolumes">
+        同时删除关联的命名卷（<Typography.Text type="danger" style="font-size: 12px">数据不可恢复</Typography.Text>）
+      </Checkbox>
     </div>
-  </n-modal>
+  </Modal>
 
   <!-- 部署进度 -->
-  <n-drawer
-    v-model:show="deployShow"
+  <Drawer
+    :open="deployShow"
+    :width="600"
     placement="right"
-    width="min(600px, 100vw)"
     :mask-closable="!deploying"
-    @after-leave="closeDeploy"
+    @close="closeDeploy"
+    @after-visible-change="(visible: boolean) => !visible && closeDeploy()"
   >
-    <div style="display: flex; flex-direction: column; height: 100%">
-      <div style="padding: 14px 24px; border-bottom: 1px solid #eee; font-size: 16px; font-weight: 600; flex-shrink: 0">部署 {{ deployTarget?.displayName || '' }}</div>
-      <div style="flex: 1; overflow: auto; padding: 16px 24px; display: flex; flex-direction: column; gap: 10px">
-      <n-progress
+    <template #title>
+      <span class="dw-drawer-title">部署 {{ deployTarget?.displayName || '' }}</span>
+    </template>
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <Progress
         v-if="deploying"
-        type="line"
-        :percentage="100"
-        :processing="true"
-        :indicator-placement="'inside'"
+        :percent="100"
+        :status="'active'"
       />
       <div v-for="(l, i) in deployLines" :key="i" style="font-size: 12px; font-family: monospace; line-height: 1.6">
-        <n-tag size="tiny" :type="l.status === 'Done' ? 'success' : l.status === 'Error' ? 'error' : 'default'" :bordered="false" style="margin-right: 6px">
+        <Tag
+          :color="l.status === 'Done' ? 'success' : l.status === 'Error' ? 'error' : 'default'"
+          style="margin-right: 6px"
+        >
           {{ l.status }}
-        </n-tag>
+        </Tag>
         <span>{{ l.id }}</span>
-        <span style="color: #888; margin-left: 6px">{{ l.text }}</span>
+        <span style="color: #8c8c8c; margin-left: 6px">{{ l.text }}</span>
       </div>
-      <n-text v-if="deployError" type="error" style="font-size: 12px">{{ deployError }}</n-text>
-      <n-text v-if="deployDone" type="success" style="font-size: 13px">✓ 部署完成</n-text>
-      </div>
-      <div style="padding: 14px 24px; border-top: 1px solid #eee; display: flex; justify-content: flex-end; gap: 8px; flex-shrink: 0">
-        <n-button size="small" :disabled="deploying" @click="closeDeploy">关闭</n-button>
-      </div>
+      <Typography.Text v-if="deployError" type="danger" style="font-size: 12px">{{ deployError }}</Typography.Text>
+      <Typography.Text v-if="deployDone" type="success" style="font-size: 13px">✓ 部署完成</Typography.Text>
     </div>
-  </n-drawer>
+    <template #footer>
+      <div class="dw-footer">
+        <Button :disabled="deploying" @click="closeDeploy">关闭</Button>
+      </div>
+    </template>
+  </Drawer>
 </template>

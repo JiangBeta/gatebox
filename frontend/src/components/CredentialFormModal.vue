@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { NDrawer, NForm, NFormItem, NInput, NSelect, NButton, NSpace, useMessage } from 'naive-ui'
+import { Drawer, Form, FormItem, Input, Select, Button, Space, message } from 'ant-design-vue'
 import { createCredential, updateCredential, verifyCredential, type DNSCredential } from '../api/credentials'
 
 const props = defineProps<{
@@ -13,7 +13,7 @@ const emit = defineEmits<{
   saved: [DNSCredential]
 }>()
 
-const message = useMessage()
+const [messageApi, contextHolder] = message.useMessage()
 const verifyResult = ref('')
 
 const providerOptions = [
@@ -60,7 +60,7 @@ async function doVerify() {
 
 async function save() {
   if (!form.value.name.trim()) {
-    message.warning('请输入凭证名称')
+    messageApi.warning('请输入凭证名称')
     return
   }
   try {
@@ -68,46 +68,47 @@ async function save() {
     const saved = props.editing
       ? await updateCredential(props.editing.id, payload)
       : await createCredential(payload)
-    message.success(props.editing ? '已更新' : '已添加')
+    messageApi.success(props.editing ? '已更新' : '已添加')
     emit('saved', saved)
     emit('update:show', false)
   } catch (e: any) {
-    message.error(e.message)
+    messageApi.error(e.message)
   }
 }
 </script>
 
 <template>
-  <n-drawer
-    :show="show"
+  <contextHolder />
+  <Drawer
+    :open="show"
     placement="right"
-    width="min(480px, 100vw)"
+    :width="480"
     :z-index="zIndex"
-    @update:show="(v: boolean) => emit('update:show', v)"
+    @close="(v: boolean | MouseEvent) => emit('update:show', false)"
   >
-    <div style="display: flex; flex-direction: column; height: 100%">
-      <div style="padding: 14px 24px; border-bottom: 1px solid #eee; font-size: 16px; font-weight: 600; flex-shrink: 0">{{ editing ? '编辑凭证' : '添加凭证' }}</div>
-      <div style="flex: 1; overflow: auto; padding: 16px 24px">
-        <n-form label-placement="top">
-      <n-form-item label="供应商">
-        <n-select v-model:value="form.provider" :options="providerOptions" :disabled="!!editing" />
-      </n-form-item>
-      <n-form-item label="凭证名称">
-        <n-input v-model:value="form.name" placeholder="一般为域名" />
-      </n-form-item>
-      <n-form-item v-for="f in fields" :key="f.key" :label="f.label">
-        <n-input v-model:value="form.fields[f.key]" type="password" show-password-on="click" placeholder="请输入" />
-      </n-form-item>
-      <div v-if="verifyResult" :style="{ color: verifyResult.startsWith('通过') ? '#18a058' : '#d03050' }">
+    <template #title>
+      <span class="dw-drawer-title">{{ editing ? '编辑凭证' : '添加凭证' }}</span>
+    </template>
+    <Form layout="vertical">
+      <FormItem label="供应商">
+        <Select v-model:value="form.provider" :options="providerOptions" :disabled="!!editing" />
+      </FormItem>
+      <FormItem label="凭证名称">
+        <Input v-model:value="form.name" placeholder="一般为域名" />
+      </FormItem>
+      <FormItem v-for="f in fields" :key="f.key" :label="f.label">
+        <Input v-model:value="form.fields[f.key]" type="password" placeholder="请输入" />
+      </FormItem>
+      <div v-if="verifyResult" :style="{ color: verifyResult.startsWith('通过') ? '#52c41a' : '#ff4d4f' }">
         {{ verifyResult }}
       </div>
-    </n-form>
+    </Form>
+    <template #footer>
+      <div class="dw-footer">
+        <Button @click="emit('update:show', false)">取消</Button>
+        <Button @click="doVerify">验证</Button>
+        <Button type="primary" @click="save">保存</Button>
       </div>
-      <div style="padding: 14px 24px; border-top: 1px solid #eee; display: flex; justify-content: flex-end; gap: 8px; flex-shrink: 0">
-        <n-button @click="doVerify">验证</n-button>
-        <n-button @click="emit('update:show', false)">取消</n-button>
-        <n-button type="primary" @click="save">保存</n-button>
-      </div>
-    </div>
-  </n-drawer>
+    </template>
+  </Drawer>
 </template>

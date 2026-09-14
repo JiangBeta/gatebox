@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/JiangBeta/gatebox/internal/docker/client"
 	"github.com/JiangBeta/gatebox/internal/docker/compose"
 	"github.com/JiangBeta/gatebox/internal/models"
 	"github.com/JiangBeta/gatebox/internal/store"
@@ -119,7 +118,38 @@ func (d *dockerAPI) listCompose(w http.ResponseWriter, r *http.Request) {
 		if _, ok := discovered[inst.ProjectName]; ok {
 			continue
 		}
+		// 托管项目(配置在 appData 下)保持托管且可编辑
+		if inst.Managed {
+			inst.Editable = true
+			_ = d.s.SaveComposeInstance(&inst)
+		}
 		out = append(out, composeViewFromProject(&inst, compose.Project{}))
+	}
+
+	// appData 下存在 compose 文件、但 docker 与 DB 都没有的托管项目 → 补注册列出(未部署),
+	// 避免手工放入的托管项目在编排 Tab「消失」。已有 records 由上方循环覆盖。
+	for _, name := range d.scanManagedProjects() {
+		if _, ok := discovered[name]; ok {
+			continue // 已部署,docker 分支已处理并落库
+		}
+		if _, ok := knownMap[name]; ok {
+			continue // DB 已有,上方未部署循环已列出
+		}
+		cfg := filepath.Join(d.dataDir, "appData", name, "docker-compose.yaml")
+		if _, err := os.Stat(cfg); err != nil {
+			cfg = filepath.Join(d.dataDir, "appData", name, "docker-compose.yml")
+		}
+		inst := &models.ComposeInstance{
+			ProjectName: name,
+			DisplayName: name,
+			HostID:      "local",
+			Managed:     true,
+			Editable:    true,
+			ConfigFiles: cfg,
+			CreatedAt:   time.Now(),
+		}
+		_ = d.s.SaveComposeInstance(inst)
+		out = append(out, composeViewFromProject(inst, compose.Project{}))
 	}
 
 	sort.SliceStable(out, func(i, j int) bool {
@@ -175,17 +205,23 @@ func (d *dockerAPI) createCompose(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "YAML 不能为空")
 		return
 	}
+	// 容器变量占位(${VAR})在写盘前替换(GB_PROJ_NAME/GB_PROJ_FILE/端口 + 用户变量)。
+	resolved, err := d.interpolateContainerVars(project, strings.TrimSpace(in.DisplayName), in.YAML)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	dir := d.cmp.ManagedDir(project)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := d.cmp.Validate(r.Context(), in.YAML, dir); err != nil {
+	if err := d.cmp.Validate(r.Context(), resolved, dir); err != nil {
 		writeErr(w, http.StatusBadRequest, "校验失败: "+err.Error())
 		return
 	}
-	if err := os.WriteFile(d.cmp.ManagedFile(project), []byte(in.YAML), 0o644); err != nil {
+	if err := os.WriteFile(d.cmp.ManagedFile(project), []byte(resolved), 0o644); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -236,6 +272,8 @@ func (d *dockerAPI) getCompose(w http.ResponseWriter, r *http.Request) {
 		"yaml":            string(yamlStr),
 		"hasDeployedYAML": inst.LastDeployedYAML != "",
 		"lastDeployedAt":  inst.LastDeployedAt,
+		// 项目目录(相对运行目录,无结尾 /),供前端把相对路径挂载归并到 ${GB_PROJ_FILE}
+		"projectDir": d.cmp.ManagedDir(inst.ProjectName),
 	})
 }
 
@@ -266,12 +304,22 @@ func (d *dockerAPI) saveCompose(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	displayName := inst.DisplayName
+	if dn := strings.TrimSpace(in.DisplayName); dn != "" {
+		displayName = dn
+	}
+	resolved, err := d.interpolateContainerVars(inst.ProjectName, displayName, in.YAML)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	file, dir := d.composePaths(inst)
-	if err := d.cmp.Validate(r.Context(), in.YAML, dir); err != nil {
+	if err := d.cmp.Validate(r.Context(), resolved, dir); err != nil {
 		writeErr(w, http.StatusBadRequest, "校验失败: "+err.Error())
 		return
 	}
-	if err := os.WriteFile(file, []byte(in.YAML), 0o644); err != nil {
+	if err := os.WriteFile(file, []byte(resolved), 0o644); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -296,14 +344,19 @@ func (d *dockerAPI) validateCompose(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "请求体解析失败")
 		return
 	}
+	resolved, err := d.interpolateContainerVars(in.Project, "", in.YAML)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	dir := d.cmp.ManagedDir(in.Project)
 	_ = os.MkdirAll(dir, 0o755)
-	if err := d.cmp.Validate(r.Context(), in.YAML, dir); err != nil {
+	if err := d.cmp.Validate(r.Context(), resolved, dir); err != nil {
 		writeErr(w, http.StatusBadRequest, "校验失败: "+err.Error())
 		return
 	}
-	warnings := d.localValidate(r.Context(), in.YAML, dir)
-	warnings = append(warnings, d.detectUndefinedVars(in.YAML, dir)...)
+	warnings := d.localValidate(r.Context(), resolved, dir)
+	warnings = append(warnings, d.detectUndefinedVars(resolved, dir)...)
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "warnings": warnings})
 }
 
@@ -318,6 +371,7 @@ func (d *dockerAPI) downCompose(w http.ResponseWriter, r *http.Request) {
 		writeDockerErr(w, err)
 		return
 	}
+	d.syncCaddyAsync(r) // 编排动作后自动同步到网关(ADR-026 §7)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -332,6 +386,7 @@ func (d *dockerAPI) restartCompose(w http.ResponseWriter, r *http.Request) {
 		writeDockerErr(w, err)
 		return
 	}
+	d.syncCaddyAsync(r) // 编排动作后自动同步到网关(ADR-026 §7)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -477,50 +532,14 @@ func usesIncludeOrExtends(content string) bool {
 // listProxyable 跨单位接口:返回可被代理的容器(docs §5.6 / Task 13)。
 //
 // 稳定标识 = project + service,不含容器 ID 与 IP——从接口层面杜绝下游依赖易变值。
+// 语义「可被代理」= running only,与网关侧的「异常保留」(includeStopped)区分。
 func (d *dockerAPI) listProxyable(w http.ResponseWriter, r *http.Request) {
-	list, err := d.cli.ListContainers(r.Context(), client.ListContainersOptions{All: false})
+	out, err := proxyableContainers(r.Context(), d.cli, d.s, false)
 	if err != nil {
 		writeDockerErr(w, err)
 		return
 	}
-
-	out := make([]proxyableContainer, 0, len(list))
-	for _, ct := range list {
-		if ct.State != "running" {
-			continue // 只有运行中的容器才可被代理
-		}
-		pc := proxyableContainer{
-			Project:       ct.ComposeProject(),
-			Service:       ct.ComposeService(),
-			ContainerName: ct.Name(),
-			Labels:        proxyableLabels(ct.Labels),
-			State:         ct.State,
-		}
-		for _, p := range ct.Ports {
-			if p.PublicPort > 0 {
-				pc.HostPort = int(p.PublicPort)
-				break
-			}
-		}
-		out = append(out, pc)
-	}
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].Project != out[j].Project {
-			return out[i].Project < out[j].Project
-		}
-		return out[i].Service < out[j].Service
-	})
 	writeJSON(w, http.StatusOK, out)
-}
-
-// proxyableContainer 暴露给网关单位的容器视图(docs §5.6)。
-type proxyableContainer struct {
-	Project       string            `json:"project"`
-	Service       string            `json:"service"`
-	ContainerName string            `json:"containerName"`
-	HostPort      int               `json:"hostPort"` // 0 = 未映射到宿主机
-	Labels        map[string]string `json:"labels"`   // 仅 caddy.* / gatebox.*
-	State         string            `json:"state"`
 }
 
 // proxyableLabels 只保留 caddy.* 与 gatebox.* 前缀的 label。
@@ -530,6 +549,29 @@ func proxyableLabels(labels map[string]string) map[string]string {
 		if strings.HasPrefix(k, "caddy") || strings.HasPrefix(k, "gatebox") {
 			out[k] = v
 		}
+	}
+	return out
+}
+
+// scanManagedProjects 扫描 dataDir/appData 下含 compose 文件的托管项目目录名
+// (docker-compose.yaml / .yml 任一存在)。空格/点前缀目录视为无关跳过。
+func (d *dockerAPI) scanManagedProjects() []string {
+	root := filepath.Join(d.dataDir, "appData")
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, e := range entries {
+		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") || strings.Contains(e.Name(), " ") {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(root, e.Name(), "docker-compose.yaml")); err != nil {
+			if _, err := os.Stat(filepath.Join(root, e.Name(), "docker-compose.yml")); err != nil {
+				continue
+			}
+		}
+		out = append(out, e.Name())
 	}
 	return out
 }

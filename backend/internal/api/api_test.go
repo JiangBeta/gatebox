@@ -63,3 +63,49 @@ func TestCertStats(t *testing.T) {
 		t.Errorf("total=%d expiring=%d expired=%d", total, expiring, expired)
 	}
 }
+
+func TestSubdomainCountByRoot(t *testing.T) {
+	services := []models.Service{
+		{
+			Enabled: true,
+			Domains: []models.ProxyDomain{
+				{Subdomain: "a", RootDomain: "neob.cn"},
+				{Subdomain: "b", RootDomain: "neob.cn"},
+				{Subdomain: "", RootDomain: "apex.cn"},
+			},
+		},
+		{
+			Enabled: false,
+			Domains: []models.ProxyDomain{{Subdomain: "off", RootDomain: "neob.cn"}},
+		},
+		{
+			Enabled: true,
+			Domains: []models.ProxyDomain{{Subdomain: "docker", RootDomain: ""}}, // docker 派生,无 rootDomain
+		},
+	}
+	got := subdomainCountByRoot(services)
+	if got["neob.cn"] != 3 {
+		t.Errorf("neob.cn = %d, want 3", got["neob.cn"])
+	}
+	if got["apex.cn"] != 1 {
+		t.Errorf("apex.cn = %d, want 1", got["apex.cn"])
+	}
+	if _, ok := got[""]; ok {
+		t.Error("不应统计空 rootDomain(docker 派生)")
+	}
+}
+
+func TestDomainReferenced(t *testing.T) {
+	services := []models.Service{
+		{Enabled: true, Domains: []models.ProxyDomain{{Subdomain: "a", RootDomain: "neob.cn"}}},
+		{Enabled: false, Domains: []models.ProxyDomain{{Subdomain: "b", RootDomain: "neob.cn"}}},
+		{Enabled: true, Domains: []models.ProxyDomain{{Subdomain: "c", RootDomain: "other.cn"}}},
+		{Enabled: true, Domains: []models.ProxyDomain{{Subdomain: "docker", RootDomain: ""}}},
+	}
+	if !domainReferenced(services, "neob.cn") {
+		t.Error("neob.cn 应被引用(含停用服务)")
+	}
+	if domainReferenced(services, "free.cn") {
+		t.Error("free.cn 不应被引用")
+	}
+}

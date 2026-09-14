@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { NEmpty } from 'naive-ui'
+import { Empty } from 'ant-design-vue'
 </script>
 
 <template>
-  <n-empty description="仪表盘功能开发中" />
+  <Empty description="仪表盘功能开发中" />
 </template>

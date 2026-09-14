@@ -157,6 +157,7 @@ type Health struct {
 // ContainerConfig 容器创建时的配置。
 type ContainerConfig struct {
 	Hostname   string            `json:"Hostname"`
+	WorkingDir string            `json:"WorkingDir,omitempty"`
 	User       string            `json:"User"`
 	Env        []string          `json:"Env"`
 	Cmd        []string          `json:"Cmd"`

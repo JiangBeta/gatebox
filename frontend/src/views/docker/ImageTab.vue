@@ -1,16 +1,17 @@
 <script setup lang="ts">
 import { ref, onMounted, h, computed } from 'vue'
+import { statCell } from '../../utils/cell'
 import {
-  NDataTable, NTag, NButton, NSpace, NModal, NDrawer, NInput, NProgress, NText,
-  NTooltip, NEllipsis, NUpload, NUploadDragger, useMessage,
-} from 'naive-ui'
+  Table, Tag, Button, Space, Modal, Drawer, Input, Progress, Tooltip,
+  Typography, Upload, Alert, message,
+} from 'ant-design-vue'
 import {
   listImages, removeImage, loadImage, dockerInfo, wsURL,
   type ImageView, type PullProgress,
 } from '../../api/docker'
 import RegistryModal from '../../components/RegistryModal.vue'
 
-const message = useMessage()
+const [messageApi, contextHolder] = message.useMessage()
 
 const images = ref<ImageView[]>([])
 const loading = ref(true)
@@ -69,47 +70,43 @@ function renderName(row: ImageView) {
   const dangling = row.names.length === 0
   return h('div', { style: 'display: flex; flex-direction: column; gap: 2px; min-width: 0' }, [
     h('div', { style: 'display: flex; align-items: center; gap: 6px; min-width: 0' }, [
-      h(NEllipsis, {
-        style: dangling ? 'font-weight: 400; color: #aaa' : 'font-weight: 600',
-      }, { default: () => name }),
-      dangling ? h(NTag, { size: 'tiny', bordered: false }, { default: () => '悬空' }) : null,
+      h('span', { style: (dangling ? 'font-weight: 400; color: #aaa;' : 'font-weight: 600;') + 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap' }, name),
+      // 硬编码样式 span 代替 Tag:rc-table 单元格内避免组件型子级(见 utils/cell.ts)
+      ...(dangling ? [h('span', { style: 'border:1px solid #d9d9d9;color:#999;padding:0 6px;border-radius:4px;font-size:12px' }, '悬空')] : []),
     ]),
-    row.names.length > 1
-      ? h(NText, { depth: 3, style: 'font-size: 12px' }, { default: () => `+${row.names.length - 1} 个标签` })
-      : h(NText, { depth: 3, style: 'font-size: 12px' }, { default: () => row.digests[0]?.split('@')[1]?.slice(0, 12) || '' }),
+    h('span', { style: 'color: #888; font-size: 12px' },
+      row.names.length > 1 ? `+${row.names.length - 1} 个标签` : (row.digests[0]?.split('@')[1]?.slice(0, 12) || '')),
   ])
 }
 
 function renderUsage(row: ImageView) {
-  if (!row.inUse) return h(NTag, { size: 'small', bordered: false }, { default: () => '未使用' })
-  return h(NTooltip, { trigger: 'hover' }, {
-    trigger: () => h(NTag, { size: 'small', type: 'warning', bordered: false }, { default: () => '使用中' }),
-    default: () => '被容器使用: ' + (row.containers || []).join(', '),
+  if (!row.inUse) return h(Tag, { bordered: false }, { default: () => '未使用' })
+  return h(Tooltip, { title: '被容器使用: ' + (row.containers || []).join(', ') }, {
+    default: () => h(Tag, { color: 'warning', bordered: false }, { default: () => '使用中' }),
   })
 }
 
 const columns = computed(() => [
-  { title: '名称', key: 'name', minWidth: 240, render: (row: ImageView) => renderName(row) },
-  { title: '架构', key: 'arch', width: 120, render: (row: ImageView) => row.arch || '-' },
-  { title: '大小', key: 'size', width: 90, render: (row: ImageView) => fmtBytes(row.size) },
-  { title: '是否使用', key: 'usage', width: 100, render: (row: ImageView) => renderUsage(row) },
-  { title: '创建时间', key: 'createdAt', width: 132, render: (row: ImageView) => fmtTime(row.createdAt) },
+  { title: '名称', dataIndex: 'name', key: 'name', width: 240, customRender: ({ record }: { record: ImageView }) => renderName(record) },
+  { title: '架构', dataIndex: 'arch', key: 'arch', width: 120, customRender: ({ record }: { record: ImageView }) => statCell(record.arch || '-') },
+  { title: '大小', dataIndex: 'size', key: 'size', width: 90, customRender: ({ record }: { record: ImageView }) => statCell(fmtBytes(record.size)) },
+  { title: '是否使用', key: 'usage', width: 100, customRender: ({ record }: { record: ImageView }) => renderUsage(record) },
+  { title: '创建时间', dataIndex: 'createdAt', key: 'createdAt', width: 132, customRender: ({ record }: { record: ImageView }) => statCell(fmtTime(record.createdAt)) },
   {
     title: '操作',
     key: 'actions',
     width: 90,
     fixed: 'right' as const,
-    render: (row: ImageView) =>
-      h(NTooltip, { trigger: 'hover', disabled: !row.inUse }, {
-        trigger: () =>
-          h(NButton, {
-            size: 'tiny',
-            type: 'error',
+    customRender: ({ record }: { record: ImageView }) =>
+      h(Tooltip, { title: record.inUse ? '被容器使用: ' + (record.containers || []).join(', ') : '' }, {
+        default: () =>
+          h(Button, {
+            size: 'small',
+            danger: true,
             ghost: true,
-            disabled: row.inUse,
-            onClick: () => (removeTarget.value = row),
+            disabled: record.inUse,
+            onClick: () => (removeTarget.value = record),
           }, { default: () => '删除' }),
-        default: () => '被容器使用: ' + (row.containers || []).join(', '),
       }),
   },
 ])
@@ -120,11 +117,11 @@ async function doRemove() {
   removeBusy.value = true
   try {
     await removeImage(row.names[0] || row.id)
-    message.success('镜像已删除')
+    messageApi.success('镜像已删除')
     removeTarget.value = null
     await load()
   } catch (e: any) {
-    message.error('删除失败 — ' + e.message)
+    messageApi.error('删除失败 — ' + e.message)
   } finally {
     removeBusy.value = false
   }
@@ -153,7 +150,7 @@ function pullRef(): string {
 function startPull() {
   const ref = pullRef()
   if (!ref) {
-    message.warning('请填写镜像名')
+    messageApi.warning('请填写镜像名')
     return
   }
   if (pullActive.value) return
@@ -168,7 +165,7 @@ function startPull() {
   pullSocket.onmessage = (ev) => {
     const p: PullProgress = JSON.parse(ev.data)
     if (p.error) {
-      message.error('拉取失败 — ' + p.error)
+      messageApi.error('拉取失败 — ' + p.error)
       closePull()
       return
     }
@@ -176,13 +173,13 @@ function startPull() {
     pullStatus.value = p.status
     pullByteWeighted.value = p.byteWeighted
     if (p.done) {
-      message.success('镜像拉取完成')
+      messageApi.success('镜像拉取完成')
       closePull()
       load()
     }
   }
   pullSocket.onerror = () => {
-    message.error('拉取连接失败')
+    messageApi.error('拉取连接失败')
     closePull()
   }
   pullSocket.onclose = () => {
@@ -204,23 +201,23 @@ function closePull() {
 
 // --- 导入(多文件拖拽上传) ---
 
-// NUpload 的 custom-request:接管默认上传逻辑,每个文件调一次 loadImage。
+// Upload 的 custom-request:接管默认上传逻辑,每个文件调一次 loadImage。
 function customRequest(opts: {
-  file: { file?: File | null }
-  onFinish: () => void
-  onError: () => void
+  file: File
+  onSuccess?: () => void
+  onError?: () => void
 }) {
-  const f = opts.file.file
+  const f = opts.file
   if (!f) {
-    opts.onError()
+    opts.onError?.()
     return
   }
   loadImage(f)
     .then(() => {
-      opts.onFinish()
+      opts.onSuccess?.()
       load()
     })
-    .catch(() => opts.onError())
+    .catch(() => opts.onError?.())
 }
 
 onMounted(async () => {
@@ -234,123 +231,117 @@ onMounted(async () => {
 </script>
 
 <template>
-  <n-alert v-if="loadError" type="error" :show-icon="true" style="margin-bottom: 12px">
+  <contextHolder />
+  <Alert v-if="loadError" type="error" :show-icon="true" :style="{ marginBottom: '12px' }">
     {{ loadError }}
-  </n-alert>
+  </Alert>
 
   <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px">
     <div style="font-size: 13px; color: #666">
       共 {{ images.length }} 个镜像 · 合计 {{ fmtBytes(totalSize) }}
     </div>
-    <n-space>
-      <n-button size="small" @click="importShow = true">导入镜像</n-button>
-      <n-button size="small" @click="registryShow = true">仓库管理</n-button>
-      <n-button size="small" type="primary" @click="openPull">拉取镜像</n-button>
-    </n-space>
+    <Space>
+      <Button size="small" @click="importShow = true">导入镜像</Button>
+      <Button size="small" @click="registryShow = true">仓库管理</Button>
+      <Button size="small" type="primary" @click="openPull">拉取镜像</Button>
+    </Space>
   </div>
 
-  <n-data-table
+  <Table
     :columns="columns"
-    :data="images"
+    :data-source="images"
     :loading="loading"
-    :row-key="(row: ImageView) => row.id"
-    :scroll-x="792"
+    :row-key="(record: ImageView) => record.id"
+    :scroll="{ x: 792 }"
     size="small"
   />
 
   <!-- 拉取镜像 -->
-  <n-drawer
-    v-model:show="pullShow"
+  <Drawer
+    :open="pullShow"
     placement="right"
-    width="min(480px, 100vw)"
+    :width="480"
     :mask-closable="!pullActive"
-    @after-leave="closePull"
+    @after-visible-change="(visible: boolean) => { if (!visible) closePull() }"
+    @close="pullShow = false"
   >
-    <div style="display: flex; flex-direction: column; height: 100%">
-      <div style="padding: 14px 24px; border-bottom: 1px solid #eee; font-size: 16px; font-weight: 600; flex-shrink: 0">拉取镜像</div>
-      <div style="flex: 1; overflow: auto; padding: 16px 24px; display: flex; flex-direction: column; gap: 14px">
+    <template #title>
+      <span class="dw-drawer-title">拉取镜像</span>
+    </template>
+    <div style="display: flex; flex-direction: column; gap: 14px">
       <div>
-        <n-text depth="3" style="font-size: 12px">镜像名</n-text>
-        <n-input v-model:value="pullName" placeholder="nginx 或 registry.example.com/foo" :disabled="pullActive" />
+        <div class="dw-label">镜像名 <span class="dw-required">*</span></div>
+        <Input v-model:value="pullName" placeholder="nginx 或 registry.example.com/foo" :disabled="pullActive" />
       </div>
       <div style="display: flex; gap: 12px">
         <div style="flex: 1">
-          <n-text depth="3" style="font-size: 12px">版本（留空为 latest）</n-text>
-          <n-input v-model:value="pullTag" placeholder="latest" :disabled="pullActive" />
+          <div class="dw-label">版本（留空为 latest）</div>
+          <Input v-model:value="pullTag" placeholder="latest" :disabled="pullActive" />
         </div>
         <div style="flex: 1">
-          <n-text depth="3" style="font-size: 12px">架构</n-text>
-          <n-input v-model:value="pullArch" placeholder="linux/amd64" :disabled="pullActive" />
+          <div class="dw-label">架构</div>
+          <Input v-model:value="pullArch" placeholder="linux/amd64" :disabled="pullActive" />
         </div>
       </div>
 
       <div v-if="pullActive || pullPercent > 0" style="display: flex; flex-direction: column; gap: 6px">
-        <n-progress
-          type="line"
-          :percentage="Math.round(pullPercent)"
-          :indicator-placement="'inside'"
+        <Progress
+          :percent="Math.round(pullPercent)"
+          :stroke-color="'#1677ff'"
         />
-        <n-text depth="3" style="font-size: 12px">
+        <Typography.Text type="secondary" style="font-size: 12px">
           {{ pullStatus || '完成' }}
           <template v-if="!pullByteWeighted && !pullStatus">（按层数估算）</template>
-        </n-text>
-      </div>
-      </div>
-
-      <div style="padding: 14px 24px; border-top: 1px solid #eee; display: flex; justify-content: flex-end; gap: 8px; flex-shrink: 0">
-        <n-button v-if="pullActive" type="warning" @click="closePull">终止</n-button>
-        <n-button v-else type="primary" @click="startPull">拉取</n-button>
-        <n-button :disabled="pullActive" @click="pullShow = false">关闭</n-button>
+        </Typography.Text>
       </div>
     </div>
-  </n-drawer>
+    <template #footer>
+      <div class="dw-footer">
+        <Button :disabled="pullActive" @click="pullShow = false">关闭</Button>
+        <Button v-if="pullActive" @click="closePull">终止</Button>
+        <Button v-else type="primary" @click="startPull">拉取</Button>
+      </div>
+    </template>
+  </Drawer>
 
   <!-- 导入镜像(多文件拖拽上传) -->
-  <n-drawer
-    v-model:show="importShow"
+  <Drawer
+    :open="importShow"
     placement="right"
-    width="min(560px, 100vw)"
+    :width="560"
+    @close="importShow = false"
   >
-    <div style="display: flex; flex-direction: column; height: 100%">
-      <div style="padding: 14px 24px; border-bottom: 1px solid #eee; font-size: 16px; font-weight: 600; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0">
-        <span>导入镜像</span>
-        <n-button quaternary circle size="small" @click="importShow = false">✕</n-button>
-      </div>
-      <div style="flex: 1; overflow: auto; padding: 16px 24px">
-    <n-upload
+    <template #title>
+      <span class="dw-drawer-title">导入镜像</span>
+    </template>
+    <Upload
       multiple
-      :max="10"
+      :max-count="10"
       accept=".tar,.tar.gz,.tgz"
       :custom-request="customRequest"
-      @finish="load"
+      @change="load"
     >
-      <n-upload-dragger>
-        <div style="padding: 24px 0">
-          <div style="font-size: 15px; margin-bottom: 8px">点击或拖拽 .tar 归档到此处</div>
-          <n-text depth="3" style="font-size: 12px">最多 10 个,支持 docker save 导出的 tar 包</n-text>
-        </div>
-      </n-upload-dragger>
-    </n-upload>
+      <div style="padding: 24px 0; text-align: center">
+        <div style="font-size: 15px; margin-bottom: 8px">点击或拖拽 .tar 归档到此处</div>
+        <Typography.Text type="secondary" style="font-size: 12px">最多 10 个,支持 docker save 导出的 tar 包</Typography.Text>
       </div>
-    </div>
-  </n-drawer>
+    </Upload>
+  </Drawer>
 
   <!-- 仓库管理 -->
   <RegistryModal v-model:show="registryShow" />
 
   <!-- 删除确认 -->
-  <n-modal
-    :show="!!removeTarget"
-    preset="dialog"
-    type="error"
+  <Modal
+    :open="!!removeTarget"
     title="删除镜像"
-    positive-text="确认删除"
-    negative-text="取消"
-    :loading="removeBusy"
-    @positive-click="doRemove"
-    @negative-click="removeTarget = null"
+    :ok-text="'确认删除'"
+    :cancel-text="'取消'"
+    :confirm-loading="removeBusy"
+    @ok="doRemove"
+    @cancel="removeTarget = null"
     @close="removeTarget = null"
   >
     确定删除镜像 <b>{{ removeTarget?.names[0] || removeTarget?.id }}</b> 吗？此操作不可撤销。
-  </n-modal>
+  </Modal>
 </template>

@@ -34,17 +34,17 @@ func TestParseAndListCerts(t *testing.T) {
 	}
 	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 
-	// 按 caddy storage 结构落盘:<data>/caddy/certificates/<issuer>/<domain>/<domain>.crt
-	dataDir := t.TempDir()
-	certDir := filepath.Join(dataDir, "caddy", "certificates", "local", "ddnsgo.neob.cn")
+	// 按 acme.sh 结构落盘:<certsDir>/<fqdn>/fullchain.pem
+	certsDir := t.TempDir()
+	certDir := filepath.Join(certsDir, "ddnsgo.neob.cn")
 	if err := os.MkdirAll(certDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(certDir, "ddnsgo.neob.cn.crt"), pemBytes, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(certDir, "fullchain.pem"), pemBytes, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	cm := NewCaddy(dataDir)
+	cm := NewAcme(certsDir)
 	certs, err := cm.List(context.Background())
 	if err != nil {
 		t.Fatal(err)

@@ -3,13 +3,18 @@ package api
 
 import (
 	"crypto/rand"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/JiangBeta/gatebox/internal/acme"
 	"github.com/JiangBeta/gatebox/internal/cert"
 	"github.com/JiangBeta/gatebox/internal/models"
 	"github.com/JiangBeta/gatebox/internal/store"
@@ -21,11 +26,12 @@ const expiringSoonDays = 10
 type api struct {
 	s  *store.Store
 	cm cert.CertManager
+	ac *acme.Issuer // 证书签发/删除(nil 时证书管理只读)
 }
 
 // Register 将 API 路由注册到 mux。
-func Register(mux *http.ServeMux, s *store.Store, cm cert.CertManager) {
-	a := &api{s: s, cm: cm}
+func Register(mux *http.ServeMux, s *store.Store, cm cert.CertManager, ac *acme.Issuer) {
+	a := &api{s: s, cm: cm, ac: ac}
 
 	mux.HandleFunc("GET /api/v1/domains", a.listDomains)
 	mux.HandleFunc("POST /api/v1/domains", a.createDomain)
@@ -41,6 +47,11 @@ func Register(mux *http.ServeMux, s *store.Store, cm cert.CertManager) {
 	mux.HandleFunc("DELETE /api/v1/credentials/{id}", a.deleteCredential)
 
 	mux.HandleFunc("GET /api/v1/certificates", a.listCertificates)
+	mux.HandleFunc("GET /api/v1/certificates/logs", a.listCertLogs)
+	mux.HandleFunc("GET /api/v1/certificates/logs/{id}", a.getCertLog)
+	mux.HandleFunc("GET /api/v1/certificates/{fqdn}", a.getCertDetail)
+	mux.HandleFunc("POST /api/v1/certificates/{fqdn}/renew", a.renewCert)
+	mux.HandleFunc("DELETE /api/v1/certificates/{fqdn}", a.deleteCert)
 }
 
 // --- 通用响应 ---
@@ -137,7 +148,27 @@ func (a *api) updateDomain(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *api) deleteDomain(w http.ResponseWriter, r *http.Request) {
-	if err := a.s.DeleteDomain(r.PathValue("id")); err != nil {
+	id := r.PathValue("id")
+	d, err := a.s.GetDomain(id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "域名不存在")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	// 校验其下无路由引用(ADR-012:删除 Domain 需校验其下无二级域名引用)。
+	services, err := a.s.ListServices()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if domainReferenced(services, d.Name) {
+		writeErr(w, http.StatusConflict, "该域名下有服务引用,请先在「网关」删除对应服务")
+		return
+	}
+	if err := a.s.DeleteDomain(id); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -181,6 +212,13 @@ func (a *api) overview(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// 二级域名数聚合自网关 Service 的域名行(docs/domain.md §1:二级域名不建实体)。
+	services, err := a.s.ListServices()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	subCounts := subdomainCountByRoot(services)
 
 	now := time.Now()
 	total, expiring, expired := certStats(certs, now)
@@ -204,13 +242,40 @@ func (a *api) overview(w http.ResponseWriter, r *http.Request) {
 			ID:           d.ID,
 			Name:         d.Name,
 			CertStatus:   aggregateDomainCertStatus(certs, d.Name, now),
-			SubdomainCnt: 0, // TODO(网关):从 ProxyRoute 聚合该 rootDomain 下的二级域名数
+			SubdomainCnt: subCounts[d.Name],
 			CreatedAt:    d.CreatedAt.Format(time.RFC3339),
 			LastIssuedAt: lastIssued,
 		})
 	}
 
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// subdomainCountByRoot 按 rootDomain 统计二级域名条数(含 apex)。
+// 只看落库的 manual 服务(docker 派生不落库、无 rootDomain 语义)。
+func subdomainCountByRoot(services []models.Service) map[string]int {
+	agg := map[string]int{}
+	for _, svc := range services {
+		for _, d := range svc.Domains {
+			if d.RootDomain == "" {
+				continue
+			}
+			agg[d.RootDomain]++
+		}
+	}
+	return agg
+}
+
+// domainReferenced 判断 rootDomain 是否仍被服务的域名行引用(删除域名前置校验)。
+func domainReferenced(services []models.Service, name string) bool {
+	for _, svc := range services {
+		for _, d := range svc.Domains {
+			if d.RootDomain == name {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // --- 凭证 ---
@@ -300,6 +365,217 @@ func (a *api) listCertificates(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, certs)
+}
+
+// certDetail 单个证书详情(证书管理「查看」)。
+type certDetail struct {
+	models.Cert
+	PublicKey  string `json:"publicKey"`  // fullchain.pem 文本
+	PrivateKey string `json:"privateKey"` // key.pem 文本
+}
+
+// validateFQDN 校验路径参数为合法域名,防止路径穿越。
+func validateFQDN(fqdn string) bool {
+	if len(fqdn) == 0 || len(fqdn) > 253 {
+		return false
+	}
+	for _, c := range fqdn {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '.' || c == '-' || c == '_') {
+			return false
+		}
+	}
+	return true
+}
+
+// getCertDetail 返回某个 fqdn 的证书内容:公钥(fullchain)与私钥(key)分开展示。
+func (a *api) getCertDetail(w http.ResponseWriter, r *http.Request) {
+	if a.ac == nil {
+		writeErr(w, http.StatusServiceUnavailable, "证书管理未启用")
+		return
+	}
+	fqdn := r.PathValue("fqdn")
+	if !validateFQDN(fqdn) {
+		writeErr(w, http.StatusBadRequest, "非法域名")
+		return
+	}
+	full, err := os.ReadFile(filepath.Join(a.ac.CertsDir, fqdn, "fullchain.pem"))
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "证书不存在: "+fqdn)
+		return
+	}
+	key, err := os.ReadFile(filepath.Join(a.ac.CertsDir, fqdn, "key.pem"))
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "私钥不存在: "+fqdn)
+		return
+	}
+	meta, _, err := parseCertMeta(full)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "解析证书失败: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, certDetail{Cert: *meta, PublicKey: string(full), PrivateKey: string(key)})
+}
+
+// findCredentialForFQDN 用最长后缀匹配把 fqdn 归到受管根域,取对应 DNS 凭证。
+func (a *api) findCredentialForFQDN(fqdn string) (*models.DNSCredential, error) {
+	domains, err := a.s.ListDomains()
+	if err != nil {
+		return nil, err
+	}
+	best := ""
+	for _, d := range domains {
+		if fqdn == d.Name || strings.HasSuffix(fqdn, "."+d.Name) {
+			if len(d.Name) > len(best) {
+				best = d.Name
+			}
+		}
+	}
+	if best == "" {
+		return nil, nil
+	}
+	var raw *models.DNSCredential
+	creds, err := a.s.ListCredentials()
+	if err != nil {
+		return nil, err
+	}
+	for i := range creds {
+		if creds[i].ID == credentialIDFor(best, domains, creds) {
+			raw = &creds[i]
+			break
+		}
+	}
+	if raw == nil {
+		return nil, nil
+	}
+	return raw, nil
+}
+
+// credentialIDFor 取 rootDomain 的凭证 ID。
+func credentialIDFor(root string, domains []models.Domain, _ []models.DNSCredential) string {
+	for _, d := range domains {
+		if d.Name == root {
+			return d.CredentialID
+		}
+	}
+	return ""
+}
+
+// renewCert 强制重新申请某个域的证书(DNS-01,DNS 凭证)。
+func (a *api) renewCert(w http.ResponseWriter, r *http.Request) {
+	if a.ac == nil {
+		writeErr(w, http.StatusServiceUnavailable, "证书签发未启用")
+		return
+	}
+	fqdn := r.PathValue("fqdn")
+	if !validateFQDN(fqdn) {
+		writeErr(w, http.StatusBadRequest, "非法域名")
+		return
+	}
+	cred, err := a.findCredentialForFQDN(fqdn)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if cred == nil {
+		writeErr(w, http.StatusBadRequest, "该域名未登记 DNS 凭证(请先在域名管理配置)")
+		return
+	}
+	logFile, err := a.ac.ForceRenew(r.Context(), *cred, fqdn)
+	if err != nil {
+		a.logCert("renew", fqdn, "fail", err.Error(), logFile)
+		writeErr(w, http.StatusInternalServerError, "重新申请失败: "+err.Error())
+		return
+	}
+	a.logCert("renew", fqdn, "success", "证书重新申请完成", logFile)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// deleteCert 删除某个域的证书文件。
+func (a *api) deleteCert(w http.ResponseWriter, r *http.Request) {
+	if a.ac == nil {
+		writeErr(w, http.StatusServiceUnavailable, "证书管理未启用")
+		return
+	}
+	fqdn := r.PathValue("fqdn")
+	if !validateFQDN(fqdn) {
+		writeErr(w, http.StatusBadRequest, "非法域名")
+		return
+	}
+	if err := a.ac.Remove(fqdn); err != nil {
+		writeErr(w, http.StatusInternalServerError, "删除证书失败: "+err.Error())
+		return
+	}
+	a.logCert("delete", fqdn, "success", "证书已删除", "")
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// logCert 追加一条证书操作日志(api 侧:renew/delete)。
+func (a *api) logCert(action, fqdn, status, msg, logFile string) {
+	_ = a.s.SaveCertLog(&models.CertLog{
+		ID: newID(), FQDN: fqdn, Action: action, Status: status, Message: msg, LogFile: logFile, CreatedAt: time.Now(),
+	})
+}
+
+// getCertLog 返回某条证书操作日志对应的 acme.sh 原始输出全文(debug 用)。
+func (a *api) getCertLog(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	row, err := a.s.GetCertLog(id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "日志不存在")
+		return
+	}
+	if row.LogFile == "" {
+		writeJSON(w, http.StatusOK, map[string]string{"log": ""})
+		return
+	}
+	b, err := os.ReadFile(row.LogFile)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "日志文件不存在: "+row.LogFile)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"log": string(b)})
+}
+
+// parseCertMeta 解析 PEM 证书首个证书的元数据(与 cert 包 parseCertFile 对齐)。
+func parseCertMeta(data []byte) (*models.Cert, time.Time, error) {
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return nil, time.Time{}, errors.New("无效 PEM")
+	}
+	c, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	return &models.Cert{
+		FQDN:      c.Subject.CommonName,
+		Issuer:    c.Issuer.CommonName,
+		NotBefore: c.NotBefore,
+		NotAfter:  c.NotAfter,
+		Serial:    c.SerialNumber.String(),
+		KeyAlgo:   c.PublicKeyAlgorithm.String(),
+	}, c.NotAfter, nil
+}
+
+// listCertLogs 返回证书操作日志(可带 ?fqdn= 过滤单个域名)。
+func (a *api) listCertLogs(w http.ResponseWriter, r *http.Request) {
+	rows, err := a.s.ListCertLogs(200)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if fqdn := strings.TrimSpace(r.URL.Query().Get("fqdn")); fqdn != "" && validateFQDN(fqdn) {
+		filtered := rows[:0]
+		for _, row := range rows {
+			if row.FQDN == fqdn {
+				filtered = append(filtered, row)
+			}
+		}
+		rows = filtered
+	}
+	if rows == nil {
+		rows = []models.CertLog{}
+	}
+	writeJSON(w, http.StatusOK, rows)
 }
 
 // --- 纯函数(便于单测) ---

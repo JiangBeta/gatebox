@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { ref, onMounted, h } from 'vue'
-import { NButton, NDataTable, NPopconfirm, useMessage } from 'naive-ui'
+import { Button, Popconfirm, Table, message } from 'ant-design-vue'
 import { listCredentials, deleteCredential, type DNSCredential } from '../../api/credentials'
 import CredentialFormModal from '../../components/CredentialFormModal.vue'
 
-const message = useMessage()
+const [messageApi, contextHolder] = message.useMessage()
 const credentials = ref<DNSCredential[]>([])
 const showModal = ref(false)
 const editing = ref<DNSCredential | null>(null)
@@ -24,22 +24,31 @@ function formatTime(s: string) {
 }
 
 const columns = [
-  { title: '凭证名称', key: 'name' },
-  { title: '供应商', key: 'provider', render: (row: any) => providerLabel(row.provider) },
-  { title: '创建时间', key: 'createdAt', render: (row: any) => formatTime(row.createdAt) },
+  { title: '凭证名称', dataIndex: 'name', key: 'name' },
+  {
+    title: '供应商',
+    dataIndex: 'provider',
+    key: 'provider',
+    customRender: ({ record }: { record: any }) => providerLabel(record.provider),
+  },
+  {
+    title: '创建时间',
+    dataIndex: 'createdAt',
+    key: 'createdAt',
+    customRender: ({ record }: { record: any }) => formatTime(record.createdAt),
+  },
   {
     title: '操作',
     key: 'actions',
-    render: (row: any) =>
+    customRender: ({ record }: { record: any }) =>
       h('div', [
-        h(NButton, { size: 'small', onClick: () => openEdit(row) }, { default: () => '编辑' }),
+        h(Button, { size: 'small', onClick: () => openEdit(record) }, { default: () => '编辑' }),
         h(
-          NPopconfirm,
-          { onPositiveClick: () => doDelete(row.id) },
+          Popconfirm,
+          { title: '确认删除该凭证?', onConfirm: () => doDelete(record.id) },
           {
-            trigger: () =>
-              h(NButton, { size: 'small', type: 'error', style: 'margin-left: 8px' }, { default: () => '删除' }),
-            default: () => '确认删除该凭证?',
+            default: () =>
+              h(Button, { size: 'small', danger: true, style: 'margin-left: 8px' }, { default: () => '删除' }),
           },
         ),
       ]),
@@ -58,7 +67,7 @@ function openEdit(c: DNSCredential) {
 
 async function doDelete(id: string) {
   await deleteCredential(id)
-  message.success('已删除')
+  messageApi.success('已删除')
   await load()
 }
 
@@ -69,10 +78,11 @@ onMounted(load)
 </script>
 
 <template>
+  <contextHolder />
   <div style="margin-bottom: 16px; display: flex; justify-content: flex-end">
-    <n-button type="primary" @click="openAdd">+ 添加凭证</n-button>
+    <Button type="primary" @click="openAdd">+ 添加凭证</Button>
   </div>
-  <n-data-table :columns="columns" :data="credentials" />
+  <Table :columns="columns" :data-source="credentials" />
 
   <CredentialFormModal v-model:show="showModal" :editing="editing" @saved="load" />
 </template>

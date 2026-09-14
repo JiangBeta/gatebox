@@ -1,5 +1,9 @@
 import http from './http'
 
+// 「同步到网关」会触发后端 reloadCaddy:派生 + 可能 acme DNS-01 签发(传播数分钟),
+// 用长超时避免 axios 10s 瓶颈误报失败。
+const LONG = { timeout: 300000 }
+
 export interface PortMapping {
   ip?: string
   host?: number
@@ -9,6 +13,17 @@ export interface PortMapping {
 
 /** 容器来源三态(docs §2.3) */
 export type ContainerSource = 'managed' | 'external' | 'loose'
+
+/** 宿主机资源快照(/proc,由后端探针随列表返回) */
+export interface HostStats {
+  numCores: number
+  corePercents: number[]
+  cpuFreqGHz: number
+  memTotalGiB: number
+  memUsedGiB: number
+  memAvailGiB: number
+  memCacheGiB: number
+}
 
 export interface ContainerView {
   id: string
@@ -31,6 +46,7 @@ export interface ContainerView {
   memoryUsage: number
   memoryLimit: number
   memoryPercent: number
+  host?: HostStats
 }
 
 export interface DockerInfo {
@@ -148,6 +164,7 @@ export interface NetworkDetail {
 
 export interface VolumeView {
   name: string
+  displayName: string
   driver: string
   mountpoint: string
   scope: string
@@ -301,6 +318,7 @@ export interface ComposeDetail {
   yaml: string
   hasDeployedYAML: boolean
   lastDeployedAt?: string
+  projectDir?: string
 }
 
 export interface DeployProgress {
@@ -370,6 +388,22 @@ export async function convertContainer(id: string, project: string): Promise<voi
   await http.post(`/docker/containers/${id}/convert`, { project })
 }
 
+// --- 容器升级(docs:容器升级) ---
+
+export interface UpgradeResult {
+  id: string
+  name: string
+  status: 'upgraded' | 'up-to-date' | 'skipped' | 'error'
+  image: string
+  message?: string
+}
+
+/** 升级一个或多个容器(ids 为空 = 全部)。id 对应容器的自增序号使用方可以不传。 */
+export async function upgradeContainers(ids: string[]): Promise<UpgradeResult[]> {
+  // 升级需拉取镜像 + 重建,耗时不定,交给用户终止而非超时
+  return (await http.post('/docker/containers/upgrade', { ids }, { timeout: 0 })).data
+}
+
 // --- 跨单位接口(docs §5.6) ---
 
 export interface ProxyableContainer {
@@ -383,4 +417,35 @@ export interface ProxyableContainer {
 
 export async function listProxyable(): Promise<ProxyableContainer[]> {
   return (await http.get('/docker/proxyable')).data
+}
+
+// 「同步到网关」:把运行中容器 label 派生进 Caddyfile 并 POST /load(ADR-026 §7)。
+// 每次派生需重读容器、可能触发 acme 签发,用长超时。
+export async function syncCaddy(): Promise<void> {
+  await http.post('/docker/sync-caddy', null, LONG)
+}
+
+// --- 容器页变量(与网关变量独立) ---
+
+export interface ContainerVariable {
+  key: string
+  value: string
+  description?: string
+  createdAt: string
+}
+
+export async function listContainerVariables(): Promise<ContainerVariable[]> {
+  return (await http.get('/docker/variables')).data
+}
+
+export async function createContainerVariable(key: string, value: string, description?: string): Promise<ContainerVariable> {
+  return (await http.post('/docker/variables', { key, value, description })).data
+}
+
+export async function updateContainerVariable(key: string, value: string, description?: string): Promise<ContainerVariable> {
+  return (await http.put(`/docker/variables/${encodeURIComponent(key)}`, { value, description })).data
+}
+
+export async function deleteContainerVariable(key: string): Promise<void> {
+  await http.delete(`/docker/variables/${encodeURIComponent(key)}`)
 }

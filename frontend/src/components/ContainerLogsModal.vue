@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
-import { NDrawer, NInput, NButton, NSpace, NSwitch, NTag, NAlert, NText } from 'naive-ui'
+import { Drawer, Input, Button, Space, Switch, Tag, Alert, Typography } from 'ant-design-vue'
 import { wsURL, type ContainerView, type LogMessage } from '../api/docker'
 
 const props = defineProps<{ container: ContainerView }>()
@@ -118,64 +118,59 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <n-drawer
-    :show="true"
+  <Drawer
+    :open="true"
     placement="right"
-    width="min(800px, 100vw)"
-    @update:show="(v: boolean) => !v && emit('close')"
+    :width="800"
+    @close="emit('close')"
   >
-    <div style="display: flex; flex-direction: column; height: 100%">
-      <div style="padding: 14px 24px; border-bottom: 1px solid #eee; font-size: 16px; font-weight: 600; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0">
-        <span>{{ title }}</span>
-        <div style="display: flex; align-items: center; gap: 8px">
-          <n-tag :type="connected ? 'success' : 'default'" size="small" :bordered="false">
-            {{ connected ? '已连接' : '已断开' }}
-          </n-tag>
-          <n-button quaternary circle size="small" @click="emit('close')">✕</n-button>
-        </div>
-      </div>
-      <div style="flex: 1; overflow: auto; padding: 16px 24px">
+    <template #title>
+      <span class="dw-drawer-title">{{ title }}</span>
+    </template>
 
-    <n-alert v-if="errorMsg" type="warning" style="margin-bottom: 10px" :show-icon="true">
+    <Alert v-if="errorMsg" type="warning" style="margin-bottom: 10px" :show-icon="true">
       {{ errorMsg }}
-    </n-alert>
+    </Alert>
 
-    <n-space align="center" style="margin-bottom: 10px">
-      <n-input
-        v-model:value="keyword"
-        placeholder="查找日志内容"
-        clearable
-        style="width: 280px"
-        size="small"
-      />
-      <span style="font-size: 13px; color: #666">
-        {{ filtered.length }} / {{ lines.length }} 行
-        <span v-if="truncated">（已截断至最近 {{ MAX_LINES }} 行）</span>
-      </span>
-      <n-space align="center" :size="6">
-        <span style="font-size: 13px; color: #666">自动滚动</span>
-        <n-switch v-model:value="follow" size="small" />
-      </n-space>
-      <n-button size="small" @click="clear">清空</n-button>
-      <n-button size="small" @click="download">下载</n-button>
-    </n-space>
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px">
+      <Space align="center" :wrap="true">
+        <Input
+          v-model:value="keyword"
+          placeholder="查找日志内容"
+          allow-clear
+          style="width: 280px"
+          size="small"
+        />
+        <span style="font-size: 13px; color: #666">
+          {{ filtered.length }} / {{ lines.length }} 行
+          <span v-if="truncated">（已截断至最近 {{ MAX_LINES }} 行）</span>
+        </span>
+        <Space align="center" :size="6">
+          <span style="font-size: 13px; color: #666">自动滚动</span>
+          <Switch v-model:checked="follow" size="small" />
+        </Space>
+        <Button size="small" @click="clear">清空</Button>
+        <Button size="small" @click="download">下载</Button>
+      </Space>
+      <Tag :color="connected ? 'success' : 'default'" size="small">
+        {{ connected ? '已连接' : '已断开' }}
+      </Tag>
+    </div>
 
-    <div ref="bodyRef" class="log-body">
-      <div v-if="!filtered.length" class="log-empty">
-        <n-text depth="3">
-          {{ lines.length ? '没有匹配的日志行' : '暂无日志输出' }}
-        </n-text>
+      <div ref="bodyRef" class="log-body">
+        <div v-if="!filtered.length" class="log-empty">
+          <Typography.Text type="secondary">
+            {{ lines.length ? '没有匹配的日志行' : '暂无日志输出' }}
+          </Typography.Text>
+        </div>
+        <div
+          v-for="l in filtered"
+          :key="l.seq"
+          class="log-line"
+          :class="{ stderr: l.stream === 'stderr' }"
+        >{{ l.text }}</div>
       </div>
-      <div
-        v-for="l in filtered"
-        :key="l.seq"
-        class="log-line"
-        :class="{ stderr: l.stream === 'stderr' }"
-      >{{ l.text }}</div>
-    </div>
-      </div>
-    </div>
-  </n-drawer>
+  </Drawer>
 </template>
 
 <style scoped>

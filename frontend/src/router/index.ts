@@ -3,18 +3,31 @@ import { createRouter, createWebHashHistory } from 'vue-router'
 const routes = [
   { path: '/', redirect: '/dashboard' },
   { path: '/dashboard', component: () => import('../views/DashboardView.vue'), meta: { title: '仪表盘' } },
-  { path: '/gateway', component: () => import('../views/GatewayView.vue'), meta: { title: '网关' } },
+  {
+    path: '/gateway',
+    component: () => import('../views/GatewayView.vue'),
+    meta: {
+      title: '网关',
+      tabs: [
+        { key: 'routes', label: '代理' },
+        { key: 'ports', label: '端口' },
+        { key: 'fragments', label: 'Caddy 片段' },
+        { key: 'variables', label: '变量' },
+      ],
+    },
+  },
   {
     path: '/docker',
     component: () => import('../views/DockerView.vue'),
     meta: {
-      title: 'Docker',
+      title: '容器',
       tabs: [
         { key: 'containers', label: '容器' },
         { key: 'compose', label: '编排' },
         { key: 'images', label: '镜像' },
         { key: 'networks', label: '网络' },
         { key: 'volumes', label: '存储卷' },
+        { key: 'variables', label: '变量' },
       ],
     },
   },

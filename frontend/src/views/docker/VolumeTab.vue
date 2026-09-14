@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { ref, onMounted, h, computed } from 'vue'
+import { statCell } from '../../utils/cell'
 import {
-  NDataTable, NTag, NButton, NSpace, NModal, NDrawer, NText, NTooltip, NEllipsis, NInput, NSelect, useMessage,
-} from 'naive-ui'
+  Table, Tag, Button, Space, Modal, Drawer, Typography, Tooltip, Input, Select, Popover, Alert, Empty, message,
+} from 'ant-design-vue'
 import { listVolumes, removeVolume, pruneVolumes, createVolume, type VolumeView } from '../../api/docker'
 
-const message = useMessage()
+const [messageApi, contextHolder] = message.useMessage()
 
 const volumes = ref<VolumeView[]>([])
 const loading = ref(true)
@@ -60,45 +61,71 @@ async function load() {
 }
 
 function renderUsage(row: VolumeView) {
-  if (!row.inUse) return h(NTag, { size: 'small', bordered: false }, { default: () => '未使用' })
-  return h(NTooltip, { trigger: 'hover' }, {
-    trigger: () => h(NTag, { size: 'small', type: 'warning', bordered: false }, { default: () => '使用中' }),
-    default: () => '被容器使用: ' + (row.containers || []).join(', '),
+  if (!row.inUse) return h(Tag, { size: 'small' }, { default: () => '未使用' })
+  return h(Tooltip, { title: '被容器使用: ' + (row.containers || []).join(', ') }, {
+    default: () => h(Tag, { size: 'small', color: 'warning' }, { default: () => '使用中' }),
   })
 }
 
 const columns = [
-  { title: '名称', key: 'name', minWidth: 200, render: (row: VolumeView) => h(NEllipsis, null, { default: () => row.name }) },
+  {
+    title: '名称',
+    dataIndex: 'displayName',
+    key: 'displayName',
+    width: 160,
+    customRender: ({ record }: { record: VolumeView }) =>
+      h('div', { style: 'font-weight: 500; overflow:hidden;text-overflow:ellipsis;white-space:nowrap' }, record.displayName || '—'),
+  },
+  {
+    title: 'ID',
+    dataIndex: 'name',
+    key: 'name',
+    // 卷 ID 即卷 name(长哈希)。显示前 8 位,mouse hover 弹出框展示完整 ID,
+    // 交互效仿「容器 → 端口」列(蓝色虚线下划线 + popover)。
+    width: 120,
+    customRender: ({ record }: { record: VolumeView }) =>
+      h(Popover, { trigger: 'hover', placement: 'right' }, {
+        default: () => h('span', {
+          style: 'cursor: default; color: #1677ff; border-bottom: 1px dashed #1677ff; font-family: monospace',
+        }, record.name.slice(0, 8)),
+        content: () => h('div', { style: 'font-family: monospace' }, record.name),
+      }),
+  },
   {
     title: '驱动',
+    dataIndex: 'driver',
     key: 'driver',
     width: 90,
-    render: (row: VolumeView) => h(NTag, { size: 'small', bordered: false }, { default: () => row.driver }),
+    customRender: ({ record }: { record: VolumeView }) => h(Tag, { size: 'small' }, { default: () => record.driver }),
   },
   {
     title: '挂载点',
+    dataIndex: 'mountpoint',
     key: 'mountpoint',
-    minWidth: 220,
-    render: (row: VolumeView) => h(NEllipsis, { depth: 3, style: 'font-size: 12px' }, { default: () => row.mountpoint }),
+    width: 240,
+    customRender: ({ record }: { record: VolumeView }) =>
+      h(Popover, { trigger: 'hover', placement: 'right' }, {
+        default: () => h('span', { style: 'color: #888; font-size: 12px; font-family: monospace' }, record.mountpoint),
+        content: () => h('div', record.mountpoint),
+      }),
   },
-  { title: '是否使用', key: 'usage', width: 100, render: (row: VolumeView) => renderUsage(row) },
-  { title: '创建时间', key: 'createdAt', width: 132, render: (row: VolumeView) => fmtTime(row.createdAt) },
+  { title: '是否使用', key: 'usage', width: 100, customRender: ({ record }: { record: VolumeView }) => renderUsage(record) },
+  { title: '创建时间', dataIndex: 'createdAt', key: 'createdAt', width: 132, customRender: ({ record }: { record: VolumeView }) => statCell(fmtTime(record.createdAt)) },
   {
     title: '操作',
     key: 'actions',
     width: 90,
     fixed: 'right' as const,
-    render: (row: VolumeView) =>
-      h(NTooltip, { trigger: 'hover', disabled: !row.inUse }, {
-        trigger: () =>
-          h(NButton, {
-            size: 'tiny',
-            type: 'error',
+    customRender: ({ record }: { record: VolumeView }) =>
+      h(Tooltip, { title: record.inUse ? '被容器使用: ' + (record.containers || []).join(', ') : '' }, {
+        default: () =>
+          h(Button, {
+            size: 'small',
+            danger: true,
             ghost: true,
-            disabled: row.inUse,
-            onClick: () => (removeTarget.value = row),
+            disabled: record.inUse,
+            onClick: () => (removeTarget.value = record),
           }, { default: () => '删除' }),
-        default: () => '被容器使用: ' + (row.containers || []).join(', '),
       }),
   },
 ]
@@ -109,11 +136,11 @@ async function doRemove() {
   removeBusy.value = true
   try {
     await removeVolume(row.name)
-    message.success('卷已删除')
+    messageApi.success('卷已删除')
     removeTarget.value = null
     await load()
   } catch (e: any) {
-    message.error('删除失败 — ' + e.message)
+    messageApi.error('删除失败 — ' + e.message)
   } finally {
     removeBusy.value = false
   }
@@ -123,10 +150,10 @@ async function doPrune() {
   pruneBusy.value = true
   try {
     pruneResult.value = await pruneVolumes()
-    message.success('清理完成')
+    messageApi.success('清理完成')
     await load()
   } catch (e: any) {
-    message.error('清理失败 — ' + e.message)
+    messageApi.error('清理失败 — ' + e.message)
   } finally {
     pruneBusy.value = false
   }
@@ -140,17 +167,17 @@ function openCreate() {
 
 async function doCreate() {
   if (!createName.value.trim()) {
-    message.warning('请填写卷名')
+    messageApi.warning('请填写卷名')
     return
   }
   createBusy.value = true
   try {
     await createVolume({ name: createName.value.trim(), driver: createDriver.value })
-    message.success('卷已创建')
+    messageApi.success('卷已创建')
     createShow.value = false
     await load()
   } catch (e: any) {
-    message.error('创建失败 — ' + e.message)
+    messageApi.error('创建失败 — ' + e.message)
   } finally {
     createBusy.value = false
   }
@@ -160,96 +187,98 @@ onMounted(load)
 </script>
 
 <template>
-  <n-alert v-if="loadError" type="error" :show-icon="true" style="margin-bottom: 12px">
+  <contextHolder />
+  <Alert v-if="loadError" type="error" :show-icon="true" :style="{ marginBottom: '12px' }">
     {{ loadError }}
-  </n-alert>
-  <n-alert v-if="warnings.length" type="warning" :show-icon="true" style="margin-bottom: 12px">
+  </Alert>
+  <Alert v-if="warnings.length" type="warning" :show-icon="true" :style="{ marginBottom: '12px' }">
     {{ warnings.join('; ') }}
-  </n-alert>
+  </Alert>
 
   <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px">
     <div style="font-size: 13px; color: #666">
       共 {{ volumes.length }} 个卷 · {{ unusedCount }} 个未使用
     </div>
-    <n-space>
-      <n-button size="small" type="warning" ghost :disabled="unusedCount === 0" @click="pruneShow = true">
+    <Space>
+      <Button size="small" type="default" ghost danger :disabled="unusedCount === 0" @click="pruneShow = true">
         清理未使用
-      </n-button>
-      <n-button size="small" type="primary" @click="openCreate">+ 创建卷</n-button>
-    </n-space>
+      </Button>
+      <Button size="small" type="primary" @click="openCreate">+ 创建卷</Button>
+    </Space>
   </div>
 
-  <n-data-table
+  <Table
     :columns="columns"
-    :data="volumes"
+    :data-source="volumes"
     :loading="loading"
-    :row-key="(row: VolumeView) => row.name"
-    :scroll-x="832"
+    :row-key="(record: VolumeView) => record.name"
+    :scroll="{ x: 940 }"
     size="small"
   />
 
   <!-- 清理未使用确认 -->
-  <n-modal
-    v-model:show="pruneShow"
-    preset="dialog"
-    type="warning"
+  <Modal
+    :open="pruneShow"
     title="清理未使用的卷"
-    positive-text="确认清理"
-    negative-text="取消"
-    :loading="pruneBusy"
-    @positive-click="doPrune"
+    :ok-text="'确认清理'"
+    :cancel-text="'取消'"
+    :confirm-loading="pruneBusy"
+    @ok="doPrune"
+    @cancel="pruneShow = false"
+    @close="pruneShow = false"
   >
     <div style="display: flex; flex-direction: column; gap: 10px">
       <span>
         将删除全部 <b>{{ unusedCount }}</b> 个未被任何容器使用的卷，释放被占用的磁盘空间。
       </span>
-      <n-text depth="3" style="font-size: 12px">
+      <Typography.Text type="secondary" style="font-size: 12px">
         孤儿卷是 HomeLab 磁盘被吃满的常见原因。已使用中的卷不会被删除。
-      </n-text>
+      </Typography.Text>
       <div v-if="pruneResult" style="font-size: 13px">
         上次清理：删除 {{ pruneResult.deleted.length }} 个，释放 {{ fmtBytes(pruneResult.reclaimed) }}
       </div>
     </div>
-  </n-modal>
+  </Modal>
 
   <!-- 创建卷 -->
-  <n-drawer
-    v-model:show="createShow"
+  <Drawer
+    :open="createShow"
     placement="right"
-    width="min(440px, 100vw)"
+    :width="440"
+    @close="createShow = false"
   >
-    <div style="display: flex; flex-direction: column; height: 100%">
-      <div style="padding: 14px 24px; border-bottom: 1px solid #eee; font-size: 16px; font-weight: 600; flex-shrink: 0">创建卷</div>
-      <div style="flex: 1; overflow: auto; padding: 16px 24px; display: flex; flex-direction: column; gap: 14px">
+    <template #title>
+      <span class="dw-drawer-title">创建卷</span>
+    </template>
+      <div style="display: flex; flex-direction: column; gap: 14px">
       <div>
-        <n-text depth="3" style="font-size: 12px">卷名</n-text>
-        <n-input v-model:value="createName" placeholder="my-volume" />
+        <div class="dw-label">卷名 <span class="dw-required">*</span></div>
+        <Input v-model:value="createName" placeholder="my-volume" />
       </div>
       <div>
-        <n-text depth="3" style="font-size: 12px">驱动</n-text>
-        <n-select v-model:value="createDriver" :options="driverOptions" />
+        <div class="dw-label">驱动</div>
+        <Select v-model:value="createDriver" :options="driverOptions" />
       </div>
       </div>
-      <div style="padding: 14px 24px; border-top: 1px solid #eee; display: flex; justify-content: flex-end; gap: 8px; flex-shrink: 0">
-        <n-button type="primary" :loading="createBusy" @click="doCreate">创建</n-button>
-        <n-button @click="createShow = false">取消</n-button>
+    <template #footer>
+      <div class="dw-footer">
+        <Button @click="createShow = false">取消</Button>
+        <Button type="primary" :loading="createBusy" @click="doCreate">创建</Button>
       </div>
-    </div>
-  </n-drawer>
+    </template>
+  </Drawer>
 
   <!-- 删除确认 -->
-  <n-modal
-    :show="!!removeTarget"
-    preset="dialog"
-    type="error"
+  <Modal
+    :open="!!removeTarget"
     title="删除卷"
-    positive-text="确认删除"
-    negative-text="取消"
-    :loading="removeBusy"
-    @positive-click="doRemove"
-    @negative-click="removeTarget = null"
+    :ok-text="'确认删除'"
+    :cancel-text="'取消'"
+    :confirm-loading="removeBusy"
+    @ok="doRemove"
+    @cancel="removeTarget = null"
     @close="removeTarget = null"
   >
     确定删除卷 <b>{{ removeTarget?.name }}</b> 吗？卷内数据将丢失，且不可恢复。
-  </n-modal>
+  </Modal>
 </template>

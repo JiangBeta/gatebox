@@ -141,9 +141,27 @@ func (c *CLI) Validate(ctx context.Context, yamlStr, dir string) error {
 		if msg == "" {
 			msg = err.Error()
 		}
-		return fmt.Errorf("%s", msg)
+		return fmt.Errorf("%s (%s)", translateComposeError(msg), msg)
 	}
 	return nil
+}
+
+// translateComposeError 将常见 docker compose 报错翻译为中文。
+func translateComposeError(msg string) string {
+	switch {
+	case strings.Contains(msg, "has neither an image nor a build context specified"):
+		return "服务缺少 image 或 build 配置"
+	case strings.Contains(msg, "name %s does not match"):
+		return "服务名不合法"
+	case strings.Contains(msg, "invalid interpolation format"):
+		return "变量插值格式错误"
+	case strings.Contains(msg, "service not found"):
+		return "引用的服务不存在"
+	case strings.Contains(msg, "network"):
+		return "网络配置错误"
+	default:
+		return "Compose 校验失败"
+	}
 }
 
 // Stream 包装一条已启动的流式命令,供调用方读取 stdout/stderr 并在结束时回收进程。

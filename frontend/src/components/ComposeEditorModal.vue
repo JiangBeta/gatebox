@@ -1,18 +1,19 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, onBeforeUnmount, computed } from 'vue'
 import {
-  NDrawer, NModal, NInput, NButton, NSpace, NAlert, NText, NTag, NPopconfirm, NSwitch, NProgress, NIcon,
-  NCollapse, NCollapseItem, NInputNumber, NSelect, useMessage,
-} from 'naive-ui'
-import { CopyOutline, SearchOutline, ArrowUndoOutline, ArrowRedoOutline } from '@vicons/ionicons5'
+  Drawer, Modal, Input, Button, Space, Alert, Tag, Popconfirm, Switch, Progress,
+  Collapse, InputNumber, Select, Typography, Tooltip, message,
+} from 'ant-design-vue'
 import {
   getCompose, createCompose, saveCompose, validateCompose, wsURL,
-  dockerInfo, listImages, listNetworks,
-  type DeployProgress, type DockerInfo, type ImageView, type NetworkView,
+  dockerInfo, listImages, listNetworks, listContainerVariables, createContainerVariable,
+  type DeployProgress, type DockerInfo, type ImageView, type NetworkView, type ContainerVariable,
 } from '../api/docker'
 import { listDomains, type Domain } from '../api/domains'
-import { parseCompose, serializeCompose, type ComposeState, type ServiceConfig } from '../utils/compose'
-import { Compartment } from '@codemirror/state'
+import { parseCompose, serializeCompose, type ComposeState, type ServiceConfig, type CaddyRoute } from '../utils/compose'
+import { listFragments, type FragmentView } from '../api/gateway'
+import { listPorts, createPort, type PortBinding } from '../api/gateway'
+import CodeEditor from './CodeEditor.vue'
 // maple-mono 字体:按需引入 latin 子集的 400/700 字重
 import '@fontsource/maple-mono/latin-400.css'
 import '@fontsource/maple-mono/latin-700.css'
@@ -20,7 +21,7 @@ import '@fontsource/maple-mono/latin-700.css'
 const props = defineProps<{ show: boolean; project: string | null; readOnly?: boolean }>()
 const emit = defineEmits<{ 'update:show': (v: boolean) => void; saved: () => void }>()
 
-const message = useMessage()
+const [messageApi, contextHolder] = message.useMessage()
 
 const projectName = ref('')
 const displayName = ref('')
@@ -45,6 +46,9 @@ const deployError = ref('')
 const deployDone = ref(false)
 let deploySocket: WebSocket | null = null
 
+// 项目目录(相对运行目录,无结尾 /):用于把 `./<项目目录>/…` 相对挂载归并为 ${GB_PROJ_FILE} 变量
+const projectDir = ref('')
+
 const isNew = computed(() => !props.project)
 const editable = computed(() => !props.readOnly)
 
@@ -52,30 +56,6 @@ const editable = computed(() => !props.readOnly)
 const info = ref<DockerInfo | null>(null)
 const images = ref<ImageView[]>([])
 const domains = ref<Domain[]>([])
-
-const editorEl = ref<HTMLElement | null>(null)
-let editorView: any = null
-let cmModule: any = null
-let editorDebounce: number | undefined
-/** 程序化写入编辑器时置位,避免触发 yamlToForm 导致列表被重新推导(丢模式/空键) */
-let settingEditor = false
-// 编辑器外观:主题(默认深色)/字号/查找替换
-const themeCompartment = new Compartment()
-const fontSizeCompartment = new Compartment()
-const fontFamilyCompartment = new Compartment()
-const editorTheme = ref<'dark' | 'light'>('dark')
-const editorFontSize = ref(13)
-const editorFontFamily = ref('Maple Mono')
-const fontSizeOptions = [12, 13, 14, 16, 18].map((n) => ({ label: `${n}px`, value: n }))
-const fontFamilyOptions = [
-  { label: 'Maple Mono', value: 'Maple Mono' },
-  { label: 'JetBrains Mono', value: 'JetBrains Mono' },
-  { label: 'Fira Code', value: 'Fira Code' },
-  { label: 'Cascadia Code', value: 'Cascadia Code' },
-  { label: 'Source Code Pro', value: 'Source Code Pro' },
-  { label: 'IBM Plex Mono', value: 'IBM Plex Mono' },
-  { label: '系统等宽', value: 'monospace' },
-]
 
 // 两栏布局:form/yaml 显隐与分隔比例(可拖动调整)
 const showForm = ref(true)
@@ -117,7 +97,7 @@ function stopDrag() {
 }
 // YAML 区重新显示后,CodeMirror 需重新测量(隐藏期间容器尺寸为 0)
 watch(showYaml, (v) => {
-  if (v) nextTick(() => editorView?.requestMeasure())
+  if (v) nextTick(() => editorRef.value?.requestMeasure())
 })
 
 const restartOptions = [
@@ -129,161 +109,166 @@ const restartOptions = [
 
 function defaultTemplate(): string {
   return `services:
-  Ser:
+  Ser-1:
     image: ''
     restart: unless-stopped
 `
 }
 
-async function loadCodeMirror() {
-  if (cmModule) return cmModule
-  const [cm, langYaml, state, search, oneDark, view] = await Promise.all([
-    import('codemirror'),
-    import('@codemirror/lang-yaml'),
-    import('@codemirror/state'),
-    import('@codemirror/search'),
-    import('@codemirror/theme-one-dark'),
-    import('@codemirror/view'),
-  ])
-  cmModule = { cm, langYaml, state, search, oneDark, view }
-  return cmModule
+/** 服务在表单中的序号(1 起),用于变量排号 `${...GB_SER_N_...}`。 */
+function serviceNo(name: string): number {
+  const keys = Object.keys(formState.value.services)
+  const idx = keys.indexOf(name)
+  return idx >= 0 ? idx + 1 : 1
+}
+/** 构造 GB 变量名 `${GB_...}` 文本。 */
+function gbVar(suffix: string): string {
+  return `\${GB_${suffix}}`
+}
+/** 当前活动服务的应用名(容器名 || Ser-N)。 */
+function appName(): string {
+  const s = formState.value.services[activeService.value]
+  return s?.container_name || `Ser-${serviceNo(activeService.value)}`
 }
 
-async function ensureEditor() {
-  if (editorView || !editorEl.value) return
-  const { cm, langYaml, state, search, oneDark, view } = await loadCodeMirror()
-  editorView = new cm.EditorView({
-    doc: serializeCompose(formState.value),
-    extensions: [
-      cm.basicSetup,
-      langYaml.yaml(),
-      state.EditorState.tabSize.of(2),
-      cm.EditorView.editable.of(editable.value),
-      cm.EditorView.lineWrapping,
-      search.search({ top: true }),
-      state.EditorState.phrases.of({ 'Find': '查找', 'Replace': '替换', 'replace': '替换', 'replace all': '全部替换', 'next': '下一个', 'previous': '上一个', 'all': '全部', 'match case': '区分大小写', 'by word': '全字匹配', 'regexp': '正则', 'close': '关闭' }),
-      themeCompartment.of(themedExtensions(cm, oneDark)),
-      fontSizeCompartment.of(cm.EditorView.theme({ '&': { fontSize: `${editorFontSize.value}px` } })),
-      fontFamilyCompartment.of(cm.EditorView.theme({ '.cm-content': { fontFamily: `${editorFontFamily.value}, ui-monospace, SFMono-Regular, Menlo, monospace` } })),
-      cm.EditorView.theme({ '&': { height: '100%' } }),
-      cm.EditorView.theme({ '.cm-search .cm-textfield': { width: '200px' } }),
-      whitespaceMarkers(view, state),
-      cm.EditorView.updateListener.of((update: any) => {
-        if (update.docChanged && !settingEditor) { yamlDirty = true; scheduleYamlToForm() }
-      }),
+// --- CodeEditor 委托 ---
+
+const editorRef = ref<InstanceType<typeof CodeEditor> | null>(null)
+const yamlText = ref('')
+let settingYaml = false
+
+// 容器页面变量(与网关变量独立):编辑 YAML 时点击标签在光标处插入 ${KEY}
+const containerVars = ref<ContainerVariable[]>([])
+// 系统变量:仅保留 GB_PROJ_FILE(项目默认地址)。GB_PROJECT/GB_DISPLAY 已移除。
+const containerBuiltinVars = [
+  { key: 'GB_PROJ_FILE', desc: '项目默认地址：<gatebox>/appData/<项目名>/（不含结尾 /）' },
+]
+function insertContainerVar(key: string) {
+  insertText(`\${${key}}`)
+}
+/** 向 EDIT 编辑器光标处插入原文(系统变量插 ${KEY},项目变量插推导值)。 */
+function insertText(text: string) {
+  const ed = editorRef.value as any
+  if (!ed?.insertAtCursor) return
+  ed.focus()
+  nextTick(() => ed.insertAtCursor(text))
+}
+function loadContainerVars() {
+  listContainerVariables().then((vs) => { containerVars.value = vs }).catch(() => {})
+}
+
+/** 项目变量(EDIT 变量框下半):分 3 行(项目变量 / 应用名称 / 外部)。
+ *  label=chip 显示文案;tip=悬停提示;insert=点击插入到 EDIT 的文本(值。项目目录例外,插 ${GB_PROJ_FILE})。 */
+const projectVarChips = computed(() => {
+  const groups: { title: string; chips: { label: string; tip: string; insert: string }[] }[] = []
+  const pName = projectName.value.trim()
+  groups.push({
+    title: '项目变量',
+    chips: [
+      { label: '项目名称', tip: pName ? `项目值：${pName}` : '未填写时显示「项目名称」', insert: pName },
     ],
-    parent: editorEl.value,
   })
-}
-
-// 空格显示为点、制表符显示为箭头
-function whitespaceMarkers(view: any, state: any) {
-  const { ViewPlugin, Decoration, WidgetType } = view
-  const { RangeSetBuilder } = state
-  const mk = (txt: string) => class extends WidgetType {
-    eq() { return true }
-    toDOM() {
-      const s = document.createElement('span')
-      s.textContent = txt
-      s.style.color = '#808080'
-      s.style.opacity = '0.55'
-      return s
-    }
-  }
-  const SpaceWidget = mk('·')
-  const TabWidget = mk('→')
-  return ViewPlugin.fromClass(class {
-    decorations: any
-    constructor(view: any) { this.decorations = this.build(view) }
-    update(u: any) { if (u.docChanged || u.viewportChanged) this.decorations = this.build(u.view) }
-    build(view: any) {
-      const b = new RangeSetBuilder()
-      for (const { from, to } of view.visibleRanges) {
-        const text = view.state.doc.sliceString(from, to)
-        for (let i = 0; i < text.length; i++) {
-          const c = text.charCodeAt(i)
-          if (c === 32) b.add(from + i, from + i + 1, Decoration.replace({ widget: new SpaceWidget() }))
-          else if (c === 9) b.add(from + i, from + i + 1, Decoration.replace({ widget: new TabWidget() }))
-        }
-      }
-      return b.finish()
-    }
-  }, { decorations: (v: any) => v.decorations })
-}
-
-function destroyEditor() {
-  editorView?.destroy()
-  editorView = null
-}
-
-// 主题扩展:oneDark + 查找面板按钮颜色(随主题切换反色)
-function themedExtensions(cm: any, oneDark: any) {
-  const btn = cm.EditorView.theme({
-    '.cm-search button, .cm-search .cm-button': { color: editorTheme.value === 'dark' ? '#abb2bf' : '#333' },
+  // 应用(每服务一个,都放一行):显示输入的应用名称或 Ser-数字,点击插值
+  const svcNames = Object.keys(formState.value.services)
+  groups.push({
+    title: '应用名称',
+    chips: svcNames.map((name) => {
+      const no = serviceNo(name)
+      const ser = formState.value.services[name].container_name || `Ser-${no}`
+      return { label: ser, tip: `服务名称（应用名）：${ser}`, insert: ser }
+    }),
   })
-  return editorTheme.value === 'dark' ? [oneDark.oneDark, btn] : [btn]
-}
-function toggleTheme() {
-  editorTheme.value = editorTheme.value === 'dark' ? 'light' : 'dark'
-  if (editorView && cmModule) {
-    editorView.dispatch({ effects: themeCompartment.reconfigure(themedExtensions(cmModule.cm, cmModule.oneDark)) })
+  // 端口(每映射一个,都放一行):显示外部端口值,悬停看映射,点击插值
+  const portChips: { label: string; tip: string; insert: string }[] = []
+  for (const name of svcNames) {
+    const no = serviceNo(name)
+    ;(formState.value.services[name].ports || []).map(parsePortRow).forEach((p) => {
+      const val = p.host || '-'
+      portChips.push({ label: val, tip: `外部端口，映射 <${p.container}>/${p.protocol}`, insert: val })
+    })
   }
+  groups.push({ title: '外部', chips: portChips })
+  return groups
+})
+
+// 变量框折叠(默认展开);折叠后编辑器占满 YAML 区高度
+const varCollapsed = ref(false)
+
+// 行内新增变量(同网关片段页变量框)
+const addVarVisible = ref(false)
+const addDrafts = ref<{ key: string; value: string; description: string }[]>([])
+function openAddVar() {
+  addDrafts.value = [{ key: '', value: '', description: '' }]
+  addVarVisible.value = true
 }
-function setFontSize(px: number) {
-  editorFontSize.value = px
-  if (editorView && cmModule) {
-    editorView.dispatch({ effects: fontSizeCompartment.reconfigure(cmModule.cm.EditorView.theme({ '&': { fontSize: `${px}px` } })) })
+function addVarDraft() { addDrafts.value.push({ key: '', value: '', description: '' }) }
+function removeVarDraft(i: number) { addDrafts.value.splice(i, 1) }
+async function saveAddVar() {
+  const rows = addDrafts.value.map((r) => ({ ...r, key: r.key.trim().toUpperCase() })).filter((r) => r.key !== '' || r.value !== '' || r.description !== '')
+  if (rows.length === 0) return messageApi.warning('请至少填写一个变量')
+  for (const r of rows) {
+    if (!r.key) return messageApi.warning('变量名不能为空')
+    if (r.key.startsWith('GB_')) return messageApi.warning(`「${r.key}」不能以 GB_ 开头(保留前缀)`)
   }
-}
-function setFontFamily(family: string) {
-  editorFontFamily.value = family
-  if (editorView && cmModule) {
-    editorView.dispatch({ effects: fontFamilyCompartment.reconfigure(cmModule.cm.EditorView.theme({ '.cm-content': { fontFamily: `${family}, ui-monospace, SFMono-Regular, Menlo, monospace` } })) })
+  try {
+    for (const r of rows) await createContainerVariable(r.key, r.value, r.description)
+    messageApi.success(`已创建 ${rows.length} 个变量`)
+    addVarVisible.value = false
+    loadContainerVars()
+  } catch (e: any) {
+    messageApi.error(e.message)
   }
-}
-function undoEdit() { if (editorView && cmModule) cmModule.cm.undo(editorView) }
-function redoEdit() { if (editorView && cmModule) cmModule.cm.redo(editorView) }
-function openSearch() {
-  if (editorView && cmModule) cmModule.search.openSearchPanel(editorView)
-}
-function copyYaml() {
-  navigator.clipboard.writeText(editorContent()).then(() => message.success('已复制')).catch(() => message.error('复制失败'))
 }
 
 function editorContent(): string {
-  return editorView ? editorView.state.doc.toString() : serializeCompose(formState.value)
+  return yamlText.value || serializeCompose(formState.value)
 }
 
 function setEditorContent(y: string) {
-  if (!editorView) return
-  const doc = editorView.state.doc
-  if (doc.toString() !== y) {
-    settingEditor = true
-    editorView.dispatch({ changes: { from: 0, to: doc.length, insert: y } })
-    settingEditor = false
-  }
+  editorRef.value?.setDoc(y)
+}
+
+function onYamlChange(_v: string) {
+  if (settingYaml) return
+  yamlDirty = true
+  scheduleYamlToForm()
 }
 
 // --- 双向同步(Generation Lock) ---
 
-/** 序列化为 YAML,并跳过未命名的环境变量与空端口(不改动 formState)。 */
+/** 序列化为 YAML,并跳过未命名的环境变量与空端口(不改动 formState)。
+ * 健康检查默认:localhost 后端口 = 该 SER 第一个发布端口(变量 ${GB_SER_<No>_PORT_1});
+ * 无发布端口则该 SER 不进行健康检查(不写 healthcheck)。 */
 function serializeForYaml(): string {
   const clean: ComposeState = JSON.parse(JSON.stringify(formState.value))
-  for (const name of Object.keys(clean.services)) {
+  clean.services = normalizeServiceKeys(clean.services)
+  const svcNames = Object.keys(clean.services)
+  svcNames.forEach((name) => {
     const svc = clean.services[name]
     const env = svc.environment
     if (env && '' in env) { const e = { ...env }; delete e['']; svc.environment = e }
     if (svc.ports) svc.ports = svc.ports.filter((p) => parsePortRow(p).container !== '')
-  }
+    // 不再自动注入 healthcheck:镜像不一定内置 curl/wget(如 soulteary/flare),
+    // 自动注入的 curl 探测会导致无 curl 镜像判定 unhealthy。需要时用户显式配置
+    // (运行配置→健康检查,或 YAML 手写),此前的默认注入已污染已有项目(见 flare)。
+  })
   return serializeCompose(clean)
 }
 
-/** 表单 → YAML。禁止 @input 实时触发,只在 @blur / 显式同步时调用。 */
+/** 表单 → YAML。禁止 @input 实时触发,只在 @blur / 显式同步时调用。
+ * Edit 区有未同步修改(yamlDirty)时以 Edit 区为准:先把其内容并回表单,
+ * 但不覆盖编辑器文本(避免表单操作覆盖用户在 YAML 中的独立编辑)。 */
 function formToYaml() {
+  if (yamlDirty) {
+    yamlToForm()
+    return
+  }
   const v = ++stateVersion
   const y = serializeForYaml()
   if (v !== stateVersion) return // 期间有更新的同步,丢弃本任务
-  setEditorContent(y)
+  settingYaml = true
+  yamlText.value = y
+  nextTick(() => { settingYaml = false })
 }
 
 /** YAML → 表单。语法错误时不覆盖 formState(docs §7.2)。 */
@@ -291,14 +276,14 @@ function yamlToForm() {
   const v = ++stateVersion
   let s: ComposeState
   try {
-    s = parseCompose(editorContent())
+    s = parseCompose(yamlText.value)
   } catch {
     return // 语法错误:表单维持上一次成功解析的状态
   }
   if (v !== stateVersion) return
-  formState.value = s
+  formState.value = normalizeServiceKeys(s)
   yamlDirty = false
-  if (!s.services[activeService.value]) activeService.value = Object.keys(s.services)[0] || ''
+  if (!formState.value.services[activeService.value]) activeService.value = Object.keys(formState.value.services)[0] || ''
   reloadRows()
 }
 
@@ -309,8 +294,12 @@ function scheduleYamlToForm() {
 }
 
 function currentYAML(): string {
-  // 两栏并排:保存时若 YAML 有未同步的改动,先强制同步到表单再序列化
-  if (yamlDirty) yamlToForm()
+  // Edit 区有未同步改动时以 Edit 区为权威:原样保存,并同步回表单供后续操作。
+  // 这样用户在 YAML 中独立编辑的内容(含表单未覆盖的字段)不会被表单序列化丢弃。
+  if (yamlDirty) {
+    yamlToForm()
+    return yamlText.value
+  }
   return serializeForYaml()
 }
 
@@ -321,6 +310,9 @@ watch(() => props.show, async (v) => {
     deployLines.value = []
     deployError.value = ''
     deployDone.value = false
+    // 上一会话可能残留「未同步」标记,打开新项目前必须重置,
+    // 否则 formToYaml 的 dirty 分支会阻止新内容写入编辑器。
+    yamlDirty = false
     projectName.value = props.project || ''
     displayName.value = ''
     try {
@@ -328,37 +320,45 @@ watch(() => props.show, async (v) => {
       if (props.project) {
         const d = await getCompose(props.project)
         displayName.value = d.displayName
+        projectDir.value = d.projectDir || ''
         yaml = d.yaml
       } else {
+        projectDir.value = ''
         yaml = defaultTemplate()
       }
-      formState.value = parseCompose(yaml)
+      formState.value = normalizeServiceKeys(parseCompose(yaml))
       activeService.value = Object.keys(formState.value.services)[0] || ''
       reloadRows()
+      // 托管且可编辑:立即把规范化(键=应用名)后的 YAML 同步到编辑器;
+      // 外部只读项目保留原始文件内容展示。
+      if (props.readOnly) yamlText.value = yaml
+      else formToYaml()
     } catch (e: any) {
-      message.error('读取配置失败 — ' + e.message)
+      messageApi.error('读取配置失败 — ' + e.message)
       formState.value = { services: {} }
     } finally {
       loading.value = false
     }
     await nextTick()
-    await ensureEditor()
+    editorRef.value?.initEditor()
+    loadContainerVars()
     // 拉取系统信息与已有镜像/域名列表(镜像选择、域名访问、资源上限用)
     dockerInfo().then((i) => { info.value = i }).catch(() => {})
     listImages().then((imgs) => { images.value = imgs }).catch(() => {})
     listDomains().then((ds) => { domains.value = ds }).catch(() => {})
+    listFragments().then((fs) => { fragList.value = fs }).catch(() => {})
+    loadPortProtocols()
   } else {
     closeDeploy()
-    destroyEditor()
   }
 })
 
 // --- 服务增删 ---
 
 function addService() {
-  let name = 'Ser'
-  let i = 2
-  while (formState.value.services[name]) name = `Ser${i++}`
+  let n = 1
+  while (formState.value.services[`Ser-${n}`]) n++
+  const name = `Ser-${n}`
   formState.value.services[name] = { image: '' }
   activeService.value = name
   formToYaml()
@@ -370,12 +370,66 @@ function removeService(name: string) {
   formToYaml()
 }
 
+/** 应用名称(container_name)变化时,把 services 键同步改为新名字(维持 compose 语义)。
+ * 同时更新其它服务的 depends_on 引用与 activeService。 */
+/** 服务键与应用名统一:services 键 == container_name(应用名)。无应用名保留原键(Ser-N)。
+ *  用于解析后与序列化时,使键随应用名变化(仅改键名,不改 service 内容)。 */
+function normalizeServiceKeys(s: ComposeState['services']): ComposeState['services'] {
+  const rename = new Map<string, string>()
+  const used = new Set<string>()
+  for (const old of Object.keys(s)) {
+    const cn = (s[old].container_name || '').trim()
+    let nk = old
+    if (cn && cn !== old && /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(cn)) nk = cn
+    while (used.has(nk)) nk = nk + '_'
+    used.add(nk)
+    if (nk !== old) rename.set(old, nk)
+  }
+  if (rename.size === 0) return s
+  const next = {} as ComposeState['services']
+  for (const old of Object.keys(s)) {
+    const nk = rename.get(old) || old
+    const svc = s[old]
+    svc.container_name = nk // 键==应用名,保持一致
+    if (svc.depends_on?.length) svc.depends_on = svc.depends_on.map((d: string) => rename.get(d) || d)
+    next[nk] = svc
+  }
+  return next
+}
+
+function renameService(oldKey: string, newKey: string) {
+  const n = (newKey || '').trim()
+  if (n === oldKey) return
+  if (!n) return // 空:保留 Ser-N 键,不重命名
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(n)) {
+    messageApi.warning(`「${n}」不适合作服务键(仅允许字母数字 _ . -)`)
+    formState.value.services[oldKey].container_name = oldKey
+    return
+  }
+  if (formState.value.services[n]) {
+    messageApi.warning(`已有服务名「${n}」`)
+    formState.value.services[oldKey].container_name = oldKey
+    return
+  }
+  const next: ComposeState['services'] = {}
+  for (const k of Object.keys(formState.value.services)) next[k === oldKey ? n : k] = formState.value.services[k]
+  // container_name 与键保持一致,避免 YAML 里键名与 container_name 不一致
+  next[n].container_name = n
+  for (const k of Object.keys(next)) {
+    const svc = next[k]
+    if (svc.depends_on?.length) svc.depends_on = svc.depends_on.map((d: string) => (d === oldKey ? n : d))
+  }
+  formState.value.services = next
+  if (activeService.value === oldKey) activeService.value = n
+  formToYaml()
+}
+
 // --- 校验 / 保存 / 部署 ---
 
 async function doValidate() {
   const project = projectName.value.trim() || props.project || ''
   if (!project) {
-    message.warning('请填写 projectName')
+    messageApi.warning('请填写 projectName')
     return
   }
   validating.value = true
@@ -385,13 +439,13 @@ async function doValidate() {
     const res = await validateCompose({ project, yaml: currentYAML() })
     validateWarnings.value = res.warnings || []
     if (res.warnings?.length) {
-      message.warning(`校验通过，但有 ${res.warnings.length} 条警告`)
+      messageApi.warning(`校验通过，但有 ${res.warnings.length} 条警告`)
     } else {
-      message.success('校验通过')
+      messageApi.success('校验通过')
     }
   } catch (e: any) {
     validateError.value = e.message
-    message.error('校验失败')
+    messageApi.error('校验失败')
   } finally {
     validating.value = false
   }
@@ -400,7 +454,7 @@ async function doValidate() {
 async function doSave(): Promise<string | null> {
   const yaml = currentYAML()
   if (!yaml.trim()) {
-    message.warning('内容不能为空')
+    messageApi.warning('内容不能为空')
     return null
   }
   saving.value = true
@@ -408,7 +462,7 @@ async function doSave(): Promise<string | null> {
     if (isNew.value) {
       const p = projectName.value.trim()
       if (!p) {
-        message.warning('请填写 projectName')
+        messageApi.warning('请填写项目名称')
         return null
       }
       await createCompose(p, { displayName: displayName.value, yaml })
@@ -416,10 +470,11 @@ async function doSave(): Promise<string | null> {
     } else {
       await saveCompose(props.project!, { displayName: displayName.value, yaml })
     }
+    emit('saved')
     return projectName.value
   } catch (e: any) {
     validateError.value = e.message
-    message.error('保存失败 — ' + e.message)
+    messageApi.error('保存失败 — ' + e.message)
     return null
   } finally {
     saving.value = false
@@ -449,7 +504,7 @@ function startDeploy(project: string) {
     if (p.done) {
       deployDone.value = true
       deploying.value = false
-      message.success('部署完成')
+      messageApi.success('部署完成')
       emit('saved')
     }
   }
@@ -471,7 +526,6 @@ function closeDeploy() {
 onBeforeUnmount(() => {
   stopDrag()
   closeDeploy()
-  destroyEditor()
 })
 
 // --- 列表/键值字段的 textarea 互转 ---
@@ -535,13 +589,37 @@ function parseMountRow(s: string): MountRow {
   const target = parts[1] || ''
   const readonly = parts.length >= 3 && parts[2].includes('ro')
   if (src === '') return { name: '', target, mode: 'default', readonly }
-  if (src.startsWith('../')) return { name: src.slice(3), target, mode: 'default', readonly }
-  if (src.startsWith('./')) return { name: src.slice(2), target, mode: 'default', readonly }
+  // 三分类规则(避免读取后凭猜测改写原地址):
+  // 1. 默认路径:YAML 已用变量 ${GB_PROJ_FILE} 记录;或相对路径落于项目目录(./<项目目录>/…),
+  //    统一用变量保存(剥前缀→文件夹名)
+  if (src.startsWith('${GB_PROJ_FILE}')) return { name: src.slice('${GB_PROJ_FILE}'.length).replace(/^\/+|\/+$/g, ''), target, mode: 'default', readonly }
+  if (src.startsWith('./') || src.startsWith('../')) {
+    // 相对路径:去掉 ./ 前缀后若落在项目目录内 → 默认路径(用变量保存)
+    const rel = src.replace(/^\.\.?\/+/, '')
+    const pdir = (projectDir.value || '').replace(/^\.\.?\/+/, '')
+    if (pdir && (rel === pdir || rel.startsWith(pdir + '/'))) {
+      const name = rel.slice(pdir.length).replace(/^\/+|\/+$/g, '')
+      return { name, target, mode: 'default', readonly }
+    }
+    // 项目目录之外的相对路径(如 ../shared)无法用变量表达,原样保留
+    return { name: src, target, mode: 'custom', readonly }
+  }
+  // 2. 自定义:以 / 开头的绝对路径,原样保留
   if (src.startsWith('/')) return { name: src, target, mode: 'custom', readonly }
+  // 3. 存储卷:字母/数字开头的卷名,原样保留
   return { name: src, target, mode: 'volume', readonly }
 }
 function serializeMountRow(r: MountRow): string {
-  const src = r.mode === 'default' ? `./${r.name}` : r.name
+  // 容器内路径未填的挂载行不产出
+  if (!r.target) return ''
+  let src: string
+  if (r.mode === 'default') {
+    // 默认路径 = 项目默认地址变量 + 文件夹名:${GB_PROJ_FILE}/<name>/(GB_PROJ_FILE 不含结尾 /)
+    const name = r.name.replace(/^\/+|\/+$/g, '')
+    src = name ? `\${GB_PROJ_FILE}/${name}/` : `\${GB_PROJ_FILE}/`
+  } else {
+    src = r.name // 自定义(绝对路径/相对路径)与存储卷均原样写入
+  }
   let s = `${src}:${r.target}`
   if (r.readonly) s += ':ro'
   return s
@@ -570,17 +648,22 @@ function reloadRows() {
   const s = curService()
   envList.value = Object.entries(s?.environment || {}).map(([key, value]) => ({ key, value }))
   mountList.value = (s?.volumes || []).map(parseMountRow)
+  // 解析后立即回写:相对项目目录的挂载规整为 ${GB_PROJ_FILE} 变量保存
+  syncMount()
+  reloadCommand()
+  reloadCapAdd()
   reloadDomain()
   reloadRelation()
   initRunDefaults()
 }
 
-// 运行配置默认值:写入 formState 使其呈现到 YAML(用户不碰也给默认)
+// 运行配置默认值:仅在 formState 层面给出渲染 fallback(logging)——
+// 不自动向 YAML 注入 healthcheck(镜像可能无 curl/wget,避免误判 unhealthy)。
+// 健康检查由用户显式配置(运行配置→健康检查,或 YAML 手写)。
 function initRunDefaults() {
   const s = curService()
   if (!s) return
   if (!s.logging) s.logging = { driver: 'json-file', options: { 'max-size': '2m', 'max-file': '5' } }
-  if (!s.healthcheck) s.healthcheck = { interval: '30s', timeout: '10s', retries: 3 }
   // shm_size 等于 docker 默认值 64m,不填(ADR-017)
 }
 function syncEnv() {
@@ -593,49 +676,203 @@ function syncEnv() {
 function syncMount() {
   const s = curService()
   if (!s) return
-  s.volumes = mountList.value.map(serializeMountRow)
+  s.volumes = mountList.value.map(serializeMountRow).filter(Boolean)
 }
 function envAdd() { envList.value.push({ key: '', value: '' }); syncEnv(); formToYaml() }
 function envRemove(i: number) { envList.value.splice(i, 1); syncEnv(); formToYaml() }
 function mountAdd() { mountList.value.push({ name: '', target: '', mode: 'default', readonly: false }); syncMount(); formToYaml() }
 function mountRemove(i: number) { mountList.value.splice(i, 1); syncMount(); formToYaml() }
 
-// 域名访问:本地行列表(子域名/根域名/指向端口/访问端口),仅 domain 落 caddy label
+// command / cap_add 逐条添加（类似环境变量的交互模式）
+const commandList = ref<string[]>([])
+const capAddList = ref<string[]>([])
+
+function reloadCommand() { commandList.value = [...(curService()?.command || [])] }
+function reloadCapAdd() { capAddList.value = [...(curService()?.cap_add || [])] }
+function syncCommand() {
+  const s = curService()
+  if (!s) return
+  s.command = commandList.value.filter(Boolean)
+}
+function syncCapAdd() {
+  const s = curService()
+  if (!s) return
+  s.cap_add = capAddList.value.filter(Boolean)
+}
+function commandAdd() { commandList.value.push(''); syncCommand(); formToYaml() }
+function commandRemove(i: number) { commandList.value.splice(i, 1); syncCommand(); formToYaml() }
+function capAddAdd() { capAddList.value.push(''); syncCapAdd(); formToYaml() }
+function capAddRemove(i: number) { capAddList.value.splice(i, 1); syncCapAdd(); formToYaml() }
+
+// 域名访问:本地行列表。每个域名行独立绑定「指向端口」与「Caddy 片段」(ADR-026 修订:
+// 同一容器经不同域名发布不同端口/片段的服务)。
+// 协议/访问端口编码进 site 地址;指向端口 → caddy[.N].reverse_proxy: "{{upstreams N}}";
+// 片段 → gatebox.fragments[_N]。
 interface DomainAccessRow {
+  subMode: 'default' | 'custom' // 子域名:默认(应用名)/自定义
   subdomain: string
   rootDomain: string
-  targetPort: string
-  accessMode: 'web' | 'custom'
-  accessPort: string
+  protocols: string[] // 支持的多协议(引用「网关→端口」启用协议;每个协议下所有端口均可用)
+  upstream: string // '' = 自动(继承/唯一映射端口);否则为容器内部端口;'__custom' = 自定义
+  upstreamCustom: string
+  fragSel: string[] // 行级 Caddy 片段名
 }
 const domainList = ref<DomainAccessRow[]>([])
 const domainOptions = computed(() => domains.value.map((d) => ({ label: d.name, value: d.name })))
+// 协议下拉动态引用「网关 → 端口」的协议记录(HTTP/HTTPS 可用,其它协议暂不代理入口)。
+const portProtocols = ref<PortBinding[]>([])
+const protoOptions = computed(() =>
+  portProtocols.value
+    .filter((p) => p.enabled)
+    .map((p) => ({
+      label: p.protocol === 'http' || p.protocol === 'https' ? `${p.description}（${p.ports.join(' / ')}）` : `${p.description}（暂不代理）`,
+      value: p.protocol,
+      disabled: p.protocol !== 'http' && p.protocol !== 'https',
+    })),
+)
+async function loadPortProtocols() {
+  try {
+    portProtocols.value = await listPorts()
+  } catch {
+    portProtocols.value = []
+  }
+}
+
+// 「添加协议」:走网关→端口创建(新增协议后即可在域名访问中选择)
+const protoModalShow = ref(false)
+const protoSaving = ref(false)
+const protoForm = ref({ protocol: '', description: '', defaultPort: 0, ports: [] as number[], enabled: true })
+function openNewProtocol() {
+  protoForm.value = { protocol: '', description: '', defaultPort: 0, ports: [], enabled: true }
+  protoModalShow.value = true
+}
+async function saveNewProtocol() {
+  const f = protoForm.value
+  if (!/^[a-z][a-z0-9]{0,31}$/.test(f.protocol)) {
+    messageApi.warning('协议名需为小写字母/数字')
+    return
+  }
+  if (f.defaultPort <= 0 || f.defaultPort > 65535) {
+    messageApi.warning('默认端口非法')
+    return
+  }
+  if (!f.ports.length || !f.ports.every((n) => Number.isInteger(n) && n > 0 && n <= 65535)) {
+    messageApi.warning('请填写至少一个 1~65535 的实际端口')
+    return
+  }
+  protoSaving.value = true
+  try {
+    await createPort(f)
+    messageApi.success('协议已添加，可在域名访问中选择')
+    protoModalShow.value = false
+    await loadPortProtocols()
+  } catch (e: any) {
+    messageApi.error(e.message)
+  } finally {
+    protoSaving.value = false
+  }
+}
+
+// 每行「指向端口」下拉选项:该服务「端口映射」行 + 自定义容器内部端口。
+function rowUpstreamOptions(): { label: string; value: string }[] {
+  const opts = [{ label: '自动(继承/唯一映射端口)', value: '' }]
+  for (const p of portRows()) {
+    if (!p.container) continue
+    const hostLabel = p.host ? `:${p.host}` : '(随机)'
+    opts.push({ label: `宿主${hostLabel} → 容器 ${p.container}`, value: p.container })
+  }
+  opts.push({ label: '自定义容器内部端口…', value: '__custom' })
+  return opts
+}
+
+// Caddy 片段备选(组件级,按名引用)。
+const fragList = ref<FragmentView[]>([])
+const fragOptions = computed(() => fragList.value.map((f) => ({ label: f.name, value: f.name })))
+
+// upstreamTemplateRe 提取 {{upstreams [https] <port>}} 中的容器内部端口(回显用)。
+const upstreamTemplateRe = /\{\{\s*upstreams(?:\s+(https?))?(?:\s+(\d+))?\s*\}\}/
 
 function reloadDomain() {
-  domainList.value = (curService()?.caddyRoutes || []).map((r) => {
-    const parts = (r.domain || '').split('.')
-    return { subdomain: parts[0] || '', rootDomain: parts.slice(1).join('.') || '', targetPort: '', accessMode: 'web' as const, accessPort: '' }
-  })
+  const s = curService()
+  const routes = s?.caddyRoutes || []
+  const byHost = new Map<string, DomainAccessRow>()
+  const order: string[] = []
+  for (const r of routes) {
+    const host = (r.domain || '').replace(/^https?:\/\//, '')
+    const rootD = longestRootDomain(host)
+    const sub = rootD ? host.slice(0, host.length - rootD.length - 1) : (host.split('.')[0] || '')
+    const root = rootD || host.split('.').slice(1).join('.')
+    let row = byHost.get(host)
+    if (!row) {
+      row = { subMode: 'custom', subdomain: sub, rootDomain: root, protocols: [], upstream: '', upstreamCustom: '', fragSel: [] }
+      byHost.set(host, row)
+      order.push(host)
+    }
+    // 同一域名支持多协议:http/https 及其端口并到一行
+    const proto = r.proto || 'https'
+    if (!row.protocols.includes(proto)) row.protocols.push(proto)
+    // 行级指向端口与片段(同域名多协议共享,取首个非空)
+    const m = r.upstreamRef ? upstreamTemplateRe.exec(r.upstreamRef) : null
+    if (m && m[2]) {
+      const idxs = new Set(portRows().map((p) => p.container).filter(Boolean))
+      if (idxs.has(m[2])) row.upstream = m[2]
+      else { row.upstream = '__custom'; row.upstreamCustom = m[2] }
+    }
+    if (r.fragmentNames?.length && row.fragSel.length === 0) row.fragSel = [...r.fragmentNames]
+  }
+  domainList.value = order.map((h) => byHost.get(h)!)
 }
 function syncDomain() {
   const s = curService()
   if (!s) return
-  s.caddyRoutes = domainList.value.map((r) => ({ domain: [r.subdomain, r.rootDomain].filter(Boolean).join('.') }))
+  // 每(域名,协议)一条路由(协议下所有端口由网关端口表驱动全部监听,无需选端口)
+  const routes: CaddyRoute[] = []
+  for (const r of domainList.value) {
+    const host = [(r.subMode === 'default' ? appName() : r.subdomain), r.rootDomain].filter(Boolean).join('.')
+    for (const proto of r.protocols) {
+      const route: CaddyRoute = { domain: host, proto }
+      if (r.upstream === '__custom') {
+        const n = r.upstreamCustom.trim()
+        if (n) route.upstreamRef = `{{upstreams ${n}}}`
+      } else if (r.upstream) {
+        route.upstreamRef = `{{upstreams ${r.upstream}}}`
+      }
+      if (r.fragSel.length) route.fragmentNames = [...r.fragSel]
+      routes.push(route)
+    }
+  }
+  s.caddyRoutes = routes
 }
-function domainAdd() { domainList.value.push({ subdomain: '', rootDomain: '', targetPort: '', accessMode: 'web', accessPort: '' }); syncDomain(); formToYaml() }
+
+// 行摘要:该域名的协议与端口(引用网关端口表全部端口)。
+function domainSummary(r: DomainAccessRow): string {
+  return r.protocols
+    .map((proto) => {
+      const p = portProtocols.value.find((x) => x.protocol === proto)
+      const ports = p && p.enabled && p.ports.length ? p.ports.join('/') : (proto === 'http' ? '80' : '443')
+      return `${proto}://${r.subMode === 'default' ? appName() : r.subdomain}${r.rootDomain ? '.' + r.rootDomain : ''}（${ports}）`
+    })
+    .join(' · ')
+}
+function domainAdd() {
+  domainList.value.push({ subMode: 'default', subdomain: '', rootDomain: '', protocols: ['https'], upstream: '', upstreamCustom: '', fragSel: [] })
+  syncDomain()
+  formToYaml()
+}
 function domainRemove(i: number) { domainList.value.splice(i, 1); syncDomain(); formToYaml() }
-function portExternalOptions() { return portRows().map((p) => ({ label: p.host || '随机', value: p.host })) }
-// 第一组端口映射的内部端口(健康检查默认脚本用)
-function firstInternalPort(): string {
-  const p = portRows()[0]
-  return p?.container || '8080'
+
+// longestRootDomain 按受管域名列表做最长后缀匹配(与后端 DERIVE matchRootDomain 对齐)。
+function longestRootDomain(host: string): string {
+  let best = ''
+  for (const d of domains.value) {
+    const name = d.name
+    if ((host === name || host.endsWith('.' + name)) && name.length > best.length) best = name
+  }
+  return best
 }
 function healthCheckPlaceholder(): string {
-  return `配置健康检查脚本，不填写默认 curl -f http://localhost:${firstInternalPort()}/ || exit 1`
-}
-function domainAccessPort(rootDomain: string): string {
-  const d = domains.value.find((x) => x.name === rootDomain)
-  return d?.credentialId ? '443' : '80'
+  // 约定变量名:${GB_SER_<服务No>_PORT_<端口No>}
+  return `curl -f http://localhost:${gbVar(`SER_${serviceNo(activeService.value)}_PORT_1`)}/ || exit 1`
 }
 
 // 镜像选择 / 拉取
@@ -668,11 +905,12 @@ function pullRef() {
   const name = pullName.value.trim()
   if (!name) return ''
   const tag = pullTag.value.trim()
-  return tag ? `${name}:${tag}` : name
+  // tag 留空默认 latest,保证 image 始终带 tag(docker 会自己补 :latest,但 Edit 区应明确)
+  return tag ? `${name}:${tag}` : `${name}:latest`
 }
 function startPull() {
   const ref = pullRef()
-  if (!ref) { message.warning('请填写镜像名'); return }
+  if (!ref) { messageApi.warning('请填写镜像名'); return }
   if (pullActive.value) return
   pullActive.value = true
   pullPercent.value = 0
@@ -680,18 +918,18 @@ function startPull() {
   pullSocket = new WebSocket(wsURL('/docker/images/pull', { ref, platform: pullArch.value.trim() }))
   pullSocket.onmessage = (ev) => {
     const p = JSON.parse(ev.data) as any
-    if (p.error) { message.error('拉取失败 — ' + p.error); closePull(); return }
+    if (p.error) { messageApi.error('拉取失败 — ' + p.error); closePull(); return }
     pullPercent.value = p.percent
     pullStatus.value = p.status
     if (p.done) {
-      message.success('镜像拉取完成')
+      messageApi.success('镜像拉取完成')
       const s = curService()
       if (s) { s.image = ref; formToYaml() }
       closePull()
       listImages().then((imgs) => { images.value = imgs }).catch(() => {})
     }
   }
-  pullSocket.onerror = () => { message.error('拉取连接失败'); closePull() }
+  pullSocket.onerror = () => { messageApi.error('拉取连接失败'); closePull() }
 }
 function closePull() {
   pullActive.value = false
@@ -734,7 +972,7 @@ function syncDevices() {
   s.devices = deviceList.value.filter((d) => d.hostPath && d.containerPath).map((d) => `${d.hostPath}:${d.containerPath}`)
 }
 function openNetworkJoin() {
-  listNetworks().then((ns) => { networksAll.value = ns; networkJoinShow.value = true }).catch((e) => message.error('读取网络失败 — ' + e.message))
+  listNetworks().then((ns) => { networksAll.value = ns; networkJoinShow.value = true }).catch((e) => messageApi.error('读取网络失败 — ' + e.message))
 }
 function networkAdd(name: string) { networkList.value.push({ name, alias: '', ipv4: '' }); syncNetworks(); formToYaml(); networkJoinShow.value = false }
 function networkRemove(i: number) { networkList.value.splice(i, 1); syncNetworks(); formToYaml() }
@@ -755,46 +993,48 @@ function fmtMemGB(): string {
 </script>
 
 <template>
-  <n-drawer
-    :show="show"
+  <a-drawer
+    :open="show"
     placement="right"
-    width="min(1400px, 100vw)"
+    :width="1400"
     :mask-closable="!deploying"
-    @update:show="(v: boolean) => emit('update:show', v)"
+    :body-style="{ padding: 0 }"
+    @close="emit('update:show', false)"
   >
+    <template #title>
+      <span class="dw-drawer-title">{{ isNew ? '创建应用' : `编辑 ${displayName || projectName}` }}</span>
+    </template>
+    <contextHolder />
     <div style="display: flex; flex-direction: column; height: 100%">
-      <div style="padding: 14px 24px; border-bottom: 1px solid #eee; display: flex; align-items: center; gap: 8px; flex-shrink: 0">
-        <span style="font-size: 16px; font-weight: 600">{{ isNew ? '创建应用' : `编辑 ${displayName || projectName}` }}</span>
-        <div style="flex: 1"></div>
-        <n-button size="small" :type="showForm ? 'primary' : 'default'" ghost @click="showForm = !showForm">
+      <div style="padding: 6px 24px; border-bottom: 1px solid #eee; display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-shrink: 0">
+        <a-button size="small" :type="showForm ? 'primary' : 'default'" ghost @click="showForm = !showForm">
           {{ showForm ? '隐藏表单' : '显示表单' }}
-        </n-button>
-        <n-button size="small" :type="showYaml ? 'primary' : 'default'" ghost @click="showYaml = !showYaml">
+        </a-button>
+        <a-button size="small" :type="showYaml ? 'primary' : 'default'" ghost @click="showYaml = !showYaml">
           {{ showYaml ? '隐藏 YAML' : '显示 YAML' }}
-        </n-button>
-        <n-button quaternary circle size="small" @click="emit('update:show', false)">✕</n-button>
+        </a-button>
       </div>
       <div style="flex: 1; overflow: hidden; display: flex; flex-direction: column; gap: 12px; padding: 16px 24px">
       <div style="display: flex; gap: 12px">
         <div style="flex: 1">
-          <n-text depth="3" style="font-size: 12px">projectName（{{ isNew ? '创建后不可改' : '只读' }}）</n-text>
-          <n-input v-model:value="projectName" :disabled="!isNew" placeholder="my-app" />
+          <div class="dw-label">项目名称<span class="dw-required">*</span><span style="color: #999; font-size: 12px">（{{ isNew ? '创建后不可改' : '只读' }}）</span></div>
+          <a-input v-model:value="projectName" :disabled="!isNew" placeholder="my-app" :status="isNew && !projectName.trim() ? 'error' : ''" />
         </div>
         <div style="flex: 1">
-          <n-text depth="3" style="font-size: 12px">展示名</n-text>
-          <n-input v-model:value="displayName" :disabled="readOnly" placeholder="家庭影院" />
+          <div class="dw-label">展示名</div>
+          <a-input v-model:value="displayName" :disabled="readOnly" placeholder="家庭影院" />
         </div>
       </div>
 
-      <n-alert v-if="validateError" type="error" :show-icon="true" style="margin-bottom: 0">
+      <a-alert v-if="validateError" type="error" show-icon style="margin-bottom: 0">
         {{ validateError }}
-      </n-alert>
-      <n-alert v-if="validateWarnings.length" type="warning" :show-icon="true" style="margin-bottom: 0">
+      </a-alert>
+      <a-alert v-if="validateWarnings.length" type="warning" show-icon style="margin-bottom: 0">
         <div v-for="(w, i) in validateWarnings" :key="i">{{ w }}</div>
-      </n-alert>
-      <n-alert v-if="readOnly" type="info" :show-icon="true">
+      </a-alert>
+      <a-alert v-if="readOnly" type="info" show-icon>
         外部编排只读。编辑需在源文件中进行或先「接管」。
-      </n-alert>
+      </a-alert>
 
       <!-- 主区域:表单 | 分割线 | YAML -->
       <div ref="mainAreaEl" style="flex: 1; min-height: 0; display: flex">
@@ -816,12 +1056,9 @@ function fmtMemGB(): string {
               style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 4px 4px 0 0; cursor: pointer; font-size: 13px; flex-shrink: 0"
             >
               <span>{{ formState.services[name].container_name || name }}</span>
-              <n-popconfirm v-if="editable" @positive-click="removeService(name)">
-                <template #trigger>
-                  <span @click.stop style="font-size: 11px; line-height: 1; opacity: 0.7">✕</span>
-                </template>
-                确认删除服务 {{ name }}？
-              </n-popconfirm>
+              <a-popconfirm v-if="editable" :title="`确认删除服务 ${name}？`" @confirm="removeService(name)">
+                <span @click.stop style="font-size: 11px; line-height: 1; opacity: 0.7">✕</span>
+              </a-popconfirm>
             </div>
             <div
               v-if="editable"
@@ -833,29 +1070,25 @@ function fmtMemGB(): string {
           <div v-if="activeService && formState.services[activeService]" style="flex: 1; overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px">
 
           <div>
-            <div style="font-size: 15px; font-weight: 600; margin-bottom: 8px">基本信息</div>
+            <div class="dw-section">基本信息</div>
             <div style="display: flex; gap: 10px">
               <div style="flex: 2">
-                <n-text depth="3" style="font-size: 13px">镜像</n-text>
+                <div class="dw-label">镜像</div>
                 <div style="display: flex; gap: 6px; align-items: center">
-                  <n-input size="small" :value="formState.services[activeService].image" disabled placeholder="选择或拉取镜像" style="flex: 1" />
-                  <n-button size="small" :disabled="!editable" @click="openImageSelect">选择镜像</n-button>
-                  <n-button size="small" :disabled="!editable" @click="openPull">拉取镜像</n-button>
+                  <a-input size="small" :value="formState.services[activeService].image" disabled placeholder="选择或拉取镜像" style="flex: 1" />
+                  <a-button size="small" :disabled="!editable" @click="openImageSelect">选择镜像</a-button>
+                  <a-button size="small" :disabled="!editable" @click="openPull">拉取镜像</a-button>
                 </div>
               </div>
               <div style="flex: 1">
-                <n-text depth="3" style="font-size: 13px">应用名称(容器名)</n-text>
-                <n-input size="small" v-model:value="formState.services[activeService].container_name" :disabled="!editable" @blur="formToYaml" />
+                <div class="dw-label">应用名称(容器名)</div>
+                <a-input size="small" :value="formState.services[activeService].container_name" :disabled="!editable" :placeholder="`Ser-${serviceNo(activeService.value)}（应用名）`" @update:value="(v: any) => { formState.services[activeService].container_name = v; formToYaml() }" @blur="() => renameService(activeService.value, formState.services[activeService].container_name)" />
               </div>
             </div>
             <div style="display: flex; gap: 10px; margin-top: 10px; align-items: center">
               <div style="flex: 1">
-                <n-text depth="3" style="font-size: 13px">重启策略</n-text>
-                <n-select size="small" v-model:value="formState.services[activeService].restart" :options="restartOptions" :disabled="!editable" @blur="formToYaml" />
-              </div>
-              <div style="flex: 1">
-                <n-text depth="3" style="font-size: 13px">关联宿主机 PID</n-text>
-                <n-switch :value="formState.services[activeService].pid === 'host'" :disabled="!editable" @update:value="(v) => { formState.services[activeService].pid = v ? 'host' : ''; formToYaml() }" style="margin-top: 6px" />
+                <div class="dw-label">重启策略</div>
+                <a-select size="small" v-model:value="formState.services[activeService].restart" :options="restartOptions" :disabled="!editable" @blur="formToYaml" />
               </div>
             </div>
           </div>
@@ -866,7 +1099,7 @@ function fmtMemGB(): string {
               v-for="t in configTabs"
               :key="t.key"
               @click="configTab = t.key"
-              :style="configTab === t.key ? { color: '#4098fc', fontWeight: '600', borderBottom: '2px solid #4098fc' } : { color: '#666' }"
+              :style="configTab === t.key ? { color: '#1677ff', fontWeight: '600', borderBottom: '2px solid #1677ff' } : { color: '#666' }"
               style="padding: 6px 14px; cursor: pointer; font-size: 14px; margin-bottom: -1px"
             >{{ t.label }}</div>
           </div>
@@ -876,65 +1109,85 @@ function fmtMemGB(): string {
 
             <div>
               <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px">
-                <n-text style="font-size: 14px; font-weight: 600">环境变量</n-text>
-                <n-button v-if="editable" size="tiny" type="primary" quaternary @click="envAdd">+ 添加变量</n-button>
+                <div class="dw-section">环境变量</div>
+                <a-button v-if="editable" size="small" type="primary" @click="envAdd">+ 添加变量</a-button>
               </div>
               <div v-for="(row, i) in envList" :key="i" style="display: flex; gap: 6px; align-items: center; margin-top: 6px">
-                <n-input size="small" v-model:value="row.key" :disabled="!editable" placeholder="变量名" style="flex: 1" @blur="() => { syncEnv(); formToYaml() }" />
-                <n-input size="small" v-model:value="row.value" :disabled="!editable" placeholder="变量值" style="flex: 1" @blur="() => { syncEnv(); formToYaml() }" />
-                <n-button v-if="editable" size="tiny" quaternary type="error" @click="envRemove(i)">✕</n-button>
+                <a-input size="small" v-model:value="row.key" :disabled="!editable" placeholder="变量名" style="flex: 1" @blur="() => { syncEnv(); formToYaml() }" />
+                <a-input size="small" v-model:value="row.value" :disabled="!editable" placeholder="变量值" style="flex: 1" @blur="() => { syncEnv(); formToYaml() }" />
+                <a-button v-if="editable" size="small" type="text" danger @click="envRemove(i)">✕</a-button>
               </div>
             </div>
 
             <div style="border-top: 1px solid #f0f0f0; padding-top: 12px">
               <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px">
-                <n-text style="font-size: 14px; font-weight: 600">挂载或存储卷</n-text>
-                <n-button v-if="editable" size="tiny" type="primary" quaternary @click="mountAdd">+ 添加目录</n-button>
+                <div class="dw-section">挂载或存储卷</div>
+                <a-button v-if="editable" size="small" type="primary" @click="mountAdd">+ 添加目录</a-button>
               </div>
               <div v-for="(row, i) in mountList" :key="i" style="display: flex; gap: 6px; align-items: center; margin-top: 6px">
-                <n-select size="small" v-model:value="row.mode" :options="mountModeOptions" :disabled="!editable" style="width: 100px" @update:value="() => { syncMount(); formToYaml() }" />
-                <n-input size="small" v-model:value="row.name" :disabled="!editable" :placeholder="row.mode === 'default' ? '文件夹名，如 logs' : row.mode === 'custom' ? '绝对路径，如 /var/run/docker.sock' : '卷名'" style="flex: 1" @blur="() => { syncMount(); formToYaml() }" />
+                <a-select size="small" v-model:value="row.mode" :options="mountModeOptions" :disabled="!editable" style="width: 100px" @change="() => { syncMount(); formToYaml() }" />
+                <a-input size="small" v-model:value="row.name" :disabled="!editable" :placeholder="row.mode === 'default' ? '文件夹名，如 logs → ' + gbVar('PROJ_FILE') + '/logs/' : row.mode === 'custom' ? '绝对路径，如 /var/run/docker.sock' : '卷名'" style="flex: 1" @blur="() => { syncMount(); formToYaml() }" />
                 <span style="color: #999">:</span>
-                <n-input size="small" v-model:value="row.target" :disabled="!editable" placeholder="容器内路径" style="flex: 1" @blur="() => { syncMount(); formToYaml() }" />
-                <n-select size="small" :value="row.readonly ? 'ro' : 'rw'" :options="rwOptions" :disabled="!editable" style="width: 80px" @update:value="(v) => { row.readonly = v === 'ro'; syncMount(); formToYaml() }" />
-                <n-button v-if="editable" size="tiny" quaternary type="error" @click="mountRemove(i)">✕</n-button>
+                <a-input size="small" v-model:value="row.target" :disabled="!editable" placeholder="容器内路径" style="flex: 1" @blur="() => { syncMount(); formToYaml() }" />
+                <a-select size="small" :value="row.readonly ? 'ro' : 'rw'" :options="rwOptions" :disabled="!editable" style="width: 80px" @change="(v: any) => { row.readonly = v === 'ro'; syncMount(); formToYaml() }" />
+                <a-button v-if="editable" size="small" type="text" danger @click="mountRemove(i)">✕</a-button>
               </div>
             </div>
 
             <div style="border-top: 1px solid #f0f0f0; padding-top: 12px">
               <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px">
-                <n-text style="font-size: 14px; font-weight: 600">端口映射</n-text>
-                <n-button v-if="editable" size="tiny" type="primary" quaternary @click="portAdd">+ 添加端口</n-button>
+                <div class="dw-section">端口映射</div>
+                <a-button v-if="editable" size="small" type="primary" @click="portAdd">+ 添加端口</a-button>
               </div>
-              <div v-for="(row, i) in portRows()" :key="i" style="display: flex; gap: 6px; align-items: center; margin-top: 6px">
-                <n-input size="small" :value="row.host" :disabled="!editable" placeholder="外部端口(留空随机)" style="flex: 1" @update:value="(v) => portUpdate(i, { host: v })" @blur="formToYaml" />
-                <span style="color: #999">:</span>
-                <n-input size="small" :value="row.container" :disabled="!editable" placeholder="内部端口" style="flex: 1" @update:value="(v) => portUpdate(i, { container: v })" @blur="formToYaml" />
-                <n-select size="small" :value="row.protocol" :options="protocolOptions" :disabled="!editable" style="width: 80px" @update:value="(v) => { portUpdate(i, { protocol: v }); formToYaml() }" />
-                <n-button v-if="editable" size="tiny" quaternary type="error" @click="portRemove(i)">✕</n-button>
+              <div v-for="(row, i) in portRows()" :key="i" style="margin-bottom: 4px">
+                <div style="display: flex; gap: 6px; align-items: center">
+                  <!-- 端口映射前标数字(端口序号),用于对照变量排号 -->
+                  <span style="font-size: 11px; font-family: monospace; color: #bbb; width: 18px; text-align: right; flex-shrink: 0">{{ i + 1 }}</span>
+                  <a-input size="small" :value="row.host" :disabled="!editable" placeholder="外部端口(留空随机)" style="flex: 1" @update:value="(v: any) => portUpdate(i, { host: v })" @blur="formToYaml" />
+                  <span style="color: #999">:</span>
+                  <a-input size="small" :value="row.container" :disabled="!editable" placeholder="内部端口" style="flex: 1" @update:value="(v: any) => portUpdate(i, { container: v })" @blur="formToYaml" />
+                  <a-select size="small" :value="row.protocol" :options="protocolOptions" :disabled="!editable" style="width: 80px" @change="(v: any) => { portUpdate(i, { protocol: v }); formToYaml() }" />
+                  <a-button v-if="editable" size="small" type="text" danger @click="portRemove(i)">✕</a-button>
+                </div>
               </div>
             </div>
 
             <div style="border-top: 1px solid #f0f0f0; padding-top: 12px">
               <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px">
-                <n-text style="font-size: 14px; font-weight: 600">域名访问</n-text>
-                <n-button v-if="editable" size="tiny" type="primary" quaternary @click="domainAdd">+ 添加域名访问</n-button>
+                <div class="dw-section">域名访问</div>
+                <a-button v-if="editable" size="small" type="primary" @click="domainAdd">+ 添加域名访问</a-button>
+                <a-button v-if="editable" size="small" @click="openNewProtocol">+ 添加协议</a-button>
               </div>
-              <div v-for="(row, i) in domainList" :key="i" style="display: flex; gap: 6px; align-items: center; margin-top: 6px">
-                <n-input size="small" v-model:value="row.subdomain" :disabled="!editable" placeholder="子域名，不填为应用名称" style="flex: 1" @blur="() => { syncDomain(); formToYaml() }" />
-                <span style="color: #999">.</span>
-                <n-select size="small" v-model:value="row.rootDomain" :options="domainOptions" :disabled="!editable" placeholder="根域名" style="flex: 1" @update:value="() => { syncDomain(); formToYaml() }" />
-                <n-select size="small" v-model:value="row.accessMode" :options="[{ label: 'WEB', value: 'web' }, { label: '其他', value: 'custom' }]" :disabled="!editable" style="width: 80px" @update:value="() => { syncDomain(); formToYaml() }" />
-                <n-input v-if="row.accessMode === 'custom'" size="small" v-model:value="row.accessPort" :disabled="!editable" placeholder="端口号" style="width: 90px" @blur="() => { syncDomain(); formToYaml() }" />
-                <n-input v-else size="small" :value="domainAccessPort(row.rootDomain)" disabled style="width: 60px" />
-                <n-select size="small" v-model:value="row.targetPort" :options="portExternalOptions()" :disabled="!editable" placeholder="应用端口" style="width: 110px" @update:value="() => { syncDomain(); formToYaml() }" />
-                <span v-if="!row.targetPort" style="color: #d03050; font-size: 12px">请填写端口映射</span>
-                <n-popconfirm v-if="editable" @positive-click="domainRemove(i)">
-                  <template #trigger>
-                    <n-button size="tiny" quaternary type="error">✕</n-button>
-                  </template>
-                  确认删除该域名访问？
-                </n-popconfirm>
+              <!-- 每个域名行:可多协议(每协议下所有端口均可用),独立绑定指向端口与 Caddy 片段 -->
+              <div v-for="(row, i) in domainList" :key="i" style="margin-bottom: 10px; padding: 8px 10px; background: #fafafa; border-radius: 6px">
+                <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap">
+                  <a-select size="small" v-model:value="row.subMode" :options="[{ label: '默认名称', value: 'default' }, { label: '自定义', value: 'custom' }]" :disabled="!editable" style="width: 96px" @change="() => { syncDomain(); formToYaml() }" />
+                  <a-input size="small" v-model:value="row.subdomain" :disabled="!editable || row.subMode === 'default'" :placeholder="row.subMode === 'default' ? appName() : '子域名'" style="flex: 1; max-width: 130px" @blur="() => { syncDomain(); formToYaml() }" />
+                  <span style="color: #999">.</span>
+                  <a-select size="small" v-model:value="row.rootDomain" :options="domainOptions" :disabled="!editable" placeholder="根域名" style="flex: 1; max-width: 150px" @change="() => { syncDomain(); formToYaml() }" />
+                  <a-select size="small" v-model:value="row.protocols" mode="multiple" :options="protoOptions" :disabled="!editable" placeholder="访问协议" style="flex: 1; min-width: 220px" @change="() => { syncDomain(); formToYaml() }" />
+                  <a-popconfirm v-if="editable" title="确认删除该域名访问？" @confirm="domainRemove(i)">
+                      <a-button size="small" type="text" danger>✕</a-button>
+                    </a-popconfirm>
+                </div>
+                <!-- 行级:指向端口 + Caddy 片段(不同域名可发布不同端口/片段的服务) -->
+                <div style="display: flex; align-items: center; gap: 10px; margin-top: 6px; flex-wrap: wrap">
+                  <div style="display: flex; align-items: center; gap: 6px">
+                    <span class="dw-label">指向端口</span>
+                    <a-select size="small" v-model:value="row.upstream" :options="rowUpstreamOptions()" :disabled="!editable" style="width: 220px" @change="() => { syncDomain(); formToYaml() }" />
+                    <a-input v-if="row.upstream === '__custom'" size="small" v-model:value="row.upstreamCustom" :disabled="!editable" placeholder="容器内部端口" style="width: 110px" @blur="() => { syncDomain(); formToYaml() }" />
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 6px; flex: 1; min-width: 200px">
+                    <span class="dw-label">Caddy 片段</span>
+                    <a-select size="small" mode="multiple" v-model:value="row.fragSel" :options="fragOptions" :disabled="!editable" placeholder="按片段名引用(网关→Caddy片段)" style="flex: 1" @change="() => { syncDomain(); formToYaml() }" />
+                  </div>
+                </div>
+                <!-- 提示移到控件下方:默认子域名/访问地址说明 -->
+                <div style="font-size: 12px; color: #888; margin-top: 2px">
+                  <span v-if="row.subMode === 'default'">子域名默认=应用名 {{ gbVar(`SER_${serviceNo(activeService.value)}_NAME`) }}（{{ appName() }}）</span>
+                  <span v-if="row.protocols.length">· 访问地址 {{ domainSummary(row) }}</span>
+                  <span v-if="!row.upstream"> · 指向端口未指定:由容器映射端口自动选择(多端口需在本行手工指定)</span>
+                </div>
               </div>
             </div>
           </div>
@@ -942,142 +1195,172 @@ function fmtMemGB(): string {
           <!-- 运行配置 -->
           <div v-else-if="configTab === 'runtime'" style="display: flex; flex-direction: column; gap: 12px">
             <div>
-              <n-text style="font-size: 14px; font-weight: 600">日志配置</n-text>
+              <div class="dw-section">日志配置</div>
               <div style="display: flex; gap: 10px; margin-top: 6px">
                 <div style="flex: 1">
-                  <n-text depth="3" style="font-size: 13px">日志格式</n-text>
-                  <n-select size="small" :value="formState.services[activeService].logging?.driver || 'json-file'" :options="logDriverOptions" :disabled="!editable" @update:value="(v) => { const s = formState.services[activeService]; const lg = s.logging || {}; lg.driver = v; s.logging = lg; formToYaml() }" />
+                  <div class="dw-label">日志格式</div>
+                  <a-select size="small" :value="formState.services[activeService].logging?.driver || 'json-file'" :options="logDriverOptions" :disabled="!editable" @change="(v: any) => { const s = formState.services[activeService]; const lg = s.logging || {}; lg.driver = v; s.logging = lg; formToYaml() }" />
                 </div>
                 <div style="flex: 1">
-                  <n-text depth="3" style="font-size: 13px">单文件大小(MiB)</n-text>
-                  <n-input size="small" :value="formState.services[activeService].logging?.options?.['max-size'] || '2'" :disabled="!editable" @update:value="(v) => { const s = formState.services[activeService]; const lg = s.logging || {}; lg.options = { ...(lg.options || {}), 'max-size': v }; s.logging = lg; formToYaml() }" />
+                  <div class="dw-label">单文件大小(MiB)</div>
+                  <a-input size="small" :value="formState.services[activeService].logging?.options?.['max-size'] || '2'" :disabled="!editable" @update:value="(v: any) => { const s = formState.services[activeService]; const lg = s.logging || {}; lg.options = { ...(lg.options || {}), 'max-size': v }; s.logging = lg; formToYaml() }" />
                 </div>
                 <div style="flex: 1">
-                  <n-text depth="3" style="font-size: 13px">最大保留数</n-text>
-                  <n-input size="small" :value="formState.services[activeService].logging?.options?.['max-file'] || '5'" :disabled="!editable" @update:value="(v) => { const s = formState.services[activeService]; const lg = s.logging || {}; lg.options = { ...(lg.options || {}), 'max-file': v }; s.logging = lg; formToYaml() }" />
+                  <div class="dw-label">最大保留数</div>
+                  <a-input size="small" :value="formState.services[activeService].logging?.options?.['max-file'] || '5'" :disabled="!editable" @update:value="(v: any) => { const s = formState.services[activeService]; const lg = s.logging || {}; lg.options = { ...(lg.options || {}), 'max-file': v }; s.logging = lg; formToYaml() }" />
                 </div>
               </div>
             </div>
 
-            <div>
-              <n-text style="font-size: 14px; font-weight: 600">健康检查</n-text>
+            <div style="border-top: 1px solid #f0f0f0; padding-top: 12px">
+              <div class="dw-section">健康检查</div>
               <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 6px">
-                <n-text depth="3" style="font-size: 13px">执行脚本</n-text>
-                <n-input size="small" :value="formState.services[activeService].healthcheck?.test" :disabled="!editable" :placeholder="healthCheckPlaceholder()" @update:value="(v) => { const hc = formState.services[activeService].healthcheck || {}; hc.test = v; formState.services[activeService].healthcheck = hc }" @blur="formToYaml" />
+                <div class="dw-label">执行脚本</div>
+                <a-input size="small" :value="formState.services[activeService].healthcheck?.test" :disabled="!editable" :placeholder="healthCheckPlaceholder()" @update:value="(v: any) => { const hc = formState.services[activeService].healthcheck || {}; hc.test = v; formState.services[activeService].healthcheck = hc }" @blur="formToYaml" />
+                <Typography.Text type="secondary" style="font-size: 12px">
+                  默认不注入健康检查(镜像可能无 curl/wget,自动注入会误判 unhealthy);留空则不写 test,仅在镜像内置探测命令时配置。
+                </Typography.Text>
                 <div style="display: flex; gap: 10px">
                   <div style="flex: 1">
-                    <n-text depth="3" style="font-size: 13px">间隔(秒)</n-text>
-                    <n-input size="small" :value="formState.services[activeService].healthcheck?.interval || '30'" :disabled="!editable" @update:value="(v) => { const hc = formState.services[activeService].healthcheck || {}; hc.interval = v; formState.services[activeService].healthcheck = hc }" @blur="formToYaml" />
+                    <div class="dw-label">间隔(秒)</div>
+                    <a-input size="small" :value="formState.services[activeService].healthcheck?.interval || '30'" :disabled="!editable" @update:value="(v: any) => { const hc = formState.services[activeService].healthcheck || {}; hc.interval = v; formState.services[activeService].healthcheck = hc }" @blur="formToYaml" />
                   </div>
                   <div style="flex: 1">
-                    <n-text depth="3" style="font-size: 13px">超时(秒)</n-text>
-                    <n-input size="small" :value="formState.services[activeService].healthcheck?.timeout || '10'" :disabled="!editable" @update:value="(v) => { const hc = formState.services[activeService].healthcheck || {}; hc.timeout = v; formState.services[activeService].healthcheck = hc }" @blur="formToYaml" />
+                    <div class="dw-label">超时(秒)</div>
+                    <a-input size="small" :value="formState.services[activeService].healthcheck?.timeout || '10'" :disabled="!editable" @update:value="(v: any) => { const hc = formState.services[activeService].healthcheck || {}; hc.timeout = v; formState.services[activeService].healthcheck = hc }" @blur="formToYaml" />
                   </div>
                   <div style="flex: 1">
-                    <n-text depth="3" style="font-size: 13px">重试次数</n-text>
-                    <n-input size="small" :value="formState.services[activeService].healthcheck?.retries ?? '3'" :disabled="!editable" @update:value="(v) => { const hc = formState.services[activeService].healthcheck || {}; hc.retries = Number(v); formState.services[activeService].healthcheck = hc }" @blur="formToYaml" />
+                    <div class="dw-label">重试次数</div>
+                    <a-input size="small" :value="formState.services[activeService].healthcheck?.retries ?? '3'" :disabled="!editable" @update:value="(v: any) => { const hc = formState.services[activeService].healthcheck || {}; hc.retries = Number(v); formState.services[activeService].healthcheck = hc }" @blur="formToYaml" />
                   </div>
                 </div>
               </div>
             </div>
 
-            <div>
-              <n-text style="font-size: 14px; font-weight: 600">资源限制</n-text>
+            <div style="border-top: 1px solid #f0f0f0; padding-top: 12px">
+              <div class="dw-section">资源限制</div>
               <div style="display: flex; gap: 10px; margin-top: 6px">
                 <div style="flex: 1">
-                  <n-text depth="3" style="font-size: 13px">共享内存(MiB)</n-text>
-                  <n-input size="small" :value="formState.services[activeService].shm_size || ''" :disabled="!editable" placeholder="64" @update:value="(v) => { formState.services[activeService].shm_size = v }" @blur="formToYaml" />
+                  <div class="dw-label">共享内存(MiB)</div>
+                  <a-input size="small" :value="formState.services[activeService].shm_size || ''" :disabled="!editable" placeholder="64" @update:value="(v: any) => { formState.services[activeService].shm_size = v }" @blur="formToYaml" />
                 </div>
                 <div style="flex: 1">
-                  <n-text depth="3" style="font-size: 13px">CPU 配额(最大 {{ info?.ncpu || '-' }} 核)</n-text>
-                  <n-input size="small" :value="formState.services[activeService].cpus || ''" :disabled="!editable" placeholder="如 2" @update:value="(v) => { formState.services[activeService].cpus = v }" @blur="formToYaml" />
+                  <div class="dw-label">CPU 配额(最大 {{ info?.ncpu || '-' }} 核)</div>
+                  <a-input size="small" :value="formState.services[activeService].cpus || ''" :disabled="!editable" placeholder="如 2" @update:value="(v: any) => { formState.services[activeService].cpus = v }" @blur="formToYaml" />
                 </div>
                 <div style="flex: 1">
-                  <n-text depth="3" style="font-size: 13px">内存(最大 {{ fmtMemGB() }} G)</n-text>
-                  <n-input size="small" :value="formState.services[activeService].mem_limit || ''" :disabled="!editable" placeholder="如 512m" @update:value="(v) => { formState.services[activeService].mem_limit = v }" @blur="formToYaml" />
+                  <div class="dw-label">内存(最大 {{ fmtMemGB() }} G)</div>
+                  <a-input size="small" :value="formState.services[activeService].mem_limit || ''" :disabled="!editable" placeholder="如 512m" @update:value="(v: any) => { formState.services[activeService].mem_limit = v }" @blur="formToYaml" />
                 </div>
               </div>
+            </div>
+
+            <div style="border-top: 1px solid #f0f0f0; padding-top: 12px">
+              <div class="dw-section">用户与权限</div>
+              <div style="display: flex; gap: 10px; margin-top: 6px">
+                <div style="flex: 1">
+                  <div class="dw-label">user(PUID:PGID)</div>
+                  <a-input size="small" v-model:value="formState.services[activeService].user" :disabled="!editable" placeholder="如 1000:1000" @blur="formToYaml" style="margin-top: 6px" />
+                </div>
+                <div style="flex: 1">
+                  <div class="dw-label">关联宿主机 PID</div>
+                  <div style="display: flex; align-items: center; gap: 6px; margin-top: 6px">
+                    <a-switch :checked="formState.services[activeService].pid === 'host'" :disabled="!editable" @change="(v: any) => { formState.services[activeService].pid = v ? 'host' : ''; formToYaml() }" />
+                    <Typography.Text type="secondary" style="font-size: 12px">{{ formState.services[activeService].pid === 'host' ? '已开启' : '已关闭' }}</Typography.Text>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div style="border-top: 1px solid #f0f0f0; padding-top: 12px">
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px">
+                <div class="dw-section">启动命令 command</div>
+                <a-button v-if="editable" size="small" type="primary" @click="commandAdd">+ 添加参数</a-button>
+              </div>
+              <div v-for="(row, i) in commandList" :key="i" style="display: flex; gap: 6px; align-items: center; margin-top: 6px">
+                <a-input size="small" v-model:value="commandList[i]" :disabled="!editable" :placeholder="i === 0 ? '如 nginx -g daemon off' : '参数 ' + (i + 1)" style="flex: 1" @blur="() => { syncCommand(); formToYaml() }" />
+                <a-button v-if="editable" size="small" type="text" danger @click="commandRemove(i)">✕</a-button>
+              </div>
+              <Typography.Text v-if="commandList.length === 0" type="secondary" style="font-size: 12px; margin-top: 4px">不填写则使用镜像默认入口点</Typography.Text>
+            </div>
+
+            <div style="border-top: 1px solid #f0f0f0; padding-top: 12px">
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px">
+                <div class="dw-section">Linux 能力 cap_add</div>
+                <a-button v-if="editable" size="small" type="primary" @click="capAddAdd">+ 添加能力</a-button>
+              </div>
+              <div v-for="(row, i) in capAddList" :key="i" style="display: flex; gap: 6px; align-items: center; margin-top: 6px">
+                <a-input size="small" v-model:value="capAddList[i]" :disabled="!editable" placeholder="如 SYS_ADMIN, NET_ADMIN" style="flex: 1" @blur="() => { syncCapAdd(); formToYaml() }" />
+                <a-button v-if="editable" size="small" type="text" danger @click="capAddRemove(i)">✕</a-button>
+              </div>
+              <Typography.Text v-if="capAddList.length === 0" type="secondary" style="font-size: 12px; margin-top: 4px">添加容器所需的 Linux 能力</Typography.Text>
             </div>
           </div>
 
           <!-- 关联配置 -->
           <div v-else style="display: flex; flex-direction: column; gap: 12px">
             <div>
-              <n-text style="font-size: 14px; font-weight: 600">启动依赖 depends_on</n-text>
-              <n-select size="small" multiple :value="formState.services[activeService].depends_on || []" :options="serviceOptions" :disabled="!editable" placeholder="选择本编排内服务" style="margin-top: 6px" @update:value="(v) => { formState.services[activeService].depends_on = v; formToYaml() }" />
+              <div class="dw-section">启动依赖 depends_on</div>
+              <a-select size="small" multiple :value="formState.services[activeService].depends_on || []" :options="serviceOptions" :disabled="!editable" placeholder="选择本编排内服务" style="margin-top: 6px" @change="(v: any) => { formState.services[activeService].depends_on = v; formToYaml() }" />
             </div>
-            <div>
+            <div style="border-top: 1px solid #f0f0f0; padding-top: 12px">
               <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px">
-                <n-text style="font-size: 14px; font-weight: 600">关联网络</n-text>
-                <n-button v-if="editable" size="tiny" type="primary" quaternary @click="openNetworkJoin">加入现有网络</n-button>
+                <div class="dw-section">关联网络</div>
+                <a-button v-if="editable" size="small" type="primary" @click="openNetworkJoin">加入现有网络</a-button>
               </div>
               <div v-for="(row, i) in networkList" :key="i" style="display: flex; gap: 6px; align-items: center; margin-top: 6px">
-                <n-input size="small" :value="row.name" disabled style="width: 130px" />
-                <n-input size="small" v-model:value="row.alias" :disabled="!editable" placeholder="容器别名" style="flex: 1" @blur="() => { syncNetworks(); formToYaml() }" />
-                <n-input size="small" v-model:value="row.ipv4" :disabled="!editable" :placeholder="'IPV4 地址（参考段 ' + networkSubnet(row.name) + '）'" style="flex: 1" @blur="() => { syncNetworks(); formToYaml() }" />
-                <n-popconfirm v-if="editable" @positive-click="networkRemove(i)">
-                  <template #trigger><n-button size="tiny" quaternary type="error">✕</n-button></template>
-                  确认删除该网络配置？
-                </n-popconfirm>
+                <a-input size="small" :value="row.name" disabled style="width: 130px" />
+                <a-input size="small" v-model:value="row.alias" :disabled="!editable" placeholder="容器别名" style="flex: 1" @blur="() => { syncNetworks(); formToYaml() }" />
+                <a-input size="small" v-model:value="row.ipv4" :disabled="!editable" :placeholder="'IPV4 地址（参考段 ' + networkSubnet(row.name) + '）'" style="flex: 1" @blur="() => { syncNetworks(); formToYaml() }" />
+                <a-popconfirm v-if="editable" title="确认删除该网络配置？" @confirm="networkRemove(i)">
+                  <a-button size="small" type="text" danger>✕</a-button>
+                </a-popconfirm>
               </div>
             </div>
-            <div>
+            <div style="border-top: 1px solid #f0f0f0; padding-top: 12px">
               <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px">
-                <n-text style="font-size: 14px; font-weight: 600">关联宿主机网络</n-text>
-                <n-button v-if="editable" size="tiny" type="primary" quaternary @click="hostAdd">+ 添加宿主机网络</n-button>
+                <div class="dw-section">关联宿主机网络</div>
+                <a-button v-if="editable" size="small" type="primary" @click="hostAdd">+ 添加宿主机网络</a-button>
               </div>
               <div v-for="(row, i) in hostList" :key="i" style="display: flex; gap: 6px; align-items: center; margin-top: 6px">
-                <n-input size="small" v-model:value="row.hostname" :disabled="!editable" placeholder="Hostname" style="flex: 1" @blur="() => { syncHosts(); formToYaml() }" />
-                <n-input size="small" v-model:value="row.ip" :disabled="!editable" placeholder="IP 地址" style="flex: 1" @blur="() => { syncHosts(); formToYaml() }" />
-                <n-popconfirm v-if="editable" @positive-click="hostRemove(i)">
-                  <template #trigger><n-button size="tiny" quaternary type="error">✕</n-button></template>
-                  确认删除该 host？
-                </n-popconfirm>
+                <a-input size="small" v-model:value="row.hostname" :disabled="!editable" placeholder="Hostname" style="flex: 1" @blur="() => { syncHosts(); formToYaml() }" />
+                <a-input size="small" v-model:value="row.ip" :disabled="!editable" placeholder="IP 地址" style="flex: 1" @blur="() => { syncHosts(); formToYaml() }" />
+                <a-popconfirm v-if="editable" title="确认删除该 host？" @confirm="hostRemove(i)">
+                  <a-button size="small" type="text" danger>✕</a-button>
+                </a-popconfirm>
               </div>
             </div>
-            <div>
+            <div style="border-top: 1px solid #f0f0f0; padding-top: 12px">
               <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px">
-                <n-text style="font-size: 14px; font-weight: 600">关联设备</n-text>
-                <n-button v-if="editable" size="tiny" type="primary" quaternary @click="deviceAdd">+ 添加关联设备</n-button>
+                <div class="dw-section">关联设备</div>
+                <a-button v-if="editable" size="small" type="primary" @click="deviceAdd">+ 添加关联设备</a-button>
               </div>
               <div v-for="(row, i) in deviceList" :key="i" style="display: flex; gap: 6px; align-items: center; margin-top: 6px">
-                <n-input size="small" v-model:value="row.hostPath" :disabled="!editable" placeholder="设备路径，如 /dev/tty0" style="flex: 1" @blur="() => { syncDevices(); formToYaml() }" />
+                <a-input size="small" v-model:value="row.hostPath" :disabled="!editable" placeholder="设备路径，如 /dev/tty0" style="flex: 1" @blur="() => { syncDevices(); formToYaml() }" />
                 <span style="color: #999">:</span>
-                <n-input size="small" v-model:value="row.containerPath" :disabled="!editable" placeholder="容器内路径，如 /dev/tty0" style="flex: 1" @blur="() => { syncDevices(); formToYaml() }" />
-                <n-popconfirm v-if="editable" @positive-click="deviceRemove(i)">
-                  <template #trigger><n-button size="tiny" quaternary type="error">✕</n-button></template>
-                  确认删除该设备？
-                </n-popconfirm>
+                <a-input size="small" v-model:value="row.containerPath" :disabled="!editable" placeholder="容器内路径，如 /dev/tty0" style="flex: 1" @blur="() => { syncDevices(); formToYaml() }" />
+                <a-popconfirm v-if="editable" title="确认删除该设备？" @confirm="deviceRemove(i)">
+                  <a-button size="small" type="text" danger>✕</a-button>
+                </a-popconfirm>
               </div>
             </div>
-            <div style="display: flex; gap: 10px">
-              <div style="flex: 1">
-                <n-text style="font-size: 14px; font-weight: 600">network_mode</n-text>
-                <n-input v-model:value="formState.services[activeService].network_mode" :disabled="!editable" @blur="formToYaml" style="margin-top: 6px" />
-              </div>
-              <div style="flex: 1">
-                <n-text style="font-size: 14px; font-weight: 600">user(PUID:PGID)</n-text>
-                <n-input v-model:value="formState.services[activeService].user" :disabled="!editable" @blur="formToYaml" style="margin-top: 6px" />
-              </div>
-            </div>
-            <div style="display: flex; gap: 10px">
-              <div style="flex: 1">
-                <n-text style="font-size: 14px; font-weight: 600">command</n-text>
-                <n-input v-model:value="formState.services[activeService].command" :disabled="!editable" @blur="formToYaml" style="margin-top: 6px" />
-              </div>
-              <div style="flex: 1">
-                <n-text style="font-size: 14px; font-weight: 600">cap_add</n-text>
-                <n-input :value="listToText(formState.services[activeService].cap_add)" type="textarea" :autosize="{ minRows: 1 }" :disabled="!editable" placeholder="一行一个" @update:value="(v) => { formState.services[activeService].cap_add = textToList(v) }" @blur="formToYaml" style="margin-top: 6px" />
+            <div style="border-top: 1px solid #f0f0f0; padding-top: 12px">
+              <div style="display: flex; gap: 10px">
+                <div style="flex: 1">
+                  <div class="dw-section">network_mode</div>
+                  <a-input v-model:value="formState.services[activeService].network_mode" :disabled="!editable" @blur="formToYaml" style="margin-top: 6px" />
+                </div>
               </div>
             </div>
           </div>
 
           <!-- 未识别字段只读预览 -->
-          <n-collapse v-if="formState.services[activeService]._rawConfigs">
-            <n-collapse-item title="未识别字段（只读，在 YAML 中编辑）" name="raw">
+          <a-collapse v-if="formState.services[activeService]._rawConfigs">
+            <a-collapse-panel key="raw">
+              <template #header>未识别字段（只读，在 YAML 中编辑）</template>
               <pre style="font-size: 12px; background: #f7f7f7; padding: 8px; border-radius: 4px; overflow: auto">{{ JSON.stringify(formState.services[activeService]._rawConfigs, null, 2) }}</pre>
-            </n-collapse-item>
-          </n-collapse>
+            </a-collapse-panel>
+          </a-collapse>
           </div>
         </div>
 
@@ -1089,95 +1372,177 @@ function fmtMemGB(): string {
         ></div>
 
         <!-- YAML 区 -->
-        <div v-show="showYaml" style="flex: 1; min-width: 0; display: flex; flex-direction: column; border: 1px solid #e0e0e0; overflow: hidden">
-          <div :style="{ background: editorTheme === 'dark' ? '#282c34' : '#fafafa', color: editorTheme === 'dark' ? '#abb2bf' : '#333', borderBottom: '1px solid ' + (editorTheme === 'dark' ? '#181a1f' : '#e0e0e0') }" style="display: flex; align-items: center; gap: 6px; padding: 4px 8px">
-            <n-button size="tiny" quaternary @click="undoEdit">
-              <n-icon :component="ArrowUndoOutline" :color="editorTheme === 'dark' ? '#abb2bf' : '#333'" />
-            </n-button>
-            <n-button size="tiny" quaternary @click="redoEdit">
-              <n-icon :component="ArrowRedoOutline" :color="editorTheme === 'dark' ? '#abb2bf' : '#333'" />
-            </n-button>
-            <n-button size="tiny" quaternary @click="openSearch">
-              <n-icon :component="SearchOutline" :color="editorTheme === 'dark' ? '#abb2bf' : '#333'" />
-            </n-button>
-            <n-button size="tiny" quaternary @click="toggleTheme">{{ editorTheme === 'dark' ? '☀️' : '🌙' }}</n-button>
-            <n-select size="tiny" :value="editorFontSize" :options="fontSizeOptions" style="width: 72px" @update:value="(v: number) => setFontSize(v)" />
-            <n-select size="tiny" :value="editorFontFamily" :options="fontFamilyOptions" style="width: 110px" @update:value="(v: string) => setFontFamily(v)" />
-            <div style="flex: 1"></div>
-            <n-button size="tiny" quaternary @click="copyYaml">
-              <n-icon :component="CopyOutline" :color="editorTheme === 'dark' ? '#abb2bf' : '#333'" />
-            </n-button>
+        <div v-show="showYaml" style="flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden">
+          <!-- 容器变量框:可折叠(标题行 + 系统变量 + 分隔线 + 项目变量) -->
+          <div style="border: 1px solid #e0e0e6; border-radius: 6px; padding: 4px 10px 6px; margin-bottom: 8px; flex-shrink: 0">
+            <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px">
+              <span style="color: #333; font-size: 12px; font-weight: 600">容器变量</span>
+              <Button type="text" size="small" style="font-size: 12px; padding: 0 4px; color: #888" @click="varCollapsed = !varCollapsed">
+                {{ varCollapsed ? '▶ 展开' : '▼ 收起' }}
+              </Button>
+            </div>
+            <template v-if="!varCollapsed">
+            <div style="display: flex; flex-wrap: wrap; gap: 4px; align-items: center">
+              <span style="color: #999; font-size: 12px">系统变量：</span>
+              <Tooltip v-for="bv in containerBuiltinVars" :key="bv.key" :title="bv.desc">
+                <Tag size="small" style="cursor: pointer; font-family: monospace; font-size: 12px; background: #f0f0f0" @click="insertContainerVar(bv.key)">{{ bv.key }}</Tag>
+              </Tooltip>
+              <Tooltip v-for="v in containerVars" :key="v.key" :title="'值：' + (v.value || '（空）') + (v.description ? ' · ' + v.description : '')">
+                <Tag size="small" style="cursor: pointer; font-family: monospace; font-size: 12px; background: #f0f0f0" @click="insertContainerVar(v.key)">{{ v.key }}</Tag>
+              </Tooltip>
+              <div style="flex: 1"></div>
+              <Button v-if="!addVarVisible" type="link" size="small" @click="openAddVar" style="font-size: 12px; padding: 0 4px">＋ 新增</Button>
+            </div>
+
+            <!-- 行内新增变量 -->
+            <div v-if="addVarVisible" style="margin-top: 6px; border: 1px solid #e0e0e6; border-radius: 4px; padding: 8px; background: #fafafa">
+              <div style="display: flex; gap: 6px; align-items: center; padding: 0 2px 4px; color: #888; font-size: 12px">
+                <span style="flex: 1">变量名</span>
+                <span style="flex: 1">值</span>
+                <span style="flex: 1.2">说明</span>
+                <span style="width: 28px"></span>
+              </div>
+              <div v-for="(r, i) in addDrafts" :key="i" style="display: flex; gap: 6px; align-items: center; margin-bottom: 4px">
+                <Input v-model:value="r.key" size="small" placeholder="如 APP_PORT" style="flex: 1" @update:value="(val: string) => { r.key = val.toUpperCase() }" />
+                <Input v-model:value="r.value" size="small" placeholder="值" style="flex: 1" />
+                <Input v-model:value="r.description" size="small" placeholder="说明" style="flex: 1.2" />
+                <Button size="small" type="text" danger @click="removeVarDraft(i)" style="font-size: 11px">✕</Button>
+              </div>
+              <div style="display: flex; gap: 6px; margin-top: 6px">
+                <Button size="small" @click="addVarDraft">+ 添加行</Button>
+                <div style="flex: 1"></div>
+                <Button size="small" @click="addVarVisible = false">取消</Button>
+                <Button size="small" type="primary" @click="saveAddVar">确定</Button>
+              </div>
+            </div>
+
+            <!-- 分隔线:系统变量 / 项目变量 -->
+            <div style="border-top: 1px dashed #e0e0e6; margin: 6px 0"></div>
+
+            <div style="color: #999; font-size: 12px; margin-bottom: 4px">项目变量（点击插入，悬停看值）：</div>
+            <div style="display: flex; flex-direction: column; gap: 3px">
+              <div v-for="g in projectVarChips" :key="g.title" style="display: flex; flex-wrap: wrap; gap: 4px; align-items: center">
+                <span style="color: #999; font-size: 12px; width: 60px; flex-shrink: 0">{{ g.title }}：</span>
+                <Tooltip v-for="(c, ci) in g.chips" :key="g.title + ':' + ci" :title="c.tip">
+                  <Tag size="small" style="cursor: pointer; font-family: monospace; font-size: 12px; background: #eaf3ff; color: #1677ff" @click="insertText(c.insert)">{{ c.label }}</Tag>
+                </Tooltip>
+                <span v-if="!g.chips.length" style="color: #bbb; font-size: 12px">-</span>
+              </div>
+            </div>
+            </template>
           </div>
-          <div ref="editorEl" style="flex: 1; min-height: 0" />
+          <div style="flex: 1; min-height: 0; display: flex; flex-direction: column">
+            <CodeEditor ref="editorRef" :model-value="yamlText" language="yaml" height="100%"
+              :editable="editable" @update:model-value="(v: string) => { yamlText = v; onYamlChange(v) }" />
+          </div>
         </div>
       </div>
 
       <div v-if="deploying || deployDone || deployError" style="max-height: 160px; overflow: auto; font-size: 12px; font-family: monospace; background: #f7f7f7; border-radius: 4px; padding: 8px">
         <div v-for="(l, i) in deployLines" :key="i" style="line-height: 1.6">
-          <n-tag size="tiny" :type="l.status === 'Done' ? 'success' : l.status === 'Error' ? 'error' : 'default'" :bordered="false" style="margin-right: 6px">
+          <a-tag size="small" :color="l.status === 'Done' ? 'success' : l.status === 'Error' ? 'error' : 'default'" style="margin-right: 6px">
             {{ l.status }}
-          </n-tag>
+          </a-tag>
           <span>{{ l.id }}</span>
           <span style="color: #888; margin-left: 6px">{{ l.text }}</span>
         </div>
-        <n-text v-if="deployError" type="error" style="font-size: 12px">{{ deployError }}</n-text>
-        <n-text v-if="deployDone" type="success" style="font-size: 12px">✓ 部署完成</n-text>
+        <Typography.Text v-if="deployError" type="danger" style="font-size: 12px">{{ deployError }}</Typography.Text>
+        <Typography.Text v-if="deployDone" type="success" style="font-size: 12px">✓ 部署完成</Typography.Text>
       </div>
-      </div>
-
-      <div style="padding: 14px 24px; border-top: 1px solid #eee; display: flex; justify-content: flex-end; gap: 8px; flex-shrink: 0">
-        <template v-if="editable">
-          <n-button size="small" :loading="validating" @click="doValidate">校验</n-button>
-          <n-button size="small" :loading="saving" @click="doSave">保存</n-button>
-          <n-button size="small" type="primary" :loading="saving || deploying" :disabled="deploying" @click="doSaveAndDeploy">
-            保存并部署
-          </n-button>
-        </template>
-        <n-button size="small" @click="emit('update:show', false)">关闭</n-button>
       </div>
     </div>
-  </n-drawer>
+
+    <template #footer>
+      <div class="dw-footer">
+        <a-button size="small" @click="emit('update:show', false)">关闭</a-button>
+        <template v-if="editable">
+          <a-button size="small" :loading="validating" @click="doValidate">校验</a-button>
+          <a-button size="small" :loading="saving" @click="doSave">保存</a-button>
+          <a-button size="small" type="primary" :loading="saving || deploying" :disabled="deploying" @click="doSaveAndDeploy">
+            保存并部署
+          </a-button>
+        </template>
+      </div>
+    </template>
+  </a-drawer>
 
   <!-- 选择镜像 -->
-  <n-modal v-model:show="imageSelectShow" preset="card" title="选择镜像" style="width: 480px">
+  <a-modal :open="imageSelectShow" title="选择镜像" :width="480" :footer="null" @cancel="imageSelectShow = false">
     <div style="max-height: 400px; overflow: auto">
       <div v-for="img in images" :key="img.id" style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #f0f0f0" @click="selectImage(img.names[0])">
         <span>{{ img.names[0] || '<无标签>' }}</span>
-        <n-text depth="3" style="font-size: 12px">{{ img.arch }}</n-text>
+        <Typography.Text type="secondary" style="font-size: 12px">{{ img.arch }}</Typography.Text>
       </div>
     </div>
-  </n-modal>
+  </a-modal>
+
+  <!-- 添加协议(网关→端口创建) -->
+  <a-modal :open="protoModalShow" :title="'添加协议端口'" :confirm-loading="protoSaving" @ok="saveNewProtocol" @cancel="protoModalShow = false">
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <div>
+        <div class="dw-label">协议<span style="color: #ff4d4f">*</span></div>
+        <a-input v-model:value="protoForm.protocol" placeholder="如 mysql / mqtt / ssh" />
+      </div>
+      <div>
+        <div class="dw-label">说明</div>
+        <a-input v-model:value="protoForm.description" placeholder="如 MySQL" />
+      </div>
+      <div>
+        <div class="dw-label">默认端口</div>
+        <a-input-number v-model:value="protoForm.defaultPort" :min="1" :max="65535" style="width: 160px" />
+      </div>
+      <div>
+        <div class="dw-label">实际端口(回车/逗号新增,可多个)</div>
+        <a-select v-model:value="protoForm.ports" mode="tags" :open="false" placeholder="如 3306" :token-separators="[',', ' ']" style="width: 100%" />
+      </div>
+      <div style="font-size: 12px; color: #888">HTTP/HTTPS 为系统默认项;其它协议当前只登记展示,反向代理入口暂不支持。</div>
+    </div>
+  </a-modal>
 
   <!-- 拉取镜像 -->
-  <n-modal v-model:show="pullShow" preset="card" title="拉取镜像" style="width: 480px" :mask-closable="!pullActive">
+  <a-modal :open="pullShow" title="拉取镜像" :width="480" :mask-closable="!pullActive" :keyboard="!pullActive" @cancel="pullShow = false">
     <div style="display: flex; flex-direction: column; gap: 12px">
-      <n-input size="small" v-model:value="pullName" placeholder="nginx 或 registry.example.com/foo" :disabled="pullActive" />
+      <a-input size="small" v-model:value="pullName" placeholder="nginx 或 registry.example.com/foo" :disabled="pullActive" />
       <div style="display: flex; gap: 12px">
-        <n-input size="small" v-model:value="pullTag" placeholder="版本(latest)" :disabled="pullActive" style="flex: 1" />
-        <n-input size="small" v-model:value="pullArch" placeholder="架构" :disabled="pullActive" style="flex: 1" />
+        <a-input size="small" v-model:value="pullTag" placeholder="版本(latest)" :disabled="pullActive" style="flex: 1" />
+        <a-input size="small" v-model:value="pullArch" placeholder="架构" :disabled="pullActive" style="flex: 1" />
       </div>
-      <n-progress v-if="pullActive || pullPercent > 0" type="line" :percentage="Math.round(pullPercent)" />
-      <n-text v-if="pullStatus" depth="3" style="font-size: 12px">{{ pullStatus }}</n-text>
+      <a-progress v-if="pullActive || pullPercent > 0" :percent="Math.round(pullPercent)" />
+      <Typography.Text v-if="pullStatus" type="secondary" style="font-size: 12px">{{ pullStatus }}</Typography.Text>
     </div>
     <template #footer>
-      <n-space justify="end">
-        <n-button v-if="pullActive" type="warning" @click="closePull">终止</n-button>
-        <n-button v-else type="primary" @click="startPull">拉取</n-button>
-        <n-button :disabled="pullActive" @click="pullShow = false">关闭</n-button>
-      </n-space>
+      <a-space justify="end">
+        <a-button v-if="pullActive" @click="closePull">终止</a-button>
+        <a-button v-else type="primary" @click="startPull">拉取</a-button>
+        <a-button :disabled="pullActive" @click="pullShow = false">关闭</a-button>
+      </a-space>
     </template>
-  </n-modal>
+  </a-modal>
 
   <!-- 加入现有网络 -->
-  <n-modal v-model:show="networkJoinShow" preset="card" title="加入现有网络" style="width: 560px">
+  <a-modal :open="networkJoinShow" title="加入现有网络" :width="560" :footer="null" @cancel="networkJoinShow = false">
     <div style="max-height: 400px; overflow: auto">
       <div v-for="n in networksAll" :key="n.id" style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-bottom: 1px solid #f0f0f0">
         <div>
           <div>{{ n.name }}</div>
-          <n-text depth="3" style="font-size: 12px">{{ n.driver }} · {{ n.subnet || '-' }}</n-text>
+          <Typography.Text type="secondary" style="font-size: 12px">{{ n.driver }} · {{ n.subnet || '-' }}</Typography.Text>
         </div>
-        <n-button size="tiny" @click="networkAdd(n.name)">加入</n-button>
+        <a-button size="small" @click="networkAdd(n.name)">加入</a-button>
       </div>
     </div>
-  </n-modal>
+  </a-modal>
 </template>
+
+<style scoped>
+/* EDIT(YAML)编辑器滚动兜底:确保 .cm-scroller 可滚动且出现滚动条 */
+:deep(.cm-editor) {
+  height: 100%;
+}
+:deep(.cm-scroller) {
+  overflow: auto !important;
+  min-height: 0;
+}
+:deep(.cm-content) {
+  min-height: 100%;
+}
+</style>

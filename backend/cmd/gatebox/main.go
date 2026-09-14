@@ -8,10 +8,13 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/JiangBeta/gatebox/internal/acme"
+	"github.com/JiangBeta/gatebox/internal/caddy"
 	"github.com/JiangBeta/gatebox/internal/cert"
 	"github.com/JiangBeta/gatebox/internal/config"
 	dockerclient "github.com/JiangBeta/gatebox/internal/docker/client"
 	"github.com/JiangBeta/gatebox/internal/docker/stats"
+	"github.com/JiangBeta/gatebox/internal/gateway"
 	"github.com/JiangBeta/gatebox/internal/server"
 	"github.com/JiangBeta/gatebox/internal/store"
 )
@@ -25,8 +28,10 @@ func main() {
 	}
 	defer st.Close()
 
-	// caddy 证书存储目录:$DATA_DIR/tools/caddy/data(安装脚本经 XDG_DATA_HOME 约定)
-	cm := cert.NewCaddy(filepath.Join(cfg.DataDir, "tools", "caddy", "data"))
+	// 证书由独立 acme.sh 签发(DNS-01),落盘于 $DATA_DIR/tools/acme/certs/。
+	acmeCertsDir := filepath.Join(cfg.DataDir, "tools", "acme", "certs")
+	cm := cert.NewAcme(acmeCertsDir)
+	ac := acme.New(acmeCertsDir, cfg.AcmeBin)
 
 	// Docker 是可选外部组件:daemon 不可用时其余功能照常工作,
 	// Docker 页在前端降级提示,而非让整个控制面启动失败。
@@ -44,7 +49,10 @@ func main() {
 		defer coll.Close()
 	}
 
-	handler := server.New(st, cm, dc, coll, cfg.DaemonJSONPath, cfg.DataDir)
+	caddyCli := caddy.NewClient(cfg.CaddyAdmin)
+	health := gateway.NewHealthCollector(caddyCli, gateway.DefaultHealthInterval)
+
+	handler := server.New(st, cm, dc, coll, caddyCli, health, cfg.DaemonJSONPath, cfg.DataDir, cfg.CaddyBin, cfg.CaddyHTTPPort, cfg.CaddyHTTPSPort, cfg.CaddyHTTPSExtraPorts, ac)
 
 	log.Printf("GateBox 启动: 监听 %s,数据目录 %s", cfg.Addr, cfg.DataDir)
 	if err := http.ListenAndServe(cfg.Addr, handler); err != nil {

@@ -23,6 +23,16 @@ var (
 	bucketCredentials = []byte("dns_credentials")
 	bucketRegistries  = []byte("registries")
 	bucketCompose     = []byte("compose_instances")
+	bucketApps        = []byte("apps")
+	bucketServices    = []byte("services")
+	bucketFragments   = []byte("fragments")
+	bucketVariables   = []byte("variables") // 网关变量(网关页)
+	bucketFragToggles = []byte("fragment_toggles")
+
+	// bucketContainerVariables 容器页变量,与网关 bucketVariables 完全独立(网关/容器各自维护)。
+	bucketContainerVariables = []byte("container_variables")
+	bucketPortBindings       = []byte("port_bindings")
+	bucketCertLogs           = []byte("cert_logs")
 )
 
 // ErrNotFound 记录不存在。
@@ -45,7 +55,7 @@ func Open(dataDir string) (*Store, error) {
 		return nil, err
 	}
 	if err := db.Update(func(tx *bolt.Tx) error {
-		for _, b := range [][]byte{bucketDomains, bucketCredentials, bucketRegistries, bucketCompose} {
+		for _, b := range [][]byte{bucketDomains, bucketCredentials, bucketRegistries, bucketCompose, bucketApps, bucketServices, bucketFragments, bucketVariables, bucketFragToggles, bucketContainerVariables} {
 			if _, err := tx.CreateBucketIfNotExists(b); err != nil {
 				return err
 			}
@@ -395,3 +405,6 @@ func (s *Store) DeleteComposeInstance(project string) error {
 		return tx.Bucket(bucketCompose).Delete([]byte(project))
 	})
 }
+
+// --- 网关单位(docs/gateway.md §2):App / Service / Fragment / Variable ---
+// 实现见 gateway.go。

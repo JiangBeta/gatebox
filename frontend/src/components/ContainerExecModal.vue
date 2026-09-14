@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, shallowRef } from 'vue'
-import { NDrawer, NTag, NAlert, NText, NSpin, NButton } from 'naive-ui'
+import { Drawer, Tag, Alert, Typography, Spin, Button } from 'ant-design-vue'
 import { wsURL, probeShell, type ContainerView } from '../api/docker'
 // 样式随本组件所在的懒加载 chunk 走,不进首屏;xterm 的 JS 仍按需动态导入
 import '@xterm/xterm/css/xterm.css'
@@ -117,42 +117,38 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <n-drawer
-    :show="true"
+  <Drawer
+    :open="true"
     placement="right"
-    width="min(900px, 100vw)"
-    @update:show="(v: boolean) => !v && emit('close')"
+    :width="900"
+    @close="emit('close')"
   >
-    <div style="display: flex; flex-direction: column; height: 100%">
-      <div style="padding: 14px 24px; border-bottom: 1px solid #eee; font-size: 16px; font-weight: 600; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0">
-        <span>{{ title }}</span>
-        <div style="display: flex; align-items: center; gap: 8px">
-          <n-tag :type="connected ? 'success' : 'default'" size="small" :bordered="false">
-            {{ connected ? shellPath || '已连接' : '未连接' }}
-          </n-tag>
-          <n-button quaternary circle size="small" @click="emit('close')">✕</n-button>
-        </div>
-      </div>
-      <div style="flex: 1; overflow: auto; padding: 16px 24px">
+    <template #title>
+      <span class="dw-drawer-title">{{ title }}</span>
+    </template>
 
-    <n-alert v-if="errorMsg" type="warning" :show-icon="true">
+    <div style="margin-bottom: 8px">
+      <Tag :color="connected ? 'success' : 'default'" size="small">
+        {{ connected ? shellPath || '已连接' : '未连接' }}
+      </Tag>
+    </div>
+
+    <Alert v-if="errorMsg" type="warning" :show-icon="true">
       {{ errorMsg }}
-    </n-alert>
+    </Alert>
 
     <template v-else>
-      <n-text depth="3" style="font-size: 12px; display: block; margin-bottom: 8px">
+      <Typography.Text type="secondary" style="font-size: 12px; display: block; margin-bottom: 8px">
         控制台以容器内的默认用户运行，权限等同于在宿主机上执行 docker exec；
         30 分钟无输入会自动断开。
-      </n-text>
+      </Typography.Text>
       <div v-if="preparing" class="term-loading">
-        <n-spin size="small" />
-        <n-text depth="3" style="margin-left: 10px">正在探测 shell…</n-text>
+        <Spin size="small" />
+        <Typography.Text type="secondary" style="margin-left: 10px">正在探测 shell…</Typography.Text>
       </div>
       <div v-show="!preparing" ref="termHost" class="term-host" />
     </template>
-      </div>
-    </div>
-  </n-drawer>
+  </Drawer>
 </template>
 
 <style scoped>
