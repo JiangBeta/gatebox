@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -52,7 +53,13 @@ func statusWord(s string) string {
 // isManagedConfig 判断 compose 文件是否在 GateBox 的 appData 下(即托管项目)。
 func (d *dockerAPI) isManagedConfig(configFiles string) bool {
 	first := firstConfigFile(configFiles)
-	return strings.HasPrefix(filepath.Clean(first), filepath.Clean(filepath.Join(d.dataDir, "appData"))+string(os.PathSeparator))
+	return strings.HasPrefix(filepath.Clean(first), filepath.Clean(d.cmp.ManagedRoot())+string(os.PathSeparator))
+}
+
+// composeEditable 判定项目是否可编辑:已接管(托管,或外部项目 adopt 过)且单文件。
+// 必须在重算时保留既有 adopted 标记,否则「接管」会被下一次列表覆盖。
+func composeEditable(managed, adopted bool, configFiles string) bool {
+	return (managed || adopted) && !strings.Contains(configFiles, ",")
 }
 
 // firstConfigFile 取逗号分隔列表里的第一个文件路径。
@@ -106,9 +113,10 @@ func (d *dockerAPI) listCompose(w http.ResponseWriter, r *http.Request) {
 		} else {
 			inst.ConfigFiles = p.ConfigFiles
 		}
-		// 可编辑 = 托管且单文件。外部项目默认只读,编辑需先「接管」(docs §4.2);
-		// 多文件项目连接管入口都不给。
-		inst.Editable = inst.Managed && !strings.Contains(p.ConfigFiles, ",")
+		// 可编辑 = 已接管(托管,或外部项目已 adopt)且单文件。外部项目默认只读,
+		// 编辑需先「接管」(docs §4.2);多文件项目连接管入口都不给。
+		// 注意:必须保留 inst.Editable——否则 adopt 的结果会被本轮重算覆盖,编辑按钮不出现。
+		inst.Editable = composeEditable(inst.Managed, inst.Editable, p.ConfigFiles)
 		_ = d.s.SaveComposeInstance(inst)
 		out = append(out, composeViewFromProject(inst, p))
 	}
@@ -135,9 +143,9 @@ func (d *dockerAPI) listCompose(w http.ResponseWriter, r *http.Request) {
 		if _, ok := knownMap[name]; ok {
 			continue // DB 已有,上方未部署循环已列出
 		}
-		cfg := filepath.Join(d.dataDir, "appData", name, "docker-compose.yaml")
+		cfg := d.cmp.ManagedFile(name)
 		if _, err := os.Stat(cfg); err != nil {
-			cfg = filepath.Join(d.dataDir, "appData", name, "docker-compose.yml")
+			cfg = filepath.Join(d.cmp.ManagedDir(name), "docker-compose.yml")
 		}
 		inst := &model.ComposeInstance{
 			ProjectName: name,
@@ -272,7 +280,7 @@ func (d *dockerAPI) getCompose(w http.ResponseWriter, r *http.Request) {
 		"yaml":            string(yamlStr),
 		"hasDeployedYAML": inst.LastDeployedYAML != "",
 		"lastDeployedAt":  inst.LastDeployedAt,
-		// 项目目录(相对运行目录,无结尾 /),供前端把相对路径挂载归并到 ${GB_PROJ_FILE}
+		// 项目目录(绝对路径,无结尾 /),供前端把相对路径挂载归并到 ${GB_PROJ_FILE}
 		"projectDir": d.cmp.ManagedDir(inst.ProjectName),
 	})
 }
@@ -495,6 +503,17 @@ func (d *dockerAPI) adoptCompose(w http.ResponseWriter, r *http.Request) {
 	}
 
 	file, _ := d.composePaths(inst)
+	if _, statErr := os.Stat(file); statErr != nil {
+		// 回退:GateBox 托管目录下的同名项目文件(项目曾由 GateBox 管理/迁移过)。
+		alt := d.cmp.ManagedFile(inst.ProjectName)
+		if _, e2 := os.Stat(alt); e2 == nil {
+			file = alt
+		} else {
+			writeErr(w, http.StatusConflict, fmt.Sprintf(
+				"配置文件不存在：%s（可能已被移动或删除）。请把该项目的 docker-compose.yaml 放回该路径后再接管，或删除该项目后重新部署。", file))
+			return
+		}
+	}
 	content, err := os.ReadFile(file)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -556,7 +575,7 @@ func proxyableLabels(labels map[string]string) map[string]string {
 // scanManagedProjects 扫描 dataDir/appData 下含 compose 文件的托管项目目录名
 // (docker-compose.yaml / .yml 任一存在)。空格/点前缀目录视为无关跳过。
 func (d *dockerAPI) scanManagedProjects() []string {
-	root := filepath.Join(d.dataDir, "appData")
+	root := d.cmp.ManagedRoot()
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return nil

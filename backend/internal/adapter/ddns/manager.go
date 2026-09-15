@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/JiangBeta/gatebox/internal/extension"
 	"github.com/JiangBeta/gatebox/internal/model"
 )
 
@@ -131,4 +132,9 @@ func (m *Manager) Sync(entries []Entry) error {
 		return err
 	}
 	return nil
+}
+
+// SyncProjection 实现 extension.ConfigSync：核心只提供投影，本实现负责聚合与落盘。
+func (m *Manager) SyncProjection(in extension.ProjectionInput) error {
+	return m.Sync(BuildEntries(in.Services, in.Domains, in.Creds))
 }

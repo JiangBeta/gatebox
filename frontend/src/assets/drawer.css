@@ -31,6 +31,22 @@
   border-top: 1px solid #f0f0f0;
   margin: 14px 0;
 }
+/* 行内代码块(markdown 反引号风格),用于展示变量值/占位符 */
+.dw-inline-code {
+  font-family: 'Maple Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #24292e;
+  background: #f6f8fa;
+  border: 1px solid #eaecef;
+  border-radius: 6px;
+  padding: 1px 6px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-width: 100%;
+  /* 关闭连字,避免 __ / --> 等被渲染成连体字形(看起来像全角) */
+  font-variant-ligatures: none;
+}
 .dw-field {
   margin-bottom: 12px;
 }

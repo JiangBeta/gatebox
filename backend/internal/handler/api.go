@@ -2,6 +2,7 @@
 package handler
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/hex"
@@ -11,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -27,10 +29,16 @@ type api struct {
 	s  *repository.Store
 	cm cert.CertManager
 	ac *acme.Issuer // 证书签发/删除(nil 时证书管理只读)
+	// extraServices 可选:返回未落库的额外服务(如 docker 派生),供「域名」页
+	// 统计二级域名时与落库 manual 服务一并聚合。由 server 在网关注册后注入。
+	extraServices func(ctx context.Context) []model.Service
 }
 
-// Register 将 API 路由注册到 mux。
-func Register(mux *http.ServeMux, s *repository.Store, cm cert.CertManager, ac *acme.Issuer) {
+// SetExtraServices 注入额外服务来源(container 派生)。须在 Register 之后、网关注册完成后调用。
+func (a *api) SetExtraServices(fn func(ctx context.Context) []model.Service) { a.extraServices = fn }
+
+// Register 将 API 路由注册到 mux。返回 *api 供调用方注入额外服务来源。
+func Register(mux *http.ServeMux, s *repository.Store, cm cert.CertManager, ac *acme.Issuer) *api {
 	a := &api{s: s, cm: cm, ac: ac}
 
 	mux.HandleFunc("GET /api/v1/domains", a.listDomains)
@@ -49,9 +57,13 @@ func Register(mux *http.ServeMux, s *repository.Store, cm cert.CertManager, ac *
 	mux.HandleFunc("GET /api/v1/certificates", a.listCertificates)
 	mux.HandleFunc("GET /api/v1/certificates/logs", a.listCertLogs)
 	mux.HandleFunc("GET /api/v1/certificates/logs/{id}", a.getCertLog)
+	mux.HandleFunc("GET /api/v1/certificates/email", a.getACMEEmail)
+	mux.HandleFunc("PUT /api/v1/certificates/email", a.putACMEEmail)
+	mux.HandleFunc("GET /api/v1/certificates/subdomains", a.listSubdomains)
 	mux.HandleFunc("GET /api/v1/certificates/{fqdn}", a.getCertDetail)
 	mux.HandleFunc("POST /api/v1/certificates/{fqdn}/renew", a.renewCert)
 	mux.HandleFunc("DELETE /api/v1/certificates/{fqdn}", a.deleteCert)
+	return a
 }
 
 // --- 通用响应 ---
@@ -180,6 +192,7 @@ func (a *api) deleteDomain(w http.ResponseWriter, r *http.Request) {
 type domainOverview struct {
 	ID           string `json:"id"`
 	Name         string `json:"name"`
+	CredentialID string `json:"credentialId"`
 	CertStatus   string `json:"certStatus"` // success | expiring | expired | unissued
 	SubdomainCnt int    `json:"subdomainCount"`
 	CreatedAt    string `json:"createdAt"`
@@ -213,10 +226,14 @@ func (a *api) overview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// 二级域名数聚合自网关 Service 的域名行(docs/domain.md §1:二级域名不建实体)。
+	// 含未落库的 docker 派生服务(编排的「域名访问」),否则域名页会漏统计其二级域名。
 	services, err := a.s.ListServices()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if a.extraServices != nil {
+		services = append(services, a.extraServices(r.Context())...)
 	}
 	subCounts := subdomainCountByRoot(services)
 
@@ -241,6 +258,7 @@ func (a *api) overview(w http.ResponseWriter, r *http.Request) {
 		resp.Domains = append(resp.Domains, domainOverview{
 			ID:           d.ID,
 			Name:         d.Name,
+			CredentialID: d.CredentialID,
 			CertStatus:   aggregateDomainCertStatus(certs, d.Name, now),
 			SubdomainCnt: subCounts[d.Name],
 			CreatedAt:    d.CreatedAt.Format(time.RFC3339),
@@ -365,6 +383,179 @@ func (a *api) listCertificates(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, certs)
+}
+
+// --- ACME 注册邮箱 ---
+
+// getACMEEmail 返回全局 ACME 注册邮箱(空=未设置)。
+func (a *api) getACMEEmail(w http.ResponseWriter, r *http.Request) {
+	email, err := a.s.GetACMEEmail()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"email": email})
+}
+
+// putACMEEmail 写入全局 ACME 注册邮箱,并即时同步到签发器(下次签发/续期生效)。
+func (a *api) putACMEEmail(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Email string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeErr(w, http.StatusBadRequest, "请求体解析失败")
+		return
+	}
+	email := strings.TrimSpace(in.Email)
+	if email != "" && !validEmail(email) {
+		writeErr(w, http.StatusBadRequest, "邮箱格式不合法")
+		return
+	}
+	if err := a.s.SetACMEEmail(email); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if a.ac != nil {
+		a.ac.SetEmail(email)
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"email": email, "note": "下次签发/续期生效"})
+}
+
+// validEmail 粗略校验邮箱(非空、含单个 @ 且域名含点、无空白)。
+func validEmail(s string) bool {
+	if strings.ContainsAny(s, " \t\r\n") || strings.Count(s, "@") != 1 {
+		return false
+	}
+	at := strings.IndexByte(s, '@')
+	return at > 0 && at < len(s)-1 && strings.Contains(s[at+1:], ".")
+}
+
+// --- 二级域名汇总(SSL 证书页) ---
+
+// subdomainSource 二级域名来源(Caddy 手动服务 / Docker 编排派生)。
+type subdomainSource struct {
+	Type        string `json:"type"`                  // caddy | docker
+	ServiceID   string `json:"serviceId,omitempty"`   // Caddy: 服务 ID(编辑抽屉定位)
+	ServiceName string `json:"serviceName,omitempty"` // Caddy: 服务名
+	AppName     string `json:"appName,omitempty"`     // Caddy: 所属应用名
+	ProjectName string `json:"projectName,omitempty"` // Docker: 编排项目名(编辑抽屉定位)
+	DisplayName string `json:"displayName,omitempty"` // Docker: 项目展示名
+}
+
+// subdomainCertView SSL 证书页一行:一个受管二级域名(可能无证书)。
+type subdomainCertView struct {
+	FQDN       string            `json:"fqdn"`
+	Subdomain  string            `json:"subdomain,omitempty"`
+	RootDomain string            `json:"rootDomain,omitempty"`
+	Protocol   string            `json:"protocol,omitempty"`
+	Sources    []subdomainSource `json:"sources"`
+	HasCert    bool              `json:"hasCert"`
+	Issuer     string            `json:"issuer,omitempty"`
+	NotBefore  string            `json:"notBefore,omitempty"`
+	NotAfter   string            `json:"notAfter,omitempty"`
+	Serial     string            `json:"serial,omitempty"`
+	KeyAlgo    string            `json:"keyAlgo,omitempty"`
+}
+
+// listSubdomains 返回所有受管二级域名(manual + docker 派生),并附上已有证书信息。
+// 与旧证书列表不同:无证书的二级域名也会出现,便于在 SSL 页看到全貌并跳转来源编辑。
+func (a *api) listSubdomains(w http.ResponseWriter, r *http.Request) {
+	certs, err := a.cm.List(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	manual, err := a.s.ListServices()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	var derived []model.Service
+	if a.extraServices != nil {
+		derived = a.extraServices(r.Context())
+	}
+
+	appNames := map[string]string{}
+	if apps, err := a.s.ListApps(); err == nil {
+		for _, ap := range apps {
+			appNames[ap.ID] = ap.Name
+		}
+	}
+	projDisplay := map[string]string{}
+	if insts, err := a.s.ListComposeInstances(); err == nil {
+		for _, in := range insts {
+			projDisplay[in.ProjectName] = in.DisplayName
+		}
+	}
+
+	byFQDN := map[string]*subdomainCertView{}
+	addService := func(svcs []model.Service, sourceType string) {
+		for _, svc := range svcs {
+			for _, d := range svc.Domains {
+				if d.RootDomain == "" { // 仅统计受管根域下的二级域名
+					continue
+				}
+				fqdn := d.Host()
+				if fqdn == "" {
+					continue
+				}
+				v, ok := byFQDN[fqdn]
+				if !ok {
+					v = &subdomainCertView{FQDN: fqdn, Subdomain: d.Subdomain, RootDomain: d.RootDomain, Protocol: d.Protocol}
+					byFQDN[fqdn] = v
+				}
+				src := subdomainSource{Type: sourceType}
+				if sourceType == "docker" {
+					src.ProjectName = svc.AppID
+					src.DisplayName = projDisplay[svc.AppID]
+				} else {
+					src.ServiceID = svc.ID
+					src.ServiceName = svc.Name
+					src.AppName = appNames[svc.AppID]
+				}
+				if !containsSource(v.Sources, src) {
+					v.Sources = append(v.Sources, src)
+				}
+			}
+		}
+	}
+	addService(manual, "caddy")
+	addService(derived, "docker")
+
+	// 补全证书信息;含无对应服务记录的孤立证书(仍可查看/续期/删除)。
+	for _, c := range certs {
+		v, ok := byFQDN[c.FQDN]
+		if !ok {
+			v = &subdomainCertView{FQDN: c.FQDN}
+			byFQDN[c.FQDN] = v
+		}
+		v.HasCert = true
+		v.Issuer = c.Issuer
+		v.NotBefore = c.NotBefore.Format(time.RFC3339)
+		v.NotAfter = c.NotAfter.Format(time.RFC3339)
+		v.Serial = c.Serial
+		v.KeyAlgo = c.KeyAlgo
+	}
+
+	out := make([]subdomainCertView, 0, len(byFQDN))
+	for _, v := range byFQDN {
+		if v.Sources == nil {
+			v.Sources = []subdomainSource{}
+		}
+		out = append(out, *v)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].FQDN < out[j].FQDN })
+	writeJSON(w, http.StatusOK, out)
+}
+
+// containsSource 判断来源是否已存在(结构体全字段可比较)。
+func containsSource(list []subdomainSource, s subdomainSource) bool {
+	for _, x := range list {
+		if x == s {
+			return true
+		}
+	}
+	return false
 }
 
 // certDetail 单个证书详情(证书管理「查看」)。

@@ -1,6 +1,6 @@
 # GateBox · 网关功能设计 & 开发计划
 
-> 状态：核心已实现（数据层 / caddy 生成器+Admin 客户端 / 健康采集 / Docker 派生 / 后端 API+日志 / 前端 3 Tab / 创建编辑代理 / 启停日志 / 片段变量 / ddns 上报联动）；PRD v2 单位③负责「**收尾**」——Caddyfile validate、片段-代理自动关联、docker 自动代理打通（§9）
+> 状态：核心已实现（数据层 / caddy 生成器+Admin 客户端 / 健康采集 / Docker 派生 / 后端 API+日志 / 前端 Tab（原 3 Tab，ADR-035 起变量迁设置页）/ 创建编辑代理 / 启停日志 / Caddy 片段 / ddns 上报联动）；PRD v2 单位③负责「**收尾**」——Caddyfile validate、片段-代理自动关联、docker 自动代理打通（§9）
 > 关联：`docs/PRD.md`、`docs/glossary.md`、`docs/domain.md`（跨页联动）、`docs/docker.md` §5.6/§12.3（跨单位接口）、`docs/adr/ADR-002 / 007 / 013 / 016 / 017 / 018(含修订) / 019 / 020 / 021`
 
 ## 1. 定位与范围
@@ -8,7 +8,7 @@
 网关页是控制面一级导航，负责「应用代理」与「Caddy 片段」两大块：
 
 - **代理**：应用（App）及其下服务（Service）的创建、编辑、启停、日志、健康；Docker 自动派生服务的只读展示。
-- **Caddy 片段**：遵循 caddy JSON 规范、带 GateBox `${VAR}` 变量的通用配置片段（含默认自带只读条目）。
+- **Caddy 片段**：遵循 caddy Caddyfile 规范、带 GateBox `<%VAR%>` 变量的通用配置片段（含默认自带只读条目）。
 
 边界（关键）：
 
@@ -22,16 +22,17 @@
 | 实体 | 字段 | 说明 |
 |---|---|---|
 | **App（应用）** | `id`、`name`、`description`、`createdAt` | 纯分组实体，**不绑定 rootDomain**；创建代理一次性建应用 + 其下全部服务 |
-| **Service（服务）** | `id`、`appId`(FK→App)、`name`、`description`、`type`、`domains[]`、`upstream[]`、`root`、`healthUri`、`handlerIds[]`、`enabled`、`createdAt` | 原 ProxyRoute；`type ∈ {reverse_proxy, file_server}`；`source=manual` 落库、`source=docker` 派生不落库 |
+| **Service（服务）** | `id`、`appId`(FK→App)、`name`、`description`、`type`、`domains[]`、`upstream[]`、`root`、`healthUri`、`fragmentIds[]`、`enabled`、`createdAt` | 原 ProxyRoute；`type ∈ {reverse_proxy, file_server}`；`source=manual` 落库、`source=docker` 派生不落库 |
 | **域名行**（Service 内联） | `protocol(https/http)`、`subdomain`、`rootDomain`、`customPort{custom,port}` | 不建实体；一个 Service 多行 = 同一后端的多个别名 |
 
 - 每行以下拉/单选 + 输入表达：`解析域名 Z-SIB` = 传输协议(S) + 二级域名(I) + rootDomain(S) + 添加域名(B)。
-- **Caddy 片段（Fragment）**：`id/name/description/code(片段体,遵循 caddy 规范 + <%VAR%>)/defaultEnabled(default off)/defaultHidden(default off)/createdAt`。
-  > 2026-09-07 移除原 `tag(handler|route)`：生成器把片段体整块塞入 site block，无 handler/route 分层语义，纯装饰字段已删（模型/API/内置目录同步清理，历史数据 tag 键自动忽略）。
-  - 默认自带 8 条目**只读硬编码**：Gzip/Br、Basic Auth、忽略自带证书校验、健康检查、日志配置、阻止常见漏洞、静态资源缓存、支持 websocket。
+- **Caddy 片段（Fragment）**：`id/name/description/code(遵循 caddy Caddyfile 语法 + <%VAR%>)/defaultEnabled(default off)/defaultHidden(default off)/createdAt`。
+  > 2026-09-07 移除原 `tag(handler|route)`：生成器把片段体整块写入，无 handler/route 分层语义，纯装饰字段已删（模型/API/内置目录同步清理，历史数据 tag 键自动忽略）。
+  > **2026-09-15（ADR-033）**：片段作用域由 code 自描述——顶层指令写 site block 顶层；`reverse_proxy { <子指令> }`（不带参数）合并进受控反代块；带参数或混用报错。
+  - 默认自带 **7 条目**只读硬编码：Gzip/Zstd、Basic Auth、忽略自带证书校验、按服务日志、阻止常见漏洞、静态资源缓存、支持 websocket。健康检查不再是片段，由 `Service.HealthURI` 字段承载。
 - App/Service 均不绑定 rootDomain；rootDomain 只在「域名行」选择（来自域名管理）。
 
-## 3. 页面设计（3 Tab，ADR-018 修订 + v2）
+## 3. 页面设计（2 Tab，ADR-018 修订 + v2；变量已迁至设置页，ADR-035）
 
 ### Tab 1 · 代理
 
@@ -43,13 +44,9 @@
 
 - 二级目录：`+ 创建片段`（通用 JSON 编辑器，复用 ComposeEditorModal 的 CodeMirror）。
 - 列表列：名称 · 来源（内置/自定义）· 默认启用 · 默认隐藏 · 说明 · 操作（修改/删除，被 Service 引用时禁删）。
-- 片段编辑/新增页：编辑器上方提供「变量」button（列出 §5.1 全部可用变量：内建 4 个 + 用户自定义），**点击即在光标处插入该 `<%VAR%>` 文本**。
+- 片段编辑/新增页：编辑器上方提供「变量」button（列出 §5.1 全部可用变量：系统变量 + 用户变量），**点击即在光标处插入该 `<%VAR%>` 文本**；并保留**内联新增用户变量**（改调统一 API，ADR-035 §9）。
 
-### Tab 3 · 变量
-
-- 变量列表（key · 值 · 保留名禁删）：用户自定义变量 CRUD（见 §5.1 ②）；内建 4 个只读变量只展示不可改。
-- 与「Caddy 片段」联动：片段编辑器「变量」button 可插入 `<%VAR%>`。
-- > 注：`docs/layout.md` / PRD v2 网关页 Tab = 代理 / Caddy 片段 / 变量（三 Tab，ADR-025 已含）。
+> **变量管理入口已迁至「设置 → 变量」**（ADR-035）：网关页不再有「变量」Tab，只剩「代理 / Caddy 片段」两 Tab。片段编辑器的变量选择器与内联新增保留，数据来自设置页维护的统一变量存储。
 
 ### 创建代理（终案图，ADR-018 修订 §1/§2）
 
@@ -131,26 +128,30 @@ API 概要（`/api/v1`）：
 | GET | `/services/health` | 健康快照（采集器聚合） |
 | GET/POST | `/fragments` | 片段列表 / 创建（含默认自带只读条目） |
 | PUT/DELETE | `/fragments/:id` | 编辑 / 删除（被 Service 引用时 409） |
-| GET/POST | `/variables` | 用户变量列表 / 新增 |
-| PUT/DELETE | `/variables/:key` | 修改 / 删除（保留名 409） |
+| — | ~~`/variables`~~ | **已迁至 `GET/POST /settings/variables`**（ADR-035，统一变量存储） |
+| — | ~~`/variables/:key`~~ | **已迁至 `PUT/DELETE /settings/variables/:key`** |
 
-### 5.1 GateBox 变量系统（Caddy 片段占位）
+### 5.1 GateBox 变量系统（Caddy 片段占位；统一存储，ADR-035）
 
-Caddy 片段是遵循 caddy JSON 规范的模板，含变量位。变量分两大类，**定界符统一 `<% … %>`**，与 caddy 自身的运行时环境变量 `${ENV}` **彻底区分**（caddy 的 `${…}` 原样透传、不参与替换）：
+Caddy 片段是遵循 caddy Caddyfile 语法的模板，含变量位。网关侧引用写法为 `<% … %>`，与 caddy 自身的**环境变量占位符 `{$VAR}`**（可带默认 `{$VAR:default}`）**彻底区分**——`{$…}` 原样透传、不参与替换；`${…}` 并非 Caddy 语法（ADR-033 修订）。
 
-**① 4 个内建只读变量（闭集，不可删改）**：
+> **变量存储与入口已统一**（ADR-035）：用户变量存于单一 bucket `variables`，由「设置 → 变量」页统一 CRUD，网关与容器共用同一份值；**引用写法随上下文而变**（网关 `<%KEY%>`、容器 `${KEY}`）。网关 API 不再暴露用户变量端点，只保留系统变量视图 `GET /api/v1/settings/variables/system`。
+
+**① 系统变量（只读，闭集，不可删改）**：
 
 | 变量 | 含义 | 归属 |
 |---|---|---|
 | `<%GB_APP%>` | 应用名 | 应用级 |
 | `<%GB_SERVICE%>` | 服务名 | 服务级 |
-| `<%GB_STATIC_ROOT%>` | 全局静态根（= 静态文件默认路径根，Q5） | 全局 |
 | `<%GB_HOST_PORT%>` | 反代目标端口（Service 服务端目标端口） | 服务级 |
+| `<%GB_DATA_DIR%>` | 实际 `data_dir` 绝对路径 | 全局（路径原语） |
+| `<%GB_STATIC_ROOT%>` | 全局静态根（`<dataDir>/www`，Q5） | 全局（组合） |
+| `<%GB_LOG_FILE%>` | 每服务日志文件路径 | 全局（组合） |
 
-**② 用户自定义变量（CRUD 界面，可增删改查）**：key 需匹配 `[a-zA-Z_][a-zA-Z0-9_]*` 且 **不得以 `GB_` 开头**（保留前缀）；值 = 任意字符串。引用写法同为 `<%KEY%>`，生成器按 key 查表替换。
+**② 用户变量（统一存储，设置页 CRUD）**：key 需匹配 `[A-Za-z_][A-Za-z0-9_]*` 且 **不得以 `GB_` 开头**（保留前缀）；值 = 任意字符串。引用写法为 `<%KEY%>`，生成器按 key 查表替换；同一值在容器侧以 `${KEY}` 引用（详见 ADR-035）。
 
-- **解析时机**：Caddyfile 生成器渲染 site block 时，按「内建（按 App/Service 上下文）→ 用户全局（查表）」顺序替换 `<% … %>`；**未命中的 `<% … %>` 报配置错误**（防拼错静默生成非法路径）。
-- **caddy env 透传**：`${…}`（无 `<%`）原样保留，交给 caddy `/load` 时读系统环境变量——用户可借用 caddy 侧能力。
+- **解析时机**：Caddyfile 生成器渲染 site block 时，按「系统（按 App/Service 上下文）→ 用户全局（查表）」顺序替换 `<% … %>`；**未命中的 `<% … %>` 报配置错误**（防拼错静默生成非法路径）。
+- **caddy env 透传**：`{$…}` 原样保留，交给 caddy `/load` 时读系统环境变量——用户可借用 caddy 侧能力。
 
 ---
 
@@ -159,7 +160,7 @@ Caddy 片段是遵循 caddy JSON 规范的模板，含变量位。变量分两�
 | # | 任务 | 交付物 | AI 验证 | 人工验证 |
 |---|---|---|---|---|
 | 1 | 数据层 | App / Service / HandlerInstance 模型 + BoltDB + 敏感字段 AES | 单测：CRUD 往返、加解密往返 | — |
-| 2 | caddy 生成器 | 根据 apps+services+fragments 生成完整 Caddyfile（含 ${VAR} 插值） | 单测：给定 apps → 期望 Caddyfile；`caddy validate` 通过 | 看实际 caddy 生效 |
+| 2 | caddy 生成器 | 根据 apps+services+fragments 生成完整 Caddyfile（含 `<%VAR%>` 插值） | 单测：给定 apps → 期望 Caddyfile；`caddy validate` 通过 | 看实际 caddy 生效 |
 | 3 | caddy Admin 客户端 | `POST /load` + `GET /reverse_proxy/upstreams` | 单测：mock Admin API；集成：真实 `/load` 原子替换 | — |
 | 4 | 健康采集器 | 单例轮询 caddy Admin API 聚合快照 | 单测：mock upstream → 绿/红/未知 | 造故障后端看变红 |
 | 5 | Docker 自动派生 | `/docker/proxyable` → service 映射（含 displayName） | 单测：label → service、不含容器 ID/IP | 起带 label 容器看列表 |
@@ -192,7 +193,7 @@ Caddy 片段是遵循 caddy JSON 规范的模板，含变量位。变量分两�
 
 ### 9.1 完成情况（现状，来自 PRD §9.1）
 
-- **已完成**：页面 3 Tab、手工代理、Caddy 片段、变量、片段默认自动关联（后端 `seedDefaultFragments` + 前端预勾选，2026-09-07 核对已落地）、https 后端自动忽略证书校验（生成器 `transport http { tls }`）。
+- **已完成**：页面 Tab（原 3 Tab「代理 / Caddy 片段 / 变量」；ADR-035 起变量迁至设置页，现为 2 Tab）、手工代理、Caddy 片段、片段默认自动关联（后端 `seedDefaultFragments` + 前端预勾选，2026-09-07 核对已落地）、https 后端自动忽略证书校验（生成器条件应用 `reverse_proxy { transport http { tls_insecure_skip_verify } }`，ADR-033）。
 - **待验证**：代理配置**未端到端走查**（Caddyfile validate 已补：`reloadCaddy` 前置校验 + 成功 `/load` 后写 `$DATA_DIR/Caddyfile` 备份）。
 - **未完成**：
   1. ~Caddy 片段与代理的关联（自动关联已实现，端到端未走查）~；
@@ -204,22 +205,24 @@ Caddy 片段是遵循 caddy JSON 规范的模板，含变量位。变量分两�
 
 > **2026-09-07 状态**：后端 `gatewayAPI.seedDefaultFragments`（含内置片段 toggle 覆盖、默认隐藏不可排除）+ 前端 `AppFormModal.preselectDefaults` 均已实现，待端到端人工走查确认。
 
-**自动关联默认片段集**（任一 Service 生效）：
+**自动关联默认片段集**（ADR-033 定案，`seedDefaultFragments` 按类型无关 seed）：
 
-| 片段 | 触发条件 | 说明 |
+| 片段 | 生效范围 | 说明 |
 |---|---|---|
-| Gzip/Br（encode） | 代理类型 ∈ {反向代理, 静态文件} | 全局默认勾选，可取消 |
-| 阻止常见漏洞 | 同上 | 全局默认勾选，可取消 |
-| 支持 websocket | 反向代理 | 全局默认勾选，可取消 |
-| 忽略后端证书校验 | **后端目标协议 = https**（自动判定，不可手选） | 条件自动注入，不占 handlerIds |
-| 健康检查 | 反向代理 | 默认 `/`，编辑可改/关（ADR-020 §1） |
-| 按服务日志 | 全部 | 生成器全局落 logs，Service 无需勾选 |
+| Gzip/Zstd（encode） | 全部 | 默认勾选，可取消 |
+| 阻止常见漏洞 | 全部 | 默认勾选，可取消 |
+| 支持 websocket（`flush_interval -1`） | 反向代理 | 默认勾选；静态服务上生成器静默忽略 |
+| 按服务日志 | 全部 | 默认勾选；落 `<dataDir>/logs/caddy/<应用>_<服务>.log` |
+| 静态资源缓存 | 默认关 | 需在「其他选项」手动勾选 |
+| Basic Auth | 默认关 + 默认隐藏 | 默认 admin/admin，待「设置-用户」完善 |
+| 忽略后端证书校验 | **后端目标协议 = https**（自动判定，不可手选） | `reverse_proxy { transport http { tls_insecure_skip_verify } }`，**不落 FragmentIDs** |
 
-> 生成器对「忽略后端证书校验」做条件渲染：`transport http { tls }`（caddy HTTP transport 默认不做后端证书校验），由 service 目标协议断言，**不落 FragmentIDs**——避免用户漏配导致后端 https 误报 502。已实现（`caddyfile.go` `writeReverseProxy`）。
+> 「忽略后端证书校验」由生成器按 `Service.UpstreamProto == "https"` 条件应用（`caddyfile.go` `serviceFragments`），修复原 `transport http { tls }` 不跳过校验、以及非法 `tls_connection_policies` code 导致配置加载失败的缺陷（ADR-033）。
+> 健康检查由 `Service.HealthURI` 字段承载（默认 `/`，编辑可改/关，ADR-020 §1），不再作为片段。
 
-**边界**：手动自定义片段不自动关联；「默认隐藏」的片段仅随默认勾选生效、不显示 toggle（沿用 ADR-018 修订点 5）。
+**边界**：手动自定义片段不自动关联；「默认隐藏」（`defaultHidden`）的片段仅在「其他选项」中不显示（ADR-033 起前端读后端字段，不再硬编码）。
 
-> **docker 派生**（ADR-026）：派生 Service 同样自动带上「默认启用」片段集；`gatebox.fragments: name1,name2` 显式引用额外片段；上游 https 自动附加 `frag-skip-verify`。引用缺失温和降级（忽略 + 告警）。
+> **docker 派生**（ADR-026）：派生 Service 同样自动带上「默认启用」片段集；`gatebox.fragments: name1,name2` 显式引用额外片段；上游 https 时生成器条件应用 `frag-skip-verify`。引用缺失温和降级（忽略 + 告警）。
 
 ### 9.3 docker 自动代理打通
 
@@ -239,3 +242,31 @@ Caddy 片段是遵循 caddy JSON 规范的模板，含变量位。变量分两�
 | 3 | docker 自动代理打通 | 实时派生 + 前端 10s 轮询 + 异常保留 | 单测：stopped 容器派生 `Enabled=false` 保留展示 | 起/停带 label 容器看列表 |
 | 4 | Caddyfile validate 闭环 | 生成后 `caddy validate` 前置校验（缺失降级跳过）+ 成功 `/load` 写 `$DATA_DIR/Caddyfile` 备份 | 单测：validate 二进制缺失/非法配置；备份写盘断言 | 非法配置后端可见 400 且旧配置继续 |
 | 5 | 端到端人工验证 | 创建应用→证书→健康→停用→删除级联 | 见 §7 | 完整链路走查 |
+
+### 9.5 派生行操作与域名协议选择（2026-09-15）
+
+- **派生（Docker 自动）行的操作列**：`自动代理(闪电，去容器页) + 停止 / 启动 / 重启 / 日志`，全部**只作用于 caddy**，与容器生命周期无关。
+  - 停止 = 写入本地「派生禁用集合」（`derived_disabled` bucket，稳定键 `docker:<项目>~<服务>~<host>~<port>`），生成器对命中项 `Enabled=false`、不生成该 site block；启动 = 移除。
+  - 重启 = 仅 `reloadCaddy`（重新生成 + load）。日志 = 读该服务的 `GB_LOG_FILE`（派生服务按 `?service=<名称>` 定位）。
+  - 派生 Service 现下发稳定 `ID`（`docker:` 前缀），供操作列与本地覆盖引用。
+- **域名行协议选择**：由「端口页」协议驱动（`http/https` 恒可用；其它协议是否可用取决于能力注册表中是否存在 `class=non-http` 的 `proxy-protocols` 能力，即是否有对应能力型插件启用）。选 `https` 即该域名在**全部 https 端口**（443、9443…）生效；`customPort/port` 不再由表单设置。域名行「+」复用共享 `PortFormModal`（与端口页同一弹层），新增后自动选中新协议。
+- **目标协议**：非 HTTP 协议选项在无对应能力插件时置灰，提示「需启用支持 TCP/UDP 的扩展」（前端不引用具体插件名）。
+- **忽略自带证书校验**：片段改为「其他选项」中可见；`UpstreamProto=https` 时自动勾选且**禁用**（由生成器强制应用，不可手动取消）。
+
+### 9.6 L4（TCP/UDP）代理与能力型插件（ADR-036）
+
+> **核心不含任何 L4/`layer4`/插件 ID 硬编码**——L4 是「能力型插件（Provider）」通过扩展点接入的示例。
+
+- **插件形态**：`kind=caddy-module` 的扩展（如 Caddy L4）安装时用含目标模块的 caddy 制品替换 active 制品（备份原文件），重启 Caddy 后生效。校验统一用**当前 active caddy 制品**，核心不挑选特定插件制品。
+- **能力声明**：插件在 manifest `contributions.capabilities` 声明 `point: proxy-protocols`（`class=non-http`、`networks` 等）；启用后该能力进入**能力注册表**，停用即消失。
+- **渲染分发**：核心只产出中性规则 `ProxyRule{Protocol, Upstream, Ports, Nets}`。HTTP 规则走内置渲染器生成 site block；非 HTTP 规则按协议查注册表 → 调用插件声明的 `renderer`（`scope=global`）→ 得到全局块片段写入全局块。**核心不解析片段内容。**
+  ```
+  {
+      <内置：http_port / https_port / log>
+      <插件 renderer 产出的全局片段，如 layer4 {...}>
+  }
+  ```
+- **L4 网络下沉到「端口」页**：协议记录含「网络」列（`TCP / UDP / TCP & UDP`；http/https 恒 TCP）。选协议即完成 tcp/udp 选择，创建代理与编排都不再单独选目标网络。
+- **前端（能力驱动）**：协议下拉从 **能力注册表 API** 取选项；当 `proxy-protocols` 存在 `class=non-http` 且启用时，非 http/https 协议可选，否则置灰并提示。前端**不判断任何插件 ID**。
+- **docker 派生 L4 label**：非 HTTP 协议的站点地址写为 `<proto>://`（如 `caddy: mqtt://`），端口/网络取端口页该协议记录；派生出 `Domain.Protocol=<proto>`，核心按协议分发到对应 renderer。
+- **边界**：`caddy-module` 安装覆盖主 caddy 制品，多个此类插件**不可并存**（后装覆盖前装）；运行中的 Caddy 必须为该制品，否则含对应指令的 `/load` 会失败。

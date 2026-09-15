@@ -1,6 +1,6 @@
 # GateBox · 网络功能设计 & 开发计划
 
-> 状态：**设计待讨论**（PRD v2 单位⑤；接入深度未定，本文给出候选方案与决策点）
+> 状态：**内网 DNS（mosdns）已实现**；Tailscale 仍待讨论（接入深度未定，本文给出候选方案与决策点）
 > 关联：`docs/PRD.md`（§3 能力 5/6、§9.4）、`docs/glossary.md`
 > 前置：单位①（导航 `/network` 占位已在 infra.md §7 定义）
 
@@ -84,3 +84,34 @@ API 概要（`/api/v1`，草案）：
 | 2 | Tailscale 状态端点 | `status --json` 聚合 | 单测：JSON 解析 fixture | 看节点列表 |
 | 3 | 两个 Tab 前端 | 状态卡 + 空态/降级 | 组件测试 | 装/卸组件看降级 |
 | 4 | 记录自动下发（D1=B） | hosts 段联动 + reload | 集成：发布 → 记录 → reload | 内网域名直达 |
+
+## 8. 实现记录：内网 DNS（mosdns）管理页
+
+**入口**：侧边栏「服务 → mosdns」（`/services/mosdns`）。参照 [sbwml/luci-app-mosdns](https://github.com/sbwml/luci-app-mosdns) 的功能形态，落到 GateBox「控制面只改写配置 + 调 API」的架构（ADR-001 / ADR-028）。
+
+**运行目录**：`$DATA_DIR/tools/mosdns/`（`config.yaml` · `hosts.txt` · `mosdns.log` · `cache.dump`），与组件运行时的 `pid` 托管目录一致。进程启停复用 `POST /api/v1/components/{id}/{start,stop,restart}`。
+
+**页面（5 Tab）**：
+
+| Tab | 能力 |
+|---|---|
+| 状态 | 进程状态（5s 轮询）、版本 / 可升级提示、监听与 API 地址、各文件路径；启停 / 重启 / 刷新缓存 |
+| 基础设置 | 监听地址、日志级别、本地/远程上游、缓存开关与容量；保存即按表单重新生成 `config.yaml` |
+| 内网解析 | hosts 记录（域名 → 一或多个 IP，IPv4/IPv6）增删改，落盘 `hosts.txt` |
+| 配置文件 | CodeMirror 手工编辑 `config.yaml`，YAML + 插件 tag/type 校验；可一键生成默认配置 |
+| 日志 | 读取日志尾部、自动刷新（3s）、清空 |
+
+**配置生成**：默认模板不依赖 geosite/geoip 等外部数据（首次安装即可运行），主流程为 `hosts → cache → fallback(本地主用 / 远程备用)`；需要分流、广告拦截等高级策略时在「配置文件」页手工编辑。
+
+**后端**（`internal/adapter/mosdns` + `internal/handler/mosdns.go`）：
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/v1/mosdns/status` | 进程态 + 解析出的路径 / 端口 |
+| GET/PUT | `/api/v1/mosdns/settings` | 读取 / 依表单生成配置 |
+| GET/PUT | `/api/v1/mosdns/config` | 读取 / 写入原始 `config.yaml` |
+| GET/PUT | `/api/v1/mosdns/hosts` | 读取 / 保存内网解析记录 |
+| GET/DELETE | `/api/v1/mosdns/logs` | 读取日志尾部 / 清空 |
+| POST | `/api/v1/mosdns/flush` | 经 `api.http` 调 `cache` 插件 `/flush` 清空缓存 |
+
+> 未纳入本期：AdGuard 规则集形式的广告拦截（`adblock_set` 为上游 patch，官方 mosdns 无此插件）、Geodata 更新、查询统计（依赖上游 `stats_api` patch）。三者均可在「配置文件」页手工配置 `domain_set` / `ip_set` 等官方插件实现等价效果。

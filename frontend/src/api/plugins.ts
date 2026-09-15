@@ -10,8 +10,24 @@ export interface PluginView {
   channel: string
   state: string
   message?: string
-  requires?: { gatebox?: string; components?: string[] }
-  contributions?: { nav?: { path: string; label: string }[]; page?: Record<string, string> }
+  requires?: {
+    gatebox?: string
+    extensionApi?: string
+    components?: string[]
+    os?: string[]
+    arch?: string[]
+  }
+  contributions?: {
+    capabilities?: { point: string; data?: Record<string, any> }[]
+    backend?: { point: string; for?: string; scope?: string }[]
+    ui?: {
+      nav?: { path: string; label: string }[]
+      routes?: { path: string; label: string }[]
+      slots?: { slot: string; from?: string }[]
+      page?: Record<string, string>
+    }
+    data?: { subscribe?: string[] }
+  }
 }
 
 export async function listPlugins(): Promise<PluginView[]> {

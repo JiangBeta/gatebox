@@ -252,7 +252,8 @@ const columns = computed(() => [
         }
         btns.push(actBtn(EyeOutlined, '查看', '#8c8c8c', () => openView(record)))
       }
-      if (record.source === 'managed') {
+      // 托管项目、以及已接管(可编辑)的外部项目都可删除(外部=停止并从 GateBox 移出,不动其文件)。
+      if (record.source === 'managed' || record.editable) {
         btns.push(actBtn(DeleteOutlined, '删除', '#ff4d4f', () => confirmDelete(record)))
       }
       return h(Space, { size: 0, wrap: false }, { default: () => btns })
@@ -341,12 +342,17 @@ onMounted(load)
   >
     <div style="display: flex; flex-direction: column; gap: 10px">
       <span>确定删除 <b>{{ deleteTarget?.displayName }}</b> 吗？将停止并删除其所有容器。</span>
-      <Checkbox v-model:checked="deleteData">
-        同时删除数据目录 <Typography.Text type="danger" style="font-size: 12px">appData/{{ deleteTarget?.projectName }}</Typography.Text>
-      </Checkbox>
-      <Checkbox v-model:checked="deleteVolumes">
-        同时删除关联的命名卷（<Typography.Text type="danger" style="font-size: 12px">数据不可恢复</Typography.Text>）
-      </Checkbox>
+      <template v-if="deleteTarget?.source === 'managed'">
+        <Checkbox v-model:checked="deleteData">
+          同时删除数据目录 <Typography.Text type="danger" style="font-size: 12px">appData/{{ deleteTarget?.projectName }}</Typography.Text>
+        </Checkbox>
+        <Checkbox v-model:checked="deleteVolumes">
+          同时删除关联的命名卷（<Typography.Text type="danger" style="font-size: 12px">数据不可恢复</Typography.Text>）
+        </Checkbox>
+      </template>
+      <Typography.Text v-else type="secondary" style="font-size: 12px">
+        外部项目（已接管）：仅停止容器并从 GateBox 移出，<b>不会删除</b>其原 compose 文件。
+      </Typography.Text>
     </div>
   </Modal>
 

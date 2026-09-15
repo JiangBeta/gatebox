@@ -26,11 +26,11 @@ async function load() {
   loading.value = true
   try {
     const [comps, plugs, dom] = await Promise.all([listComponents(), listPlugins(), overview()])
-    compTotal.value = comps.length
-    updateList.value = comps.filter((c) => c.updateAvailable)
+    compTotal.value = comps.filter((c) => c.installed).length
+    updateList.value = comps.filter((c) => c.installed && c.updateAvailable)
     compUpdates.value = updateList.value.length
     pluginTotal.value = plugs.length
-    pluginEnabled.value = plugs.filter((p) => p.state === 'enabled').length
+    pluginEnabled.value = plugs.filter((p) => p.state !== 'available').length
     domainCount.value = dom.domainCount
     credCount.value = dom.credentialCount
     certExpiring.value = dom.certExpiringSoon
@@ -67,7 +67,7 @@ async function load() {
         <Card :loading="loading">
           <Statistic title="插件" :value="pluginTotal" suffix="个" />
           <div style="margin-top: 6px">
-            <Tag color="green">{{ pluginEnabled }} 启用</Tag>
+            <Tag color="green">{{ pluginEnabled }} 已安装</Tag>
           </div>
         </Card>
       </Col>

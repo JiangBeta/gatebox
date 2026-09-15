@@ -6,9 +6,13 @@ import {
 } from 'ant-design-vue'
 import { DownOutlined, UpOutlined, PlusOutlined, CloseOutlined, EyeOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons-vue'
 import {
-  listFragments, createFragment, updateFragment, deleteFragment, listVariables, createVariable,
-  type FragmentView, type Variable,
+  listFragments, createFragment, updateFragment, deleteFragment,
+  type FragmentView,
 } from '../../api/gateway'
+import {
+  listVariables, listSystemVariables, createVariable,
+  type Variable, type SystemVariable,
+} from '../../api/settings'
 import CodeEditor from '../../components/CodeEditor.vue'
 
 const [messageApi, contextHolder] = message.useMessage()
@@ -39,17 +43,17 @@ const varsExpanded = ref(false)
 const addVarVisible = ref(false)
 const addDrafts = ref<{ key: string; value: string; description: string }[]>([])
 
-const builtinVars = [
-  { key: 'GB_APP', desc: '当前应用名称' },
-  { key: 'GB_SERVICE', desc: '当前服务名称' },
-  { key: 'GB_STATIC_ROOT', desc: '静态文件根目录' },
-  { key: 'GB_HOST_PORT', desc: '主机端口' },
-]
+// 网关系统变量(只读,后端下发,ADR-035)
+const systemVars = ref<SystemVariable[]>([])
 
 const editorRef = ref<InstanceType<typeof CodeEditor> | null>(null)
 
 async function loadMeta() {
-  try { variables.value = await listVariables() } catch { /* 忽略变量加载失败 */ }
+  try {
+    const [vars, sys] = await Promise.all([listVariables(), listSystemVariables()])
+    variables.value = vars
+    systemVars.value = sys.filter((v) => v.context === 'gateway')
+  } catch { /* 忽略变量加载失败 */ }
 }
 
 function openAdd() {
@@ -245,7 +249,7 @@ onMounted(async () => { loadMeta(); await load() })
           <div style="border: 1px solid #e0e0e6; border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; flex-shrink: 0">
             <!-- 内建变量 -->
             <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px">
-              <Tooltip v-for="bv in builtinVars" :key="bv.key" :title="bv.desc">
+              <Tooltip v-for="bv in systemVars" :key="bv.key" :title="bv.description">
                 <Tag size="small" style="cursor: pointer; font-family: monospace; font-size: 12px; background: #f0f0f0"
                   @click="insertVar(bv.key)">{{ bv.key }}</Tag>
               </Tooltip>
@@ -296,12 +300,13 @@ onMounted(async () => { loadMeta(); await load() })
 
           <!-- 代码编辑器(复用 CodeEditor) -->
           <div style="flex: 1; min-height: 0; display: flex; flex-direction: column; margin-bottom: 6px">
-            <CodeEditor ref="editorRef" v-model="form.code" language="json" height="100%" />
+            <CodeEditor ref="editorRef" v-model="form.code" language="json" height="100%" :read-only="builtin" />
           </div>
 
           <div style="color: #888; font-size: 12px; line-height: 1.6; margin-bottom: 4px; flex-shrink: 0">
-            点击上方变量名可插入到编辑器光标处。格式：&lt;%变量名%&gt;。
-            ${...} 原样透传给 caddy 环境变量。
+            点击上方变量名可插入到编辑器光标处。格式：&lt;%变量名%&gt;（GateBox 变量）。
+            以 reverse_proxy { ... } 包裹（不带上游参数）的片段会合并进受控反代块。
+            {$VAR} / {$VAR:默认} 原样透传给 caddy 环境变量。
           </div>
         </div>
 

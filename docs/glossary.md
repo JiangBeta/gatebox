@@ -23,12 +23,12 @@
 | **DATA_DIR** | 用户指定的运行时数据根目录，install.sh 创建并写入 `conf/gatebox.conf` |
 | **source** | Service 的来源：`docker`（label 自动发现，派生不落库）/ `manual`（手动 IP:端口，宿主机服务并入此项） |
 | **代理类型** | 网关「服务」的二级分类：`反向代理` / `静态文件` / `Docker 自动`（决定流量去哪），与「Caddy 片段」两分 |
-| **Caddy 片段（Handler）** | 一段**遵循 caddy JSON 规范的配置片段**（语法上可直接用），变量位用 GateBox 语义（`<%GB_APP%>`/`<%GB_SERVICE%>`/`<%GB_STATIC_ROOT%>`/`<%GB_HOST_PORT%>`，定界符 `<% %>` 与 caddy env `${…}` 区分）；分 `handler`（site block 中间件）与 `route`（route 级）两类标签；决定流量怎么处理 |
-| **片段自动关联** | 新建/编辑 Service 时自动把「默认启用」片段写入其 `handlerIds[]`；后端目标 https 时生成器自动注入「忽略证书校验」（进「其他选项」勾选态，PRD v2 单位③） |
-| **其他选项** | Service 表单底部的开关组：`禁用当前规则`（= 整条规则失效）+ 3 个安全开关（阻止常见漏洞/静态资源缓存/支持 websocket）+ 所有非「默认隐藏」的 Caddy 片段 toggle；每个 Service 落库自己的片段引用（route 级覆盖） |
+| **Caddy 片段（Fragment）** | 一段遵循 caddy Caddyfile 语法的配置片段（可含 `<%VAR%>`），决定流量怎么处理。按 code 自描述作用域：顶层指令写 site block 顶层；`reverse_proxy { <子指令> }` 包裹片段合并进受控反代块（ADR-033）。变量位用 GateBox 语义（最小变量 `<%GB_APP%>`/`<%GB_SERVICE%>`/`<%GB_HOST_PORT%>`/`<%GB_DATA_DIR%>` + 组合变量 `<%GB_STATIC_ROOT%>`/`<%GB_LOG_FILE%>`，定界符 `<% %>` 与 caddy env `{$…}` 区分） |
+| **片段自动关联** | 新建/编辑 Service 时自动把「默认启用」片段写入其 `FragmentIDs[]`；后端目标 https 时生成器按 `UpstreamProto` 自动应用「忽略证书校验」（不落 `FragmentIDs`，ADR-033 修订 PRD v2 单位③） |
+| **其他选项** | Service 表单底部按 `defaultHidden` 过滤出的 Caddy 片段 toggle（默认启用者默认勾选）；健康检查/忽略证书校验由字段与生成器承载，不出现在此处；每个 Service 落库自己的片段引用 |
 | **默认启用** | Caddy 片段的一个开关（默认关）：开启后，在每个 Service 的「其他选项」中该片段**默认勾选** |
 | **默认隐藏** | Caddy 片段的一个开关（默认关）：开启后，在「其他选项」中**不显示**该片段 |
-| **默认自带条目** | **只读硬编码**的 Caddy 片段清单（Gzip/Br、Basic Auth、忽略自带证书校验、健康检查、日志配置、阻止常见漏洞、静态资源缓存、支持 websocket），非可编辑实例；用户另可自建片段 |
+| **默认自带条目** | **只读硬编码**的 Caddy 片段清单（ADR-033，7 个：Gzip/Zstd、Basic Auth、忽略自带证书校验、按服务日志、阻止常见漏洞、静态资源缓存、支持 websocket），非可编辑实例；健康检查由 `Service.HealthURI` 字段承载，不再作为片段；用户另可自建片段 |
 | **site 地址** | caddy label 值的反代站点地址（ADR-026）：`[proto://]host[:port]`；裸 host=**https/443**、`http://`=**http/80**、`:port`=自定义访问端口；可逗号分隔多站点 |
 | **站点（域名行）** | 一个反代站点地址；**每个站点派生一个独立 Service**（ADR-026 修订）——同一容器可经不同域名发布不同端口/不同片段的服务 |
 | **`{{upstreams}}`** | caddy-docker-proxy 的 upstream 模板（ADR-026 自解释）：`{{upstreams [https] [N]}}`，`N`=容器内部端口（反向查宿主映射），无则用唯一宿主端口；解释为 `127.0.0.1:<宿主端口>` |
@@ -51,7 +51,7 @@
 
 ## v3 重构新增术语
 
-> 详见 `docs/architecture.md` 与 ADR-027 ~ ADR-032。
+> 详见 `docs/architecture.md` 与 ADR-027 ~ ADR-034。
 
 | 术语 | 定义 |
 |---|---|
@@ -66,9 +66,33 @@
 | **core / optional** | 组件产品档：`core` 默认安装、不可卸载；`optional` 按需安装。与 `managed/attached` 正交 |
 | **Bundled** | 离线安装包是否附带该 `optional` 组件的制品（如 ddns-go / flame） |
 | **插件（Plugin）** | 数据驱动的可选扩展=manifest + 通用引擎，`kind ∈ {caddy-module, process, config-only}`（ADR-029） |
-| **manifest** | 插件声明文件（`apiVersion/kind/id/version/requires/source/artifact/runtime/config/operations/contributions`） |
+| **扩展平台（Extension Platform）** | 核心与插件解耦的机制：五个部件（Manifest v2 / 能力注册表 / 投影 API / 扩展契约 / 槽位注册表）+ 三个不变式（ADR-036） |
+| **扩展点（Extension Point）** | 核心定义的抽象接入点：`proxy-protocols` / `renderer` / `validator` / `config-sync` / `reconcile`（ADR-036） |
+| **能力注册表（Capability Registry）** | 核心与插件统一注册「能力」的表；网关/容器/前端只查表、不认插件身份（ADR-036） |
+| **Provider / Consumer** | 由贡献点导出的两类插件原型：能力型（扩展核心行为）/ 数据型（消费核心数据）（ADR-036） |
+| **投影（Projection）** | 核心状态的只读视图（domains/certs/ports/services），带 `revision`，经变更通知驱动插件自收敛（ADR-036） |
+| **扩展契约（Extension Contract）** | 核心调用插件逻辑的两种实现：`template`（声明式）/ `sidecar`（进程，JSON over stdin/HTTP）（ADR-036） |
+| **manifest** | 插件声明文件；v2 为强类型：`artifacts[](role)` + `contributions{capabilities,ui,backend,data}` + `permissions`（ADR-036） |
 | **静态索引** | 可静态托管的插件/制品索引 `index.json`（+ 签名），客户端据此在线安装/升级；**无常驻服务端**（ADR-029） |
 | **插件状态机** | `available → installed → enabled/disabled`，失败转 `error`；`disable` 保留制品、`remove` 删除（ADR-029） |
 | **设计 token** | 前端颜色/字号/间距/圆角的唯一来源（`frontend/src/design/`）；`.vue` 禁止样式字面量（ADR-032） |
 | **分层标准** | 后端 `handler/service/repository/component/source/model` + 前端 `design/lib/app/modules/shared` 的判层与依赖方向，由 lint 强制（ADR-031/032） |
 | **old/** | 重构前原始代码的完整保留区（`old/backend` 独立 `go.mod`），供回溯查证（ADR-031） |
+| **服务用户（gatebox）** | 安装脚本创建的专用低权系统用户，GateBox 本体与其托管进程均以此身份运行（ADR-034） |
+| **软重启** | 不中断服务的重载：Docker `reload`（SIGHUP）、Caddy `POST /load`、托管进程 stop+start、acme 重探测（ADR-034） |
+| **硬重启** | 真正重启守护进程（如 `systemctl restart docker.service`），会中断容器，UI 须二次确认（ADR-034） |
+| **polkit 授权** | systemd 下以 `rules.d` 规则最小授权 `gatebox` 管理 `docker.service`，替代 sudo（ADR-034） |
+
+## 变量统一新增术语（ADR-035）
+
+> 「设置 → 变量」的唯一数据源。引用写法随消费格式而变，命名值统一。
+
+| 术语 | 定义 |
+|---|---|
+| **变量（Variable）** | GateBox 全局命名值：一条 `key → value`，由用户统一维护。是「值」的抽象，不绑定消费上下文 |
+| **用户变量** | 可编辑的变量（CRUD），统一存储于 bucket `variables`，网关 Caddyfile 与容器 compose 均可用其值；**不引入作用域字段**，同一 key 只有一个值 |
+| **系统变量** | 只读、上下文派生的变量：网关内置（`GB_APP`/`GB_SERVICE`/`GB_HOST_PORT`/`GB_DATA_DIR`/`GB_STATIC_ROOT`/`GB_LOG_FILE`）与容器内置（`GB_PROJ_NAME`/`GB_PROJ_FILE`/`GB_SER_<n>_PORT_<n>`）。由 `GET /api/v1/settings/variables/system` 下发描述符 |
+| **引用写法** | 变量在目标格式中的占位语法，随上下文而变：网关 `<%KEY%>`、容器 `${KEY}`（compose 原生）。**不统一**，与 Caddy 环境变量 `{$KEY}` 区分（ADR-035 §4） |
+| **环境变量** | compose 服务级 `environment:` 的键值（服务级、随容器定义），与全局「变量」是两回事；UI 与文档一律用「环境变量」指代 |
+| **迁移冲突报告** | 两桶合并时，同名不同值或键名不合法的存量项不自动导入，列入报告由用户在设置页解决（ADR-035 §8） |
+| **插值时机** | 网关变量在 Caddyfile 生成时实时替换；容器变量在保存 compose 时破坏性替换写盘。**当前不统一**，为已知债务（ADR-035 §7） |

@@ -1,0 +1,69 @@
+# Caddy L4 —— 能力型插件（Provider）样例（ADR-036）。
+#
+# 说明：运行时以 backend/internal/plugin 的内置目录为准，本文件为数据模型参考。
+# 该插件通过 proxy-protocols 能力 + renderer 契约把 TCP/UDP 代理接入核心网关，
+# 核心不含任何 layer4 / caddy-l4 硬编码。
+apiVersion: gatebox/v2
+kind: caddy-module
+id: caddy-l4
+name: Caddy L4
+version: 0.1.0
+summary: 为 Caddy 增加 TCP/UDP（L4）代理能力
+channel: official
+tags: [Caddy插件, TCP/UDP]
+publisher:
+  id: gatebox
+  name: GateBox
+requires:
+  gatebox: ">=0.3.0"
+  extensionApi: ">=1"
+  components: [caddy]
+  os: [linux]
+  arch: [amd64, arm64]
+artifacts:
+  - role: binary
+    os: linux
+    arch: amd64
+    url: https://caddyserver.com/api/download?os=linux&arch=amd64&p=github.com/mholt/caddy-l4
+  - role: binary
+    os: linux
+    arch: arm64
+    url: https://caddyserver.com/api/download?os=linux&arch=arm64&p=github.com/mholt/caddy-l4
+contributions:
+  capabilities:
+    - point: proxy-protocols
+      data:
+        class: non-http
+        label: TCP/UDP
+        networks: [tcp, udp]
+        requiresPrimaryDomain: false
+  backend:
+    - point: renderer
+      for: non-http
+      scope: global
+      impl:
+        type: template
+        # 中性规则 → Caddyfile 全局块片段；核心只提供 ProxyRule，不解析本模板。
+        template: |
+          layer4 {
+          {{- range .Rules }}
+          {{- $r := . }}
+          {{- range $r.Nets }}
+          {{- $net := . }}
+          {{- range $r.Ports }}
+          	{{ $net }}/:{{ . }} {
+          		route {
+          			proxy {{ $net }}/{{ $r.Upstream }}
+          		}
+          	}
+          {{- end }}
+          {{- end }}
+          {{- end }}
+          }
+  ui:
+    slots:
+      - slot: port-form.protocol-options
+        from: proxy-protocols
+permissions:
+  - filesystem:
+      write: [tools/caddy-l4]

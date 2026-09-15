@@ -94,8 +94,6 @@ export interface FragmentView {
   builtin: boolean
 }
 
-export interface Variable { key: string; value: string; description?: string; createdAt: string }
-
 // --- 端点 ---
 
 export async function listGroups(): Promise<GroupView[]> {
@@ -151,6 +149,11 @@ export async function startService(id: string): Promise<void> {
   await http.post(`/gateway/services/${id}/start`, null, LONG)
 }
 
+/** 重启该服务的代理(仅 caddy 侧重新生成+load)。 */
+export async function restartService(id: string): Promise<void> {
+  await http.post(`/gateway/services/${id}/restart`, null, LONG)
+}
+
 export async function listFragments(): Promise<FragmentView[]> {
   return (await http.get('/gateway/fragments')).data
 }
@@ -173,22 +176,6 @@ export async function deleteFragment(id: string): Promise<void> {
   await http.delete(`/gateway/fragments/${id}`, LONG)
 }
 
-export async function listVariables(): Promise<Variable[]> {
-  return (await http.get('/gateway/variables')).data
-}
-
-export async function createVariable(key: string, value: string, description?: string): Promise<Variable> {
-  return (await http.post('/gateway/variables', { key, value, description }, LONG)).data
-}
-
-export async function updateVariable(key: string, value: string, description?: string): Promise<Variable> {
-  return (await http.put(`/gateway/variables/${encodeURIComponent(key)}`, { key, value, description }, LONG)).data
-}
-
-export async function deleteVariable(key: string): Promise<void> {
-  await http.delete(`/gateway/variables/${encodeURIComponent(key)}`, LONG)
-}
-
 export async function gatewayHealth(): Promise<{ reachable: boolean; upstreams: Record<string, string> }> {
   return (await http.get('/gateway/health')).data
 }
@@ -202,8 +189,9 @@ export async function gatewayVersion(): Promise<{ version: string; reachable: bo
 export interface PortBinding {
   protocol: string
   description: string
-  defaultPort: number
   ports: number[]
+  /** L4 网络：tcp | udp | both（http/https 恒 tcp）。 */
+  network?: string
   enabled: boolean
   builtin: boolean
   createdAt: string
@@ -214,13 +202,13 @@ export function listPorts(): Promise<PortBinding[]> {
 }
 
 export function createPort(inp: {
-  protocol: string; description: string; defaultPort: number; ports: number[]; enabled?: boolean;
+  protocol: string; description: string; ports: number[]; network?: string; enabled?: boolean;
 }): Promise<PortBinding> {
   return http.post('/gateway/ports', inp).then((r) => r.data)
 }
 
 export function updatePort(protocol: string, inp: {
-  description: string; defaultPort: number; ports: number[]; enabled?: boolean;
+  description: string; ports: number[]; network?: string; enabled?: boolean;
 }): Promise<PortBinding> {
   return http.put(`/gateway/ports/${encodeURIComponent(protocol)}`, { ...inp, protocol }).then((r) => r.data)
 }

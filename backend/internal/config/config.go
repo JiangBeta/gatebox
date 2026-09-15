@@ -31,6 +31,9 @@ type Config struct {
 	// CaddyHTTPSExtraPorts 额外的 https 监听端口(逗号分隔,与主 https 端口并存,
 	// 如 "443,9443"——每站点额外生成 host:<port> site block,ADR-026 网关端口多开)。
 	CaddyHTTPSExtraPorts []int
+	// StaticRoot 全局静态文件根目录(变量 <%GB_STATIC_ROOT%> 的取值,
+	// 默认 $DATA_DIR/www;ADR-033)。
+	StaticRoot string
 
 	DockerSocket   string // Docker 守护进程 unix socket
 	DaemonJSONPath string // dockerd 配置(镜像加速器白名单);NixOS/OpenWrt 等常不存在,只读展示
@@ -41,8 +44,9 @@ type Config struct {
 
 // Load 从 env / conf / 默认值三源加载配置。
 func Load() Config {
-	// bootDataDir:env 或默认,用于定位 conf 文件自身。
-	bootDataDir := getenv("GATEBOX_DATA_DIR", defaultDataDir)
+	// bootDataDir:env 或默认,用于定位 conf 文件自身。统一解析为绝对路径,
+	// 使生成产物(日志/静态根/变量展示)不依赖进程 cwd。
+	bootDataDir := absDir(getenv("GATEBOX_DATA_DIR", defaultDataDir))
 	confPath := filepath.Join(bootDataDir, "conf", confFile)
 
 	vals := readFile(confPath)
@@ -55,7 +59,7 @@ func Load() Config {
 	}
 
 	// data_dir:env > conf;与 bootDataDir 不一致时告警(install 应写一致)。
-	dataDir := sourceStr("GATEBOX_DATA_DIR", "data_dir", defaultDataDir, vals)
+	dataDir := absDir(sourceStr("GATEBOX_DATA_DIR", "data_dir", defaultDataDir, vals))
 	if dataDir != bootDataDir {
 		log.Printf("conf data_dir=%s 与 conf 所在目录 %s 不一致,本次存读取按 conf 值;install 请保持一致", dataDir, bootDataDir)
 	}
@@ -68,6 +72,7 @@ func Load() Config {
 		CaddyHTTPPort:        sourceInt("GATEBOX_CADDY_HTTP_PORT", "caddy_http_port", 0, vals),
 		CaddyHTTPSPort:       sourceInt("GATEBOX_CADDY_HTTPS_PORT", "caddy_https_port", 0, vals),
 		CaddyHTTPSExtraPorts: sourceIntList("GATEBOX_CADDY_HTTPS_EXTRA_PORTS", "caddy_https_extra_ports", vals),
+		StaticRoot:           absDir(sourceStr("GATEBOX_STATIC_ROOT", "static_root", filepath.Join(dataDir, "www"), vals)),
 		DockerSocket:         sourceStr("GATEBOX_DOCKER_SOCKET", "docker_socket", "/var/run/docker.sock", vals),
 		DaemonJSONPath:       sourceStr("GATEBOX_DOCKER_DAEMON_JSON", "docker_daemon_json", "/etc/docker/daemon.json", vals),
 		AcmeBin:              sourceStr("GATEBOX_ACME_BIN", "acme_bin", "", vals),
@@ -79,6 +84,7 @@ func Load() Config {
 var knownKeys = map[string]bool{
 	"data_dir": true, "addr": true, "caddy_admin": true, "caddy_bin": true,
 	"caddy_http_port": true, "caddy_https_port": true, "caddy_https_extra_ports": true,
+	"static_root":   true,
 	"docker_socket": true, "docker_daemon_json": true, "acme_bin": true,
 }
 
@@ -137,6 +143,7 @@ func writeDefaultConf(path, dataDir string) error {
 		"caddy_http_port = 0\n" +
 		"caddy_https_port = 0\n" +
 		"caddy_https_extra_ports =\n" +
+		"static_root = " + filepath.Join(dataDir, "www") + "\n" +
 		"docker_socket = /var/run/docker.sock\n" +
 		"docker_daemon_json = /etc/docker/daemon.json\n" +
 		"acme_bin =\n"
@@ -197,4 +204,15 @@ func getenv(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// absDir 把路径解析为绝对路径;失败时原样返回。
+func absDir(p string) string {
+	if p == "" {
+		return p
+	}
+	if abs, err := filepath.Abs(p); err == nil {
+		return abs
+	}
+	return p
 }

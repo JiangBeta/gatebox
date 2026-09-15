@@ -47,7 +47,8 @@
 服务：
 
 - GateBox 本体服务（读 `conf/gatebox.conf`）；caddy / ddns-go / mosdns / flare 各自独立服务单元；`acme.sh --cron` 定时器。
-- 服务用户：专用低权用户 `gatebox`（非 root）——`docker.sock` 组授权 + caddy 加载目录写权限为最小集。
+- 服务用户：专用低权用户 `gatebox`（非 root，`systemd User=gatebox`）——`docker.sock` 组授权 + caddy 加载目录写权限为最小集。
+- Docker 权限分两层（**ADR-034**）：API 访问 = 加入 `docker.sock` 属组；守护进程 reload/restart = systemd 下由 **polkit 规则**授权 `docker.service`（OpenRC/procd 回退 sudoers 白名单）。
 
 ## 4. `scripts/build.sh`
 
@@ -65,7 +66,7 @@
 
 1. **检测**：发行版（debian/ubuntu/armbian → apt；archlinux → pacman；openwrt → opkg）、架构、`docker` 存在性。
 2. **装配**：解压到 `$DATA_DIR`（默认 `/var/lib/gatebox`，可 `--data-dir` 覆盖）；生成 `conf/gatebox.conf`（写入 data_dir、端口、各组件路径，默认 `0.0.0.0:8099`）。
-3. **建用户** `gatebox` + 目录授权（`/var/run/docker.sock` 组）。
+3. **建用户 / 授权**（ADR-034）：创建系统用户 `gatebox`（nologin，home=`$DATA_DIR`）并 chown；探测 `stat -c %G /var/run/docker.sock` 得到 socket 属组，写入 unit `SupplementaryGroups=<组>`；systemd 写 `/etc/polkit-1/rules.d/49-gatebox-docker.rules`（仅授权 `gatebox` 管理 `docker.service`），OpenRC/procd 回退写 `/etc/sudoers.d/gatebox` 白名单（无 sudo 则提示需 root）。
 4. **初始化**：acme.sh 账户注册指引（首次签发前）；flare 配置目录；Caddyfile 空模板 + `tools/caddy/user/` 预置。
 5. **装服务**：按发行版选择 unit（`configs/services/systemd/gatebox.service` 等 + caddy/ddns-go/mosdns/flare/acme-cron 对应单元）。
 6. **启动**：启动各服务并 `systemctl/enable`（openwrt 用 procd `/etc/init.d` 模板）。
@@ -75,11 +76,20 @@
 
 | 平台 | 文件 |
 |---|---|
-| systemd | `systemd/gatebox.service`、`systemd/caddy.service`、`systemd/ddns-go.service`、`systemd/mosdns.service`、`systemd/flare.service`、`systemd/acme-cron.timer` |
-| openrc | `openrc/gatebox`、`openrc/caddy` … |
-| procd（OpenWrt） | `procd/gatebox` …（`/etc/init.d` 脚本 + `uci` 后端，门槛高，见 §8 风险） |
+| systemd | `configs/services/gatebox.service`、`configs/services/caddy.service`（已落；ddns-go/mosdns/flare/acme-cron 待补） |
+| openrc | `configs/services/gatebox.openrc`（其余待补） |
+| procd（OpenWrt） | `configs/services/gatebox.procd`（其余待补；门槛高，见 §8 风险） |
 
 要点：GateBox 服务含 `EnvironmentFile=$DATA_DIR/conf/gatebox.conf` 式导入；各组件服务 `User=gatebox` 最小权限；acme-cron `--cron --home <acme home>` 每日续期检查。
+
+**caddy 低端口（80/443）与 Caddy-L4 插件**：`caddy.service` 以 `User=gatebox` + `AmbientCapabilities=CAP_NET_BIND_SERVICE` 运行——**能力由 systemd 启动时授予，不写在二进制上**。因此「插件替换 caddy 制品」（如安装 Caddy-L4）后**无需再 `setcap`**，只需重启 `caddy.service`。`install.sh` 会创建 `gatebox` 用户、安装并使能 `caddy.service`，并写入 polkit 规则允许 `gatebox` 重启该单元（供 GateBox 组件页使用）。
+> 反例：若把 caddy 跑成**用户级服务**且靠文件能力（`setcap cap_net_bind_service=+ep`），则每次替换二进制都会丢失能力、需重跑 `setcap`。
+
+Docker 权限（ADR-034）：
+- `gatebox.service`：`User=gatebox` + `SupplementaryGroups=<docker.sock 属组>`（安装时探测写入）。
+- systemd 主机安装 polkit 规则 `/etc/polkit-1/rules.d/49-gatebox-docker.rules`，仅授权 `gatebox` 对 `docker.service` 的 `org.freedesktop.systemd1.manage-units`。
+- 重启语义：默认**软重启**（`systemctl reload docker.service`，`ExecReload=kill -HUP`，不中断容器）；「强制重启」走 `restart`（中断全部容器，UI 二次确认）。
+- 非 systemd：`/etc/sudoers.d/gatebox` 白名单 + `sudo -n`；无 sudo 则需以 root 运行。
 
 ## 7. 验证方案
 
@@ -93,6 +103,9 @@
 ## 8. 风险与决策点
 
 - **OpenWrt（procd）**：无 systemd，二进制体积与内存约束大；本期可列为**尽力支持**（优先 debian/ubuntu/arch/armbian），openwrt 提供 `install.sh` 分支与 procd 模板，后续真机验证。
+- **Docker 权限（ADR-034）**：可写 `docker.sock` 等价宿主机 root，属 GateBox 定位的固有权限，安装时须明示；守护进程重启授权严格限定 `docker.service`。
+- **polkit 兼容（ADR-034）**：仅支持 JS `rules.d`（polkit ≥ 0.106）；老系统 `.pkla` 不兼容，列为尽力支持。
+- **NixOS（ADR-034）**：`/etc` 由 Nix 管理，install.sh 写入的 unit / polkit 规则会被 `nixos-rebuild` 覆盖；NixOS 应以 NixOS module 交付，不在本期 `install.sh` 覆盖范围。
 - **跨架构二进制下载源**：caddy/ddns-go/mosdns/flare 的发行源需在 build.sh 固化版本+校验和，防供应链漂移。
 - **D1 决策点（单位⑤）**：mosdns/tailscale 的服务单元是否纳入 install，取决于接入深度决定。
 

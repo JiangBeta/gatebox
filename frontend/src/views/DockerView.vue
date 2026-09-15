@@ -7,7 +7,6 @@ import ComposeTab from './docker/ComposeTab.vue'
 import ImageTab from './docker/ImageTab.vue'
 import NetworkTab from './docker/NetworkTab.vue'
 import VolumeTab from './docker/VolumeTab.vue'
-import VariableTab from './docker/VariableTab.vue'
 
 const route = useRoute()
 const active = computed(() => (route.query.tab as string) || 'containers')
@@ -19,6 +18,5 @@ const active = computed(() => (route.query.tab as string) || 'containers')
   <ImageTab v-else-if="active === 'images'" />
   <NetworkTab v-else-if="active === 'networks'" />
   <VolumeTab v-else-if="active === 'volumes'" />
-  <VariableTab v-else-if="active === 'variables'" />
   <Empty v-else description="该功能开发中" :style="{ marginTop: '80px' }" />
 </template>

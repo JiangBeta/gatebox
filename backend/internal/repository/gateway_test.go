@@ -2,6 +2,7 @@ package repository
 
 import (
 	"bytes"
+	"encoding/json"
 	"testing"
 
 	"github.com/JiangBeta/gatebox/internal/model"
@@ -134,30 +135,116 @@ func TestVariableRoundTrip(t *testing.T) {
 	}
 }
 
-// TestContainerVariables_Independent 容器变量与网关变量独立存储。
-func TestContainerVariables_Independent(t *testing.T) {
-	dir := t.TempDir()
-	s, err := Open(dir)
+// TestMigrateVariables 变量统一迁移(ADR-035 §8):导入无冲突项、跳过同名异值与非法键并报告。
+func TestMigrateVariables(t *testing.T) {
+	s, err := Open(t.TempDir())
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
 	defer s.Close()
 
-	if err := s.SaveContainerVariable(&model.Variable{Key: "MY_VAR", Value: "x"}); err != nil {
-		t.Fatalf("save container var: %v", err)
+	// 构造历史遗留:往旧桶写记录,网关侧预置同名异值,并清除首次迁移标记以重跑。
+	err = s.db.Update(func(tx *bolt.Tx) error {
+		src, err := tx.CreateBucketIfNotExists(bucketContainerVariables)
+		if err != nil {
+			return err
+		}
+		put := func(v model.Variable) error {
+			plain, _ := json.Marshal(v)
+			return src.Put([]byte(v.Key), plain)
+		}
+		for _, v := range []model.Variable{
+			{Key: "NEW_VAR", Value: "from-container"},
+			{Key: "SHARED", Value: "container"},
+			{Key: "BAD-KEY", Value: "x"},
+		} {
+			if err := put(v); err != nil {
+				return err
+			}
+		}
+		dst := tx.Bucket(bucketVariables)
+		plain, _ := json.Marshal(model.Variable{Key: "SHARED", Value: "gateway"})
+		if err := dst.Put([]byte("SHARED"), plain); err != nil {
+			return err
+		}
+		meta := tx.Bucket(bucketMeta)
+		if err := meta.Delete([]byte(metaKeyVariablesMigrated)); err != nil {
+			return err
+		}
+		return meta.Delete([]byte(metaKeyVariablesReport))
+	})
+	if err != nil {
+		t.Fatalf("prepare legacy: %v", err)
 	}
-	// 网关 bucket 不受影响:同一 key 不存在于网关。
-	if _, err := s.GetVariable("MY_VAR"); err != ErrNotFound {
-		t.Errorf("网关变量不应包含容器变量, got err=%v", err)
+
+	if err := s.MigrateVariables(); err != nil {
+		t.Fatalf("migrate: %v", err)
 	}
-	got, err := s.GetContainerVariable("MY_VAR")
-	if err != nil || got.Value != "x" {
-		t.Errorf("容器变量读取失败: %+v err=%v", got, err)
+
+	// NEW_VAR 已导入;SHARED 保留网关原值;BAD-KEY 未导入。
+	got, err := s.GetVariable("NEW_VAR")
+	if err != nil || got.Value != "from-container" {
+		t.Fatalf("NEW_VAR 应导入, got=%+v err=%v", got, err)
 	}
-	if err := s.DeleteContainerVariable("MY_VAR"); err != nil {
-		t.Fatalf("delete: %v", err)
+	shared, _ := s.GetVariable("SHARED")
+	if shared == nil || shared.Value != "gateway" {
+		t.Fatalf("SHARED 应保留网关值, got=%+v", shared)
 	}
-	if _, err := s.GetContainerVariable("MY_VAR"); err != ErrNotFound {
-		t.Errorf("删除后应不存在, err=%v", err)
+	if _, err := s.GetVariable("BAD-KEY"); err != ErrNotFound {
+		t.Errorf("非法键不应导入, err=%v", err)
+	}
+
+	rep, err := s.VariableMigrationReport()
+	if err != nil || rep == nil {
+		t.Fatalf("迁移报告缺失: %+v err=%v", rep, err)
+	}
+	if rep.Migrated != 1 || len(rep.Conflicts) != 2 {
+		t.Fatalf("报告 = migrated:%d conflicts:%d, want 1/2", rep.Migrated, len(rep.Conflicts))
+	}
+	if err := s.ClearVariableMigrationReport(); err != nil {
+		t.Fatalf("clear report: %v", err)
+	}
+	if rep, _ := s.VariableMigrationReport(); rep != nil {
+		t.Errorf("清除后报告应为 nil, got=%+v", rep)
+	}
+}
+
+// TestVariableKeyCharset 键名规则收敛为 compose 可识别的字符集(ADR-035 §3)。
+func TestVariableKeyCharset(t *testing.T) {
+	valid := []string{"BACKEND_IP", "_x", "A1", "a_b_c"}
+	invalid := []string{"", " GB_FOO", "GB_FOO", "1ABC", "A-B", "A B", "中文"}
+	for _, k := range valid {
+		if !model.ValidVariableKey(k) {
+			t.Errorf("%q 应合法", k)
+		}
+	}
+	for _, k := range invalid {
+		if model.ValidVariableKey(k) {
+			t.Errorf("%q 应非法", k)
+		}
+	}
+}
+
+func TestDerivedDisabled(t *testing.T) {
+	s, _ := Open(t.TempDir())
+	defer s.Close()
+
+	got, err := s.ListDerivedDisabled()
+	if err != nil || len(got) != 0 {
+		t.Fatalf("初始应为空: %v err=%v", got, err)
+	}
+	if err := s.SetDerivedDisabled("docker:p~s~h~0", true); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	got, _ = s.ListDerivedDisabled()
+	if !got["docker:p~s~h~0"] {
+		t.Errorf("应含已停止派生: %v", got)
+	}
+	if err := s.SetDerivedDisabled("docker:p~s~h~0", false); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+	got, _ = s.ListDerivedDisabled()
+	if len(got) != 0 {
+		t.Errorf("清除后应为空: %v", got)
 	}
 }

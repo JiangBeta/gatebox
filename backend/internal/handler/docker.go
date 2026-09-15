@@ -33,11 +33,22 @@ type dockerAPI struct {
 	hostMu      sync.Mutex     // hostprobe 缓存保护
 	hostCache   hostprobe.Host // 最近一次宿主机资源快照
 	hostCacheAt time.Time      // 快照时间
+
+	// inspect 结果缓存:仅 Created/State 变化(重启/新建)才重新 inspect,
+	// 避免每 3s 轮询对每个容器都打一次 inspect(容器多时明显拖慢列表)。
+	inspMu    sync.Mutex
+	inspCache map[string]inspectCacheEntry
+}
+
+// inspectCacheEntry 某容器的 inspect 缓存及其失效签名(Created|State)。
+type inspectCacheEntry struct {
+	sig string
+	det *client.ContainerDetail
 }
 
 // RegisterDocker 注册 Docker 相关路由。
 func RegisterDocker(mux *http.ServeMux, cli *client.Client, coll *stats.Collector, s *repository.Store, daemonJSON, dataDir string, reload func(context.Context) error) {
-	d := &dockerAPI{cli: cli, coll: coll, s: s, dj: daemonJSON, cmp: compose.New(dataDir), dataDir: dataDir, reload: reload}
+	d := &dockerAPI{cli: cli, coll: coll, s: s, dj: daemonJSON, cmp: compose.New(dataDir), dataDir: dataDir, reload: reload, inspCache: map[string]inspectCacheEntry{}}
 
 	mux.HandleFunc("GET /api/v1/docker/info", d.info)
 	mux.HandleFunc("GET /api/v1/docker/containers", d.listContainers)
@@ -89,11 +100,7 @@ func RegisterDocker(mux *http.ServeMux, cli *client.Client, coll *stats.Collecto
 	mux.HandleFunc("POST /api/v1/docker/compose/{project}/adopt", d.adoptCompose)
 	mux.HandleFunc("DELETE /api/v1/docker/compose/{project}", d.deleteCompose)
 
-	// 容器页变量(与网关变量独立,见 docker_variables.go)
-	mux.HandleFunc("GET /api/v1/docker/variables", d.listContainerVariables)
-	mux.HandleFunc("POST /api/v1/docker/variables", d.createContainerVariable)
-	mux.HandleFunc("PUT /api/v1/docker/variables/{key}", d.updateContainerVariable)
-	mux.HandleFunc("DELETE /api/v1/docker/variables/{key}", d.deleteContainerVariable)
+	// 容器页变量入口已并入「设置 → 变量」(ADR-035);容器侧插值见 docker_variables.go。
 
 	// 跨单位接口:供网关单位消费(docs §5.6 / Task 13)
 	mux.HandleFunc("GET /api/v1/docker/proxyable", d.listProxyable)
@@ -254,15 +261,36 @@ func (d *dockerAPI) inspectAll(ctx context.Context, list []client.Container) map
 	const concurrency = 8
 
 	out := make(map[string]*client.ContainerDetail, len(list))
+	// 命中缓存(签名未变)的直接复用;仅对新建/重启过的容器重新 inspect。
+	type job struct{ id, sig string }
+	jobs := make([]job, 0, len(list))
+	alive := make(map[string]bool, len(list))
+	d.inspMu.Lock()
+	for _, ct := range list {
+		alive[ct.ID] = true
+		sig := strconv.FormatInt(ct.Created, 10) + "|" + ct.State
+		if e, ok := d.inspCache[ct.ID]; ok && e.sig == sig {
+			out[ct.ID] = e.det
+			continue
+		}
+		jobs = append(jobs, job{ct.ID, sig})
+	}
+	for id := range d.inspCache {
+		if !alive[id] {
+			delete(d.inspCache, id)
+		}
+	}
+	d.inspMu.Unlock()
+
 	var (
 		mu sync.Mutex
 		wg sync.WaitGroup
 	)
 	sem := make(chan struct{}, concurrency)
 
-	for _, ct := range list {
+	for _, j := range jobs {
 		wg.Add(1)
-		go func(id string) {
+		go func(id, sig string) {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
@@ -274,7 +302,10 @@ func (d *dockerAPI) inspectAll(ctx context.Context, list []client.Container) map
 			mu.Lock()
 			out[id] = det
 			mu.Unlock()
-		}(ct.ID)
+			d.inspMu.Lock()
+			d.inspCache[id] = inspectCacheEntry{sig: sig, det: det}
+			d.inspMu.Unlock()
+		}(j.id, j.sig)
 	}
 	wg.Wait()
 	return out
@@ -352,6 +383,9 @@ func buildView(ct client.Container, det *client.ContainerDetail, sample stats.Sa
 		}
 		if det.State.Health != nil {
 			v.Health = det.State.Health.Status
+		} else {
+			// 容器未定义 HEALTHCHECK 时,以运行态兜底,避免健康列长期「未检测」。
+			v.Health = containerHealthFallback(v.State)
 		}
 		// 容器可覆盖 daemon 的默认日志驱动,判定必须看容器自身的设置
 		v.LogDriver = det.LogDriver()
@@ -369,6 +403,18 @@ func buildView(ct client.Container, det *client.ContainerDetail, sample stats.Sa
 		v.MemoryPercent = sample.MemoryPercent
 	}
 	return v
+}
+
+// containerHealthFallback 容器未定义 HEALTHCHECK 时,以运行态推断健康状态。
+func containerHealthFallback(state string) string {
+	switch state {
+	case "running":
+		return "healthy"
+	case "restarting", "created":
+		return "starting"
+	default: // exited | dead | paused | removing
+		return "unhealthy"
+	}
 }
 
 func (d *dockerAPI) inspectContainer(w http.ResponseWriter, r *http.Request) {

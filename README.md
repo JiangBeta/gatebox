@@ -29,7 +29,7 @@
 ## 文档导航
 
 - [架构设计（v3 总纲）](docs/architecture.md) ← **先读这个**
-- [PRD（产品需求）](docs/PRD.md) · [术语表](docs/glossary.md) · [ADR](docs/adr/)（ADR-001 ~ ADR-032）
+- [PRD（产品需求）](docs/PRD.md) · [术语表](docs/glossary.md) · [ADR](docs/adr/)（ADR-001 ~ ADR-034）
 - 单位设计：`docs/{infra,docker,gateway,domain,network,home,deploy}.md`
 
 ## 当前状态

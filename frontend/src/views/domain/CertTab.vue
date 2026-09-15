@@ -1,16 +1,35 @@
 <script setup lang="ts">
 import { ref, onMounted, h } from 'vue'
-import { Empty, Table, Button, Modal, Popconfirm, Input, Tooltip, Tag, message } from 'ant-design-vue'
+import { Empty, Table, Button, Modal, Popconfirm, Input, Tooltip, Tag, Card, Space, message } from 'ant-design-vue'
 import { EyeOutlined, ReloadOutlined, DeleteOutlined, FileTextOutlined } from '@ant-design/icons-vue'
-import { listCertificates, getCertDetail, renewCert, deleteCert, listCertLogs, getCertLog, type Cert, type CertDetail, type CertLog } from '../../api/certificates'
+import { caddyIcon, dockerIcon } from '../../utils/brandIcons'
+import {
+  getCertDetail, renewCert, deleteCert, listCertLogs, getCertLog, listSubdomains,
+  getACMEEmail, setACMEEmail,
+  type CertDetail, type CertLog, type SubdomainCert, type SubdomainSource,
+} from '../../api/certificates'
+import { listGroups, type GroupView, type ServiceItem } from '../../api/gateway'
+import AppFormModal from '../../components/AppFormModal.vue'
+import ComposeEditorModal from '../../components/ComposeEditorModal.vue'
 
 const [messageApi, contextHolder] = message.useMessage()
 
-const certs = ref<Cert[]>([])
+const subdomains = ref<SubdomainCert[]>([])
 const detail = ref<CertDetail | null>(null)
 const detailShow = ref(false)
 const detailLoading = ref(false)
 const renewing = ref<Record<string, boolean>>({})
+
+// ACME 注册邮箱(全局,内联管理)
+const acmeEmail = ref('')
+const emailSaving = ref(false)
+
+// 来源点击 → 复用网关服务编辑抽屉 / 编排项目编辑抽屉
+const svcEditorShow = ref(false)
+const svcEditTarget = ref<{ service: ServiceItem; group: GroupView } | null>(null)
+const composeEditorShow = ref(false)
+const composeProject = ref<string | null>(null)
+let groupsCache: GroupView[] | null = null
 
 const logs = ref<CertLog[]>([])
 const logsShow = ref(false)
@@ -20,14 +39,29 @@ const logDetail = ref('')
 const logShow = ref(false)
 const logLoading = ref(false)
 
-function formatTime(s: string) {
+function formatTime(s?: string) {
   if (!s) return '-'
   return s.replace('T', ' ').slice(0, 19)
 }
 
+/** 距离到期日剩余天数(向上取整,最小 0);无证书返回 null。 */
+function daysLeft(s?: string): number | null {
+  if (!s) return null
+  const ms = new Date(s).getTime() - Date.now()
+  if (isNaN(ms)) return null
+  return Math.max(0, Math.ceil(ms / 86400000))
+}
+
+function daysColor(d: number | null) {
+  if (d === null) return undefined
+  if (d <= 10) return 'red'
+  if (d <= 30) return 'orange'
+  return 'green'
+}
+
 /** 颁发机构人类可读名称(Let's Encrypt 中间证书 CN 如 YE1/YE2)。
  * 未知时原样显示,title 里放原始值。 */
-function friendlyIssuer(issuer: string) {
+function friendlyIssuer(issuer?: string) {
   const m: Record<string, string> = {
     YE1: "Let's Encrypt E1（ECC 中间证书）",
     YE2: "Let's Encrypt E2（ECC 中间证书）",
@@ -36,7 +70,7 @@ function friendlyIssuer(issuer: string) {
     R12: "Let's Encrypt R12（RSA 中间证书）",
     R13: "Let's Encrypt R13（RSA 中间证书）",
   }
-  return m[issuer] || (issuer ? `颁发机构 ${issuer}` : '-')
+  return (issuer && m[issuer]) || (issuer ? `颁发机构 ${issuer}` : '-')
 }
 
 function actionText(a: string) {
@@ -45,14 +79,91 @@ function actionText(a: string) {
 
 async function load() {
   try {
-    certs.value = await listCertificates()
+    subdomains.value = await listSubdomains()
   } catch (e: any) {
-    messageApi.error('读取证书列表失败 — ' + e.message)
+    messageApi.error('读取二级域名失败 — ' + e.message)
   }
 }
-onMounted(load)
 
-async function view(row: Cert) {
+async function loadEmail() {
+  try {
+    acmeEmail.value = (await getACMEEmail()).email || ''
+  } catch (e: any) {
+    messageApi.error('读取 ACME 邮箱失败 — ' + e.message)
+  }
+}
+
+async function saveEmail() {
+  emailSaving.value = true
+  try {
+    await setACMEEmail(acmeEmail.value.trim())
+    messageApi.success('ACME 注册邮箱已保存')
+  } catch (e: any) {
+    messageApi.error('保存失败 — ' + e.message)
+  } finally {
+    emailSaving.value = false
+  }
+}
+
+onMounted(() => {
+  load()
+  loadEmail()
+})
+
+// --- 来源点击 → 打开编辑抽屉 ---
+
+function sourceTip(s: SubdomainSource) {
+  if (s.type === 'docker') return `Docker 项目：${s.displayName || s.projectName || '-'}（点击编辑）`
+  return `Caddy 服务：${s.appName ? s.appName + ' / ' : ''}${s.serviceName || s.serviceId || '-'}（点击编辑）`
+}
+
+async function openSource(s: SubdomainSource) {
+  if (s.type === 'docker') {
+    if (!s.projectName) {
+      messageApi.warning('缺少项目名，无法打开编辑')
+      return
+    }
+    composeProject.value = s.projectName
+    composeEditorShow.value = true
+    return
+  }
+  if (!s.serviceId) {
+    messageApi.warning('缺少服务 ID，无法打开编辑')
+    return
+  }
+  try {
+    if (!groupsCache) groupsCache = await listGroups()
+    for (const g of groupsCache) {
+      const svc = g.services.find((x) => x.id === s.serviceId)
+      if (svc) {
+        svcEditTarget.value = { service: svc, group: g }
+        svcEditorShow.value = true
+        return
+      }
+    }
+    messageApi.warning('未找到对应服务，可能已被删除')
+  } catch (e: any) {
+    messageApi.error('打开编辑失败 — ' + e.message)
+  }
+}
+
+function onSvcSaved() {
+  groupsCache = null
+  load()
+}
+
+function onSvcEditorShow(v: boolean) {
+  svcEditorShow.value = v
+  if (!v) svcEditTarget.value = null
+}
+
+function onComposeSaved() {
+  load()
+}
+
+// --- 证书操作 ---
+
+async function view(row: SubdomainCert) {
   detailLoading.value = true
   detailShow.value = true
   try {
@@ -65,7 +176,7 @@ async function view(row: Cert) {
   }
 }
 
-async function doRenew(row: Cert) {
+async function doRenew(row: SubdomainCert) {
   renewing.value = { ...renewing.value, [row.fqdn]: true }
   try {
     await renewCert(row.fqdn)
@@ -80,7 +191,7 @@ async function doRenew(row: Cert) {
   }
 }
 
-async function doDelete(row: Cert) {
+async function doDelete(row: SubdomainCert) {
   try {
     await deleteCert(row.fqdn)
     messageApi.success(`${row.fqdn}:证书已删除`)
@@ -90,7 +201,7 @@ async function doDelete(row: Cert) {
   }
 }
 
-async function openLogs(row: Cert) {
+async function openLogs(row: SubdomainCert) {
   logsShow.value = true
   logsLoading.value = true
   logTarget.value = row.fqdn
@@ -122,33 +233,79 @@ async function viewLog(row: CertLog) {
   }
 }
 
+/** 来源列:Caddy/Docker 品牌图标(对齐网关页归属图标),点击打开对应编辑抽屉;文字 hover 呈现。 */
+function sourceCell(record: SubdomainCert) {
+  if (!record.sources?.length) return '-'
+  return h(
+    'div',
+    { style: 'display:flex;gap:10px;flex-wrap:wrap;align-items:center' },
+    record.sources.map((s) =>
+      h(
+        Tooltip,
+        { title: sourceTip(s) },
+        {
+          default: () =>
+            h(
+              'span',
+              {
+                style: 'display:inline-flex;align-items:center;cursor:pointer;line-height:1',
+                onClick: () => openSource(s),
+              },
+              [s.type === 'docker' ? dockerIcon(18) : caddyIcon(18)],
+            ),
+        },
+      ),
+    ),
+  )
+}
+
+/** 操作列:仅有证书时可用。 */
+function actionCell(record: SubdomainCert) {
+  if (!record.hasCert) return '-'
+  return h('div', { style: 'display:flex;gap:6px' }, [
+    h(Tooltip, { title: '查看（公钥/私钥）' }, { default: () => h(Button, { size: 'small', onClick: () => view(record) }, { default: () => h(EyeOutlined) }) }),
+    h(Tooltip, { title: '重新申请' }, { default: () => h(Popconfirm, { title: `重新申请 ${record.fqdn} 的证书？`, onConfirm: () => doRenew(record) }, { default: () => h(Button, { size: 'small', type: 'primary', ghost: true, loading: renewing.value[record.fqdn] }, { default: () => h(ReloadOutlined) }) }) }),
+    h(Tooltip, { title: '证书日志' }, { default: () => h(Button, { size: 'small', onClick: () => openLogs(record) }, { default: () => h(FileTextOutlined) }) }),
+    h(Tooltip, { title: '删除' }, { default: () => h(Popconfirm, { title: `删除 ${record.fqdn} 的证书？`, okText: '删除', okButtonProps: { danger: true }, onConfirm: () => doDelete(record) }, { default: () => h(Button, { size: 'small', danger: true }, { default: () => h(DeleteOutlined) }) }) }),
+  ])
+}
+
 const columns = [
   { title: '二级域名', dataIndex: 'fqdn', key: 'fqdn' },
+  {
+    title: '来源',
+    key: 'sources',
+    width: 170,
+    customRender: ({ record }: { record: SubdomainCert }) => sourceCell(record),
+  },
   {
     title: '颁发机构',
     dataIndex: 'issuer',
     key: 'issuer',
-    customRender: ({ record }: { record: any }) =>
-      h(Tooltip, { title: `原始值：${record.issuer}` }, { default: () => record.issuer ? friendlyIssuer(record.issuer) : '-' }),
+    customRender: ({ record }: { record: SubdomainCert }) =>
+      h(Tooltip, { title: `原始值：${record.issuer || '-'}` }, { default: () => (record.hasCert ? friendlyIssuer(record.issuer) : '-') }),
   },
   {
     title: '到期时间',
     dataIndex: 'notAfter',
     key: 'notAfter',
-    customRender: ({ record }: { record: any }) => formatTime(record.notAfter),
+    customRender: ({ record }: { record: SubdomainCert }) => formatTime(record.notAfter),
   },
-  { title: '序列号', dataIndex: 'serial', key: 'serial' },
+  {
+    title: '有效时间',
+    key: 'daysLeft',
+    width: 110,
+    customRender: ({ record }: { record: SubdomainCert }) => {
+      const d = daysLeft(record.notAfter)
+      if (d === null) return '-'
+      return h(Tag, { color: daysColor(d), size: 'small' }, { default: () => `剩余 ${d} 天` })
+    },
+  },
   {
     title: '操作',
     key: 'actions',
     width: 220,
-    customRender: ({ record }: { record: any }) =>
-      h('div', { style: 'display:flex;gap:6px' }, [
-        h(Tooltip, { title: '查看（公钥/私钥）' }, { default: () => h(Button, { size: 'small', onClick: () => view(record) }, { default: () => h(EyeOutlined) }) }),
-        h(Tooltip, { title: '重新申请' }, { default: () => h(Popconfirm, { title: `重新申请 ${record.fqdn} 的证书？`, onConfirm: () => doRenew(record) }, { default: () => h(Button, { size: 'small', type: 'primary', ghost: true, loading: renewing.value[record.fqdn] }, { default: () => h(ReloadOutlined) }) }) }),
-        h(Tooltip, { title: '证书日志' }, { default: () => h(Button, { size: 'small', onClick: () => openLogs(record) }, { default: () => h(FileTextOutlined) }) }),
-        h(Tooltip, { title: '删除' }, { default: () => h(Popconfirm, { title: `删除 ${record.fqdn} 的证书？`, okText: '删除', okButtonProps: { danger: true }, onConfirm: () => doDelete(record) }, { default: () => h(Button, { size: 'small', danger: true }, { default: () => h(DeleteOutlined) }) }) }),
-      ]),
+    customRender: ({ record }: { record: SubdomainCert }) => actionCell(record),
   },
 ]
 
@@ -180,10 +337,31 @@ const logColumns = [
 
 <template>
   <contextHolder />
-  <Table :columns="columns" :data-source="certs" :row-key="(r: any) => r.fqdn" />
+
+  <!-- ACME 注册邮箱(全局,内联管理) -->
+  <Card size="small" style="margin-bottom: 12px">
+    <Space wrap>
+      <span>ACME 注册邮箱</span>
+      <Input
+        v-model:value="acmeEmail"
+        placeholder="you@example.com"
+        style="width: 280px"
+        allow-clear
+        @press-enter="saveEmail"
+      />
+      <Button type="primary" :loading="emailSaving" @click="saveEmail">保存</Button>
+      <span style="color: #888; font-size: 12px">
+        用于
+        <a href="https://app.zerossl.com/signup" target="_blank" rel="noopener noreferrer">acme.sh</a>
+        注册账号(全局唯一,所有证书共用);留空则不指定
+      </span>
+    </Space>
+  </Card>
+
+  <Table :columns="columns" :data-source="subdomains" :row-key="(r: any) => r.fqdn" :loading="false" />
   <Empty
-    v-if="certs.length === 0"
-    description="暂无证书"
+    v-if="subdomains.length === 0"
+    description="暂无二级域名"
     style="margin-top: 24px"
   />
 
@@ -202,6 +380,7 @@ const logColumns = [
         <div style="font-size: 12px; color: #888">
           {{ detail.fqdn }} · {{ friendlyIssuer(detail.issuer) }} · 有效期 {{ formatTime(detail.notBefore) }} ~ {{ formatTime(detail.notAfter) }}
         </div>
+        <div style="font-size: 12px; color: #888; word-break: break-all">序列号：{{ detail.serial || '-' }}</div>
       </div>
     </template>
   </Modal>
@@ -215,4 +394,19 @@ const logColumns = [
   <Modal :open="logShow" title="acme.sh 输出（申请原始日志）" :width="860" :confirm-loading="logLoading" :footer="null" @cancel="logShow = false">
     <Input.TextArea :value="logDetail" :rows="22" readonly style="font-family: monospace; font-size: 11px" />
   </Modal>
+
+  <!-- Caddy 来源 → 复用网关服务编辑抽屉 -->
+  <AppFormModal
+    :show="svcEditorShow"
+    :edit-target="svcEditTarget"
+    @update:show="onSvcEditorShow"
+    @saved="onSvcSaved"
+  />
+
+  <!-- Docker 来源 → 复用编排项目编辑抽屉 -->
+  <ComposeEditorModal
+    v-model:show="composeEditorShow"
+    :project="composeProject"
+    @saved="onComposeSaved"
+  />
 </template>

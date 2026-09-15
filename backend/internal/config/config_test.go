@@ -15,6 +15,7 @@ func clearEnv(t *testing.T) {
 		"GATEBOX_ADDR", "GATEBOX_CADDY_ADMIN", "GATEBOX_CADDY_BIN",
 		"GATEBOX_CADDY_HTTP_PORT", "GATEBOX_CADDY_HTTPS_PORT",
 		"GATEBOX_DOCKER_SOCKET", "GATEBOX_DOCKER_DAEMON_JSON", "GATEBOX_ACME_BIN",
+		"GATEBOX_STATIC_ROOT",
 	} {
 		t.Setenv(k, "")
 	}
@@ -94,6 +95,10 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if c.CaddyBin != filepath.Join(dir, "tools", "caddy", "caddy") {
 		t.Errorf("caddy_bin = %q, want %q", c.CaddyBin, filepath.Join(dir, "tools", "caddy", "caddy"))
+	}
+	// 路径统一绝对化,避免依赖进程 cwd。
+	if !filepath.IsAbs(c.DataDir) || !filepath.IsAbs(c.StaticRoot) {
+		t.Errorf("data_dir/static_root 应为绝对路径: %q / %q", c.DataDir, c.StaticRoot)
 	}
 }
 

@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/JiangBeta/gatebox/internal/model"
@@ -29,8 +30,9 @@ func TestDeriveRoutes(t *testing.T) {
 	if len(r.Upstream) != 1 || r.Upstream[0] != "127.0.0.1:8097" {
 		t.Errorf("upstream = %v", r.Upstream)
 	}
-	if r.Name != "Jellyfin/web" {
-		t.Errorf("name = %q, want Jellyfin/web", r.Name)
+	// 展示名不含归属(compose 展示名),归属由前端 <icon>/<归属> 行呈现。
+	if r.Name != "web" {
+		t.Errorf("name = %q, want web", r.Name)
 	}
 	if r.Description != "家庭影音" {
 		t.Errorf("description = %q", r.Description)
@@ -41,8 +43,8 @@ func TestDeriveRoutes(t *testing.T) {
 	if r.HealthURI != "/" {
 		t.Errorf("healthUri = %q, want /", r.HealthURI)
 	}
-	if r.ID != "" {
-		t.Errorf("派生 service 不应有 ID: %q", r.ID)
+	if !strings.HasPrefix(r.ID, "docker:") {
+		t.Errorf("派生 service 应有稳定 ID(docker: 前缀): %q", r.ID)
 	}
 }
 
@@ -360,8 +362,12 @@ func TestDeriveRoutesFragments(t *testing.T) {
 	if !hasID(ids, "frag-block-common") || !hasID(ids, "f1") || !hasID(ids, "f2") {
 		t.Errorf("fragmentIDs = %v, want 默认集+f1+f2", ids)
 	}
-	if !hasID(routes[1].FragmentIDs, model.FragmentSkipVerify) {
-		t.Errorf("https 上游应自动补 frag-skip-verify: %v", routes[1].FragmentIDs)
+	// skip-verify 不落 FragmentIDs:由生成器按 UpstreamProto=https 条件应用(ADR-033)。
+	if routes[1].UpstreamProto != "https" {
+		t.Errorf("https 上游应标记 UpstreamProto=https: %q", routes[1].UpstreamProto)
+	}
+	if hasID(routes[1].FragmentIDs, model.FragmentSkipVerify) {
+		t.Errorf("skip-verify 不应写入 FragmentIDs: %v", routes[1].FragmentIDs)
 	}
 }
 
@@ -415,4 +421,24 @@ func hasID(ids []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func TestDeriveL4Label(t *testing.T) {
+	containers := []ProxyableContainer{
+		{
+			Project: "net", Service: "mqtt", State: "running",
+			Ports:  []ProxyablePort{{Internal: 1883, Host: 18830}},
+			Labels: map[string]string{"caddy": "mqtt://", "caddy.reverse_proxy": "{{upstreams 1883}}"},
+		},
+	}
+	routes := DeriveRoutes(containers, nil, nil, nil)
+	if len(routes) != 1 {
+		t.Fatalf("L4 站点应派生 1 条, got %d", len(routes))
+	}
+	if routes[0].Domains[0].Protocol != "mqtt" {
+		t.Errorf("L4 域名协议 = %q, want mqtt", routes[0].Domains[0].Protocol)
+	}
+	if len(routes[0].Upstream) != 1 || routes[0].Upstream[0] != "127.0.0.1:18830" {
+		t.Errorf("upstream = %v, want 127.0.0.1:18830", routes[0].Upstream)
+	}
 }

@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/JiangBeta/gatebox/internal/adapter/caddy"
+	"github.com/JiangBeta/gatebox/internal/extension"
 	"github.com/JiangBeta/gatebox/internal/gateway"
 	"github.com/JiangBeta/gatebox/internal/repository"
 )
@@ -54,7 +55,9 @@ func newGatewayTestWithBin(t *testing.T, dataDir, caddyBin string) *httptest.Ser
 	mux := http.NewServeMux()
 	// 零值健康采集器:不启动后台轮询,健康状态恒 unknown。acme issuer 为 nil:测试不触发证书签发。
 	// caddyBin 可指定(fake 二进制);空则 validate/version 走 dataDir fallback(缺失 → 降级)。
-	RegisterGateway(mux, s, nil, caddy.NewClient(caddyAdmin.URL), &gateway.HealthCollector{}, dataDir, caddyBin, 0, 0, nil, nil)
+	ext := extension.NewRegistry()
+	ext.Register(extension.CoreProvider())
+	RegisterGateway(mux, s, nil, caddy.NewClient(caddyAdmin.URL), &gateway.HealthCollector{}, dataDir, caddyBin, "", 0, 0, nil, nil, ext)
 
 	ts := httptest.NewServer(mux)
 	t.Cleanup(ts.Close)
@@ -231,7 +234,7 @@ func TestGatewayVariableCRUD(t *testing.T) {
 	ts := newGatewayTest(t)
 
 	// 保留前缀 GB_ 禁建
-	resp := doJSON(t, http.MethodPost, ts.URL+"/api/v1/gateway/variables", map[string]any{
+	resp := doJSON(t, http.MethodPost, ts.URL+"/api/v1/settings/variables", map[string]any{
 		"key": "GB_FOO", "value": "x",
 	}, nil)
 	if resp.StatusCode != http.StatusBadRequest {
@@ -241,7 +244,7 @@ func TestGatewayVariableCRUD(t *testing.T) {
 	var v struct {
 		Key string `json:"key"`
 	}
-	resp = doJSON(t, http.MethodPost, ts.URL+"/api/v1/gateway/variables", map[string]any{
+	resp = doJSON(t, http.MethodPost, ts.URL+"/api/v1/settings/variables", map[string]any{
 		"key": "BACKEND_IP", "value": "192.168.1.10",
 	}, &v)
 	if resp.StatusCode != http.StatusCreated {
@@ -251,12 +254,12 @@ func TestGatewayVariableCRUD(t *testing.T) {
 	var list []struct {
 		Key string `json:"key"`
 	}
-	doJSON(t, http.MethodGet, ts.URL+"/api/v1/gateway/variables", nil, &list)
+	doJSON(t, http.MethodGet, ts.URL+"/api/v1/settings/variables", nil, &list)
 	if len(list) != 1 {
 		t.Fatalf("变量数 = %d, want 1", len(list))
 	}
 
-	resp = doJSON(t, http.MethodDelete, ts.URL+"/api/v1/gateway/variables/BACKEND_IP", nil, nil)
+	resp = doJSON(t, http.MethodDelete, ts.URL+"/api/v1/settings/variables/BACKEND_IP", nil, nil)
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("删除变量状态 = %d, want 204", resp.StatusCode)
 	}
@@ -326,5 +329,59 @@ func TestGatewayCaddyfileBackup(t *testing.T) {
 	}
 	if !strings.Contains(content, "reverse_proxy 127.0.0.1:8096") {
 		t.Errorf("备份应含反代后端, got:\n%s", content)
+	}
+}
+
+// TestSettingsSystemVariables 统一系统变量端点同时下发网关与容器两侧描述符(ADR-035 §1)。
+func TestSettingsSystemVariables(t *testing.T) {
+	ts := newGatewayTest(t)
+
+	var list []struct {
+		Key         string `json:"key"`
+		Placeholder string `json:"placeholder"`
+		Context     string `json:"context"`
+	}
+	resp := doJSON(t, http.MethodGet, ts.URL+"/api/v1/settings/variables/system", nil, &list)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("系统变量状态 = %d, want 200", resp.StatusCode)
+	}
+	byCtx := map[string][]string{}
+	for _, v := range list {
+		byCtx[v.Context] = append(byCtx[v.Context], v.Placeholder)
+	}
+	if len(byCtx["gateway"]) == 0 {
+		t.Errorf("应含网关系统变量, got %+v", list)
+	}
+	if len(byCtx["container"]) == 0 {
+		t.Errorf("应含容器系统变量, got %+v", list)
+	}
+	for _, p := range byCtx["gateway"] {
+		if !strings.HasPrefix(p, "<%") || !strings.HasSuffix(p, "%>") {
+			t.Errorf("网关系统变量引用写法应为 <%%KEY%%>: %q", p)
+		}
+	}
+	for _, p := range byCtx["container"] {
+		if !strings.HasPrefix(p, "${") {
+			t.Errorf("容器系统变量引用写法应为 $${KEY}: %q", p)
+		}
+	}
+}
+
+// TestDomainsProjection:扩展只读投影端点返回 revision + domains 数组(ADR-036 I2)。
+func TestDomainsProjection(t *testing.T) {
+	ts := newGatewayTest(t)
+	var out struct {
+		Revision uint64 `json:"revision"`
+		Domains  []struct {
+			Host     string `json:"host"`
+			Protocol string `json:"protocol"`
+		} `json:"domains"`
+	}
+	resp := doJSON(t, http.MethodGet, ts.URL+"/api/v1/extensions/me/projection/domains", nil, &out)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("投影状态 = %d, want 200", resp.StatusCode)
+	}
+	if out.Domains == nil {
+		t.Error("domains 应为数组(非 null)")
 	}
 }

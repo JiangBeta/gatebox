@@ -7,18 +7,23 @@ import {
 } from '@ant-design/icons-vue'
 import {
   listGroups,
+  listPorts,
   stopService,
   startService,
+  restartService,
   deleteService,
   gatewayVersion,
   type GroupView,
   type ServiceItem,
+  type PortBinding,
 } from '../../api/gateway'
+import { caddyIcon, dockerIcon } from '../../utils/brandIcons'
 import AppFormModal from '../../components/AppFormModal.vue'
 import RouteLogsModal from '../../components/RouteLogsModal.vue'
 
 const [messageApi, contextHolder] = message.useMessage()
 const groups = ref<GroupView[]>([])
+const portBindings = ref<PortBinding[]>([])
 const loading = ref(false)
 const versionInfo = ref('')
 const versionReachable = ref(false)
@@ -51,6 +56,15 @@ const stats = computed(() => {
   return { total: rows.value.length, docker, reverseProxy, fileServer }
 })
 
+/** 协议 → 实际监听端口列表(来自「端口」页,仅启用项;首个为主端口)。 */
+const portsByProtocol = computed(() => {
+  const m: Record<string, number[]> = {}
+  portBindings.value.forEach((b) => {
+    if (b.enabled && b.ports?.length) m[b.protocol] = b.ports
+  })
+  return m
+})
+
 function typeTag(row: ServiceItem) {
   if (row.source === 'docker') {
     return h(Tag, { color: 'processing', size: 'small' }, { default: () => 'Docker 自动' })
@@ -66,66 +80,105 @@ function domainHost(d: { protocol: string; subdomain: string; rootDomain: string
   return `${d.protocol}://${host}`
 }
 
-/** 聚合协议的逗号分隔文本(HTTPS/HTTP/其他)。 */
-function protocols(row: ServiceItem): string {
+/** markdown 代码块(行内 code)样式:发布协议/发布域名/代理详情/端口统一呈现。 */
+const CODE_STYLE =
+  'display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' +
+  'font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;' +
+  'background:#f5f5f5;border:1px solid #eee;border-radius:4px;padding:1px 6px;color:#333;line-height:1.6'
+/** 端口链接:代码块外观 + 主色。 */
+const CODE_LINK_STYLE = CODE_STYLE + ';color:#1677ff;text-decoration:none;cursor:pointer'
+
+/** 聚合协议的逗号分隔文本(HTTPS/HTTP/其他),以代码块呈现。 */
+function protocols(row: ServiceItem) {
   if (!row.domains?.length) return '-'
   const set = new Set<string>()
   row.domains.forEach((d) => set.add(d.protocol === 'https' ? 'HTTPS' : d.protocol === 'http' ? 'HTTP' : '其他'))
-  return [...set].join('/')
+  return h('code', { style: CODE_STYLE }, [...set].join('/'))
 }
 
-/** 域名列:首个域名 + 域名行数量(多于 1 时);hover 显示全部(一行一个)。 */
+/** 域名列:首个域名 + 域名行数量(多于 1 时);hover 显示全部(一行一个),以代码块呈现。 */
 function domainCell(row: ServiceItem) {
   if (!row.domains?.length) return '-'
   const first = domainHost(row.domains[0])
   const label = row.domains.length > 1 ? `${first.split('://')[1]} (${row.domains.length})` : first.split('://')[1]
   if (row.domains.length <= 1) {
-    return h('span', { style: 'font-family: monospace' }, label)
+    return h('code', { style: CODE_STYLE }, label)
   }
   const all = h(
     'div',
-    { style: 'white-space: pre-line; font-family: monospace; line-height: 1.7' },
+    { style: 'white-space: pre-line; font-family: ui-monospace, Menlo, Consolas, monospace; line-height: 1.7' },
     row.domains.map(domainHost).join('\n'),
   )
   // 多域名:虚线下划线 + info 图标,提示可悬停查看全部域名。
   const trigger = h(
-    'span',
-    {
-      style: 'display:inline-flex; align-items:center; gap:4px; cursor:help; font-family:monospace; ' +
-        'border-bottom:1px dashed #1677ff; padding-bottom:1px',
-    },
+    'code',
+    { style: CODE_STYLE + ';cursor:help;border-bottom:1px dashed #1677ff' },
     [
       label,
-      h(InfoCircleOutlined, { style: { color: '#1677ff', fontSize: '12px', cursor: 'help' } }),
+      h(InfoCircleOutlined, { style: { color: '#1677ff', fontSize: '12px', cursor: 'help', marginLeft: '4px' } }),
     ],
   )
   return h(Tooltip, null, { title: () => all, default: () => trigger })
 }
 
-/** 端口列:customPort 用实际端口,否则按协议默认(https=443,http=80)。 */
-function portCell(row: ServiceItem) {
-  if (!row.domains?.length) return '-'
+/**
+ * 端口列表:customPort 用域名自带端口;否则取「端口」页该协议的实际监听端口
+ * (可多端口,如 https:443/9443);端口页无配置时回退协议默认(https=443,http=80)。
+ */
+function portList(row: ServiceItem): number[] {
+  if (!row.domains?.length) return []
   const ports = new Set<number>()
   row.domains.forEach((d) => {
-    if (d.customPort && d.port) ports.add(d.port)
+    if (d.customPort && d.port) {
+      ports.add(d.port)
+      return
+    }
+    const configured = portsByProtocol.value[d.protocol]
+    if (configured?.length) configured.forEach((p) => ports.add(p))
     else ports.add(d.protocol === 'https' ? 443 : d.protocol === 'http' ? 80 : 0)
   })
-  return [...ports].filter((p) => p > 0).map(String).join('/') || '-'
+  return [...ports].filter((p) => p > 0)
 }
 
-/** 代理详情列。 */
+/**
+ * 端口列:每个端口一个超链接(多域名取第一个域名的 host),点击在新标签打开
+ * <协议>://<host>[:端口]。非 HTTP 协议或无 host 时退化为代码块文本。
+ */
+function portCell(row: ServiceItem) {
+  const ports = portList(row)
+  if (!ports.length) return '-'
+  const d = row.domains![0]
+  const host = d.subdomain ? `${d.subdomain}.${d.rootDomain}` : d.rootDomain
+  const isHTTP = d.protocol === 'http' || d.protocol === 'https'
+  const defPort = d.protocol === 'https' ? 443 : d.protocol === 'http' ? 80 : 0
+  const linkable = isHTTP && !!host
+  return h(
+    'div',
+    { style: 'display:flex;gap:6px;flex-wrap:wrap;align-items:center' },
+    ports.map((p) => {
+      if (!linkable) return h('code', { style: CODE_STYLE }, String(p))
+      const suffix = p === defPort ? '' : `:${p}`
+      return h(
+        'a',
+        { href: `${d.protocol}://${host}${suffix}`, target: '_blank', rel: 'noopener', style: CODE_LINK_STYLE },
+        String(p),
+      )
+    }),
+  )
+}
+
+/** 代理详情列,以代码块呈现。 */
 function proxyDetail(row: ServiceItem) {
   if (row.type === 'reverse_proxy') {
-    const ups = row.upstream?.[0]
     if (!row.upstream?.length) return '-'
     const proto = row.upstreamProto === 'https' ? 'https' : 'http'
-    const first = h('span', { style: 'font-family: monospace' }, `${proto}://${ups}`)
+    const first = h('code', { style: CODE_STYLE }, `${proto}://${row.upstream[0]}`)
     if (row.upstream.length <= 1) return first
     const extra = h('span', { style: 'color:#888; font-size:12px; margin-left:4px' }, `+${row.upstream.length - 1}`)
-    return h('span', {}, [first, extra])
+    return h('span', { style: 'display:inline-flex;align-items:center' }, [first, extra])
   }
   if (row.type === 'file_server') {
-    return h('span', { style: 'font-family: monospace' }, row.root || '-')
+    return h('code', { style: CODE_STYLE }, row.root || '-')
   }
   return '-'
 }
@@ -189,8 +242,7 @@ async function toggleEnabled(row: ServiceItem) {
 
 async function doRestart(row: ServiceItem) {
   try {
-    await stopService(row.id)
-    await startService(row.id)
+    await restartService(row.id)
     messageApi.success('已重启')
     await load()
   } catch (e: any) {
@@ -226,9 +278,20 @@ function actionBtn(icon: any, color: string, title: string, onClick?: () => void
 
 function renderRow(row: ServiceItem, group: GroupView) {
   if (!group.editable) {
-    return actionBtn(ThunderboltOutlined, '#722ed1', 'Docker 自动代理，请在「容器」中管理', () =>
-      messageApi.info('Docker 自动代理请在「容器」中通过 caddy label 管理'),
-    )
+    // Docker 自动派生行:自动代理(去容器页) + 停止/启动/重启/日志(全部只作用于 caddy)。
+    const dbtns: any[] = [
+      actionBtn(ThunderboltOutlined, '#722ed1', '自动代理：前往容器页管理', () =>
+        messageApi.info('Docker 自动代理请在「容器」中通过 caddy label 管理'),
+      ),
+      row.enabled
+        ? actionBtn(StopOutlined, '#fa8c16', '停止', () => toggleEnabled(row))
+        : actionBtn(CaretRightOutlined, '#52c41a', '启动', () => toggleEnabled(row)),
+      actionBtn(ReloadOutlined, '#13c2c2', '重启', () => doRestart(row)),
+      actionBtn(FileTextOutlined, '#1677ff', '日志', () => (logsService.value = row)),
+    ]
+    return h('div', {
+      style: 'display:flex; align-items:center; justify-content:flex-end; gap:2px; flex-wrap:nowrap; white-space:nowrap',
+    }, dbtns)
   }
   const btns: any[] = [
     actionBtn(EyeOutlined, '#1677ff', '查看', () => (viewTarget.value = row)),
@@ -259,30 +322,41 @@ function renderRow(row: ServiceItem, group: GroupView) {
   }, btns)
 }
 
-// 单表列:归属列展示应用;操作列按行所在分组的可编辑性渲染。
-function renderAppName(row: ServiceItem) {
-  if (!row.appName) return h('span', { style: 'color:#999' }, '-')
-  if (row.source === 'docker') {
-    return h(Tag, { color: 'processing', size: 'small' }, { default: () => row.appName })
-  }
-  return row.appName
+/** 归属行:<icon>/<归属>。caddy = 手动服务,Caddy 图标;docker = 编排派生,Docker 图标。 */
+function ownerLine(row: ServiceItem) {
+  if (!row.appName) return null
+  return h(
+    'span',
+    {
+      style: 'display:inline-flex;align-items:center;gap:4px;color:#888;font-size:12px;' +
+        'min-width:0;max-width:100%;overflow:hidden',
+    },
+    [
+      row.source === 'docker' ? dockerIcon(12) : caddyIcon(12),
+      h('span', { style: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap' }, row.appName),
+    ],
+  )
 }
 
 const columns = [
   {
-    title: '服务名称', dataIndex: 'name', key: 'name', width: 150, fixed: 'left' as const,
-    customRender: ({ record }: { record: FlatRow }) =>
-      record.description
-        ? h(Tooltip, { title: record.description }, { default: () => h('span', { style: 'font-weight:500' }, record.name) })
-        : h('span', { style: 'font-weight:500' }, record.name),
+    title: '服务名称', dataIndex: 'name', key: 'name', width: 180, fixed: 'left' as const,
+    // 名称 + 归属(icon/名称)双行,样式对齐「容器」页名称列。
+    customRender: ({ record }: { record: FlatRow }) => {
+      const nameNode = h('span', { style: 'font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' }, record.name)
+      const name = record.description
+        ? h(Tooltip, { title: record.description }, { default: () => nameNode })
+        : nameNode
+      const owner = ownerLine(record)
+      return h('div', { style: 'display:flex;flex-direction:column;gap:2px;min-width:0' }, owner ? [name, owner] : [name])
+    },
   },
   { title: '服务状态', key: 'status', width: 80, customRender: ({ record }: { record: FlatRow }) => statusTag(record) },
   { title: '发布协议', key: 'protocols', width: 80, customRender: ({ record }: { record: FlatRow }) => protocols(record) },
   { title: '发布域名', key: 'domains', width: 170, customRender: ({ record }: { record: FlatRow }) => domainCell(record) },
-  { title: '发布端口', key: 'ports', width: 80, customRender: ({ record }: { record: FlatRow }) => portCell(record) },
+  { title: '发布端口', key: 'ports', width: 110, customRender: ({ record }: { record: FlatRow }) => portCell(record) },
   { title: '代理类型', key: 'type', width: 100, customRender: ({ record }: { record: FlatRow }) => typeTag(record) },
   { title: '健康', key: 'health', width: 90, customRender: ({ record }: { record: FlatRow }) => healthCell(record) },
-  { title: '归属', key: 'appName', width: 110, customRender: ({ record }: { record: FlatRow }) => renderAppName(record) },
   { title: '代理详情', key: 'detail', width: 220, customRender: ({ record }: { record: FlatRow }) => proxyDetail(record) },
   { title: '操作', key: 'actions', width: 168, fixed: 'right' as const, customRender: ({ record }: { record: FlatRow }) => renderRow(record, record._group) },
 ]
@@ -290,7 +364,9 @@ const columns = [
 async function load(silent = false) {
   if (!silent) loading.value = true
   try {
-    groups.value = await listGroups()
+    const [g, p] = await Promise.all([listGroups(), listPorts().catch(() => portBindings.value)])
+    groups.value = g
+    portBindings.value = p
   } catch (e: any) {
     // 轮询失败静默(避免后台刷新刷屏);首次/手动刷新才弹错。
     if (!silent) messageApi.error(e.message)
@@ -345,7 +421,7 @@ onUnmounted(() => {
       :pagination="false"
       size="small"
       :table-layout="'fixed'"
-      :scroll="{ x: 1280 }"
+      :scroll="{ x: 1210 }"
     />
     <div v-if="!rows.length" style="color:#999; font-size:13px; padding:12px 14px">暂无服务</div>
   </Spin>

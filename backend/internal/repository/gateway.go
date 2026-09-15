@@ -269,49 +269,26 @@ func (s *Store) GetFragmentToggle(id string) (model.BuiltinFragmentToggle, bool,
 	return t, true, nil
 }
 
-// --- Variable(网关页用户变量) ---
-// 与容器页变量(bucketContainerVariables)各用独立 bucket,互不影响。
+// --- Variable(用户变量,网关+容器统一,ADR-035) ---
 
-// SaveVariable 创建或更新网关用户变量(key 为主键)。
+// SaveVariable 创建或更新用户变量(key 为主键)。
 func (s *Store) SaveVariable(v *model.Variable) error {
 	return s.saveVariableIn(bucketVariables, v)
 }
 
-// ListVariables 列出所有网关用户变量(按 key 排序)。
+// ListVariables 列出所有用户变量(按 key 排序)。
 func (s *Store) ListVariables() ([]model.Variable, error) {
 	return s.listVariablesIn(bucketVariables)
 }
 
-// GetVariable 获取单个网关用户变量。
+// GetVariable 获取单个用户变量。
 func (s *Store) GetVariable(key string) (*model.Variable, error) {
 	return s.getVariableIn(bucketVariables, key)
 }
 
-// DeleteVariable 删除网关用户变量。
+// DeleteVariable 删除用户变量。
 func (s *Store) DeleteVariable(key string) error {
 	return s.deleteVariableIn(bucketVariables, key)
-}
-
-// --- ContainerVariable(容器页用户变量,独立 bucket) ---
-
-// SaveContainerVariable 创建或更新容器用户变量(key 为主键)。
-func (s *Store) SaveContainerVariable(v *model.Variable) error {
-	return s.saveVariableIn(bucketContainerVariables, v)
-}
-
-// ListContainerVariables 列出所有容器用户变量(按 key 排序)。
-func (s *Store) ListContainerVariables() ([]model.Variable, error) {
-	return s.listVariablesIn(bucketContainerVariables)
-}
-
-// GetContainerVariable 获取单个容器用户变量。
-func (s *Store) GetContainerVariable(key string) (*model.Variable, error) {
-	return s.getVariableIn(bucketContainerVariables, key)
-}
-
-// DeleteContainerVariable 删除容器用户变量。
-func (s *Store) DeleteContainerVariable(key string) error {
-	return s.deleteVariableIn(bucketContainerVariables, key)
 }
 
 // --- PortBinding(网关 → 端口,ADR-026) ---
@@ -490,5 +467,62 @@ func (s *Store) getVariableIn(bkt []byte, key string) (*model.Variable, error) {
 func (s *Store) deleteVariableIn(bkt []byte, key string) error {
 	return s.db.Update(func(tx *bolt.Tx) error {
 		return tx.Bucket(bkt).Delete([]byte(key))
+	})
+}
+
+// --- Docker 派生代理的本地启停覆盖 ---
+
+// SetDerivedDisabled 记录/清除某派生服务的「已停止」覆盖(id 稳定键)。
+// 仅影响 Caddyfile 生成(命中则 Enabled=false),不触碰容器/label。
+func (s *Store) SetDerivedDisabled(id string, disabled bool) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		b, err := tx.CreateBucketIfNotExists(bucketDerivedDisabled)
+		if err != nil {
+			return err
+		}
+		if disabled {
+			return b.Put([]byte(id), []byte{1})
+		}
+		return b.Delete([]byte(id))
+	})
+}
+
+// ListDerivedDisabled 返回已停止的派生服务 id 集合。
+func (s *Store) ListDerivedDisabled() (map[string]bool, error) {
+	out := map[string]bool{}
+	err := s.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(bucketDerivedDisabled)
+		if b == nil {
+			return nil
+		}
+		return b.ForEach(func(k, _ []byte) error {
+			out[string(k)] = true
+			return nil
+		})
+	})
+	return out, err
+}
+
+// --- ACME 账号设置 ---
+
+// acmeEmailKey bucketMeta 中全局 ACME 注册邮箱的键。
+var acmeEmailKey = []byte("acme_email")
+
+// GetACMEEmail 读取全局 ACME 注册邮箱(空=未设置)。
+func (s *Store) GetACMEEmail() (string, error) {
+	var email string
+	err := s.db.View(func(tx *bolt.Tx) error {
+		if v := tx.Bucket(bucketMeta).Get(acmeEmailKey); v != nil {
+			email = string(v)
+		}
+		return nil
+	})
+	return email, err
+}
+
+// SetACMEEmail 写入全局 ACME 注册邮箱(空串=清除)。
+func (s *Store) SetACMEEmail(email string) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket(bucketMeta).Put(acmeEmailKey, []byte(email))
 	})
 }

@@ -1,48 +1,38 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import { Table, Button, Tag, message, Space } from 'ant-design-vue'
-import {
-  disablePlugin,
-  enablePlugin,
-  installPlugin,
-  listPlugins,
-  removePlugin,
-  type PluginView,
-} from '../../api/plugins'
+import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { Table, Button, Tag, message, Space, Tooltip, Radio } from 'ant-design-vue'
+import { DeleteOutlined, DownloadOutlined, EyeOutlined } from '@ant-design/icons-vue'
+import { installStore, listStore, removeStore, type StoreItem } from '../../api/store'
+import { toolRoute } from '../../utils/toolRoutes'
 
+const router = useRouter()
 const [messageApi, contextHolder] = message.useMessage()
-const rows = ref<PluginView[]>([])
+const rows = ref<StoreItem[]>([])
 const loading = ref(false)
 const busy = ref<string>('')
+const filter = ref<'all' | 'installed' | 'available'>('all')
 
 const columns = [
-  { title: '名称', dataIndex: 'name', width: 170 },
-  { title: 'ID', dataIndex: 'id', width: 110 },
-  { title: '形态', key: 'kind', width: 120 },
+  { title: '名称', dataIndex: 'name', width: 180 },
+  { title: 'ID', dataIndex: 'id', width: 120 },
+  { title: '标签', key: 'tags', width: 170 },
   { title: '版本', dataIndex: 'version', width: 90 },
   { title: '说明', dataIndex: 'summary' },
   { title: '状态', key: 'state', width: 100 },
-  { title: '操作', key: 'action', width: 280 },
+  { title: '操作', key: 'action', width: 140 },
 ]
 
-const KIND_LABEL: Record<string, string> = {
-  'caddy-module': 'Caddy 模块',
-  process: '独立进程',
-  'config-only': '配置注入',
-}
-
-const STATE_LABEL: Record<string, string> = {
-  available: '未安装',
-  installed: '已安装',
-  enabled: '已启用',
-  disabled: '已停用',
-  error: '异常',
-}
+const visibleRows = computed(() => {
+  if (filter.value === 'installed') return rows.value.filter((r) => r.installed)
+  if (filter.value === 'available') return rows.value.filter((r) => !r.installed)
+  return rows.value
+})
 
 async function load() {
   loading.value = true
   try {
-    rows.value = await listPlugins()
+    rows.value = await listStore()
   } catch (e) {
     messageApi.error((e as Error).message)
   } finally {
@@ -50,33 +40,22 @@ async function load() {
   }
 }
 
-async function act(row: PluginView, fn: (id: string) => Promise<PluginView>, ok: string) {
+async function act(row: StoreItem, fn: (id: string) => Promise<StoreItem>, ok: string) {
   busy.value = row.id
   try {
-    const v = await fn(row.id)
-    Object.assign(row, v)
+    await fn(row.id)
     messageApi.success(ok)
   } catch (e) {
     messageApi.error((e as Error).message)
-    await load()
   } finally {
     busy.value = ''
+    await load()
+    window.dispatchEvent(new Event('gatebox:components-changed'))
   }
 }
 
-function stateColor(s: string) {
-  switch (s) {
-    case 'enabled':
-      return 'green'
-    case 'installed':
-      return 'blue'
-    case 'disabled':
-      return 'orange'
-    case 'error':
-      return 'red'
-    default:
-      return 'default'
-  }
+function onView(row: StoreItem) {
+  router.push(toolRoute(row.id))
 }
 
 onMounted(load)
@@ -84,53 +63,50 @@ onMounted(load)
 
 <template>
   <contextHolder />
-  <div style="margin-bottom: 16px">
+  <div style="margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center">
+    <Radio.Group v-model:value="filter" button-style="solid">
+      <Radio.Button value="all">全部插件</Radio.Button>
+      <Radio.Button value="installed">已安装</Radio.Button>
+      <Radio.Button value="available">未安装</Radio.Button>
+    </Radio.Group>
     <Button @click="load" :loading="loading">刷新</Button>
   </div>
-  <Table :columns="columns" :data-source="rows" :loading="loading" row-key="id" size="middle" :pagination="false">
+  <Table :columns="columns" :data-source="visibleRows" :loading="loading" row-key="id" size="middle" :pagination="false">
     <template #bodyCell="{ column, record }">
-      <template v-if="column.key === 'kind'">
-        <Tag>{{ KIND_LABEL[record.kind] || record.kind }}</Tag>
+      <template v-if="column.key === 'tags'">
+        <Tag v-for="t in record.tags" :key="t">{{ t }}</Tag>
       </template>
       <template v-else-if="column.key === 'state'">
-        <Tag :color="stateColor(record.state)">{{ STATE_LABEL[record.state] || record.state }}</Tag>
+        <Tag :color="record.installed ? 'green' : 'default'">{{ record.installed ? '已安装' : '未安装' }}</Tag>
       </template>
       <template v-else-if="column.key === 'action'">
-        <Space>
-          <Button
-            v-if="record.state === 'available' || record.state === 'error'"
-            size="small"
-            type="primary"
-            :loading="busy === record.id"
-            @click="act(record, installPlugin, '已安装')"
-          >
-            安装
-          </Button>
-          <Button
-            v-if="record.state === 'installed' || record.state === 'disabled'"
-            size="small"
-            :loading="busy === record.id"
-            @click="act(record, enablePlugin, '已启用')"
-          >
-            启用
-          </Button>
-          <Button
-            v-if="record.state === 'enabled'"
-            size="small"
-            :loading="busy === record.id"
-            @click="act(record, disablePlugin, '已停用')"
-          >
-            停用
-          </Button>
-          <Button
-            v-if="record.state !== 'available'"
-            size="small"
-            danger
-            :loading="busy === record.id"
-            @click="act(record, removePlugin, '已卸载')"
-          >
-            卸载
-          </Button>
+        <Space :size="4">
+          <Tooltip title="查看">
+            <Button type="text" size="small" @click="onView(record)">
+              <template #icon><EyeOutlined /></template>
+            </Button>
+          </Tooltip>
+          <Tooltip v-if="!record.installed" title="安装">
+            <Button
+              type="text"
+              size="small"
+              :loading="busy === record.id"
+              @click="act(record, installStore, '已安装')"
+            >
+              <template #icon><DownloadOutlined /></template>
+            </Button>
+          </Tooltip>
+          <Tooltip v-else title="卸载">
+            <Button
+              type="text"
+              size="small"
+              danger
+              :loading="busy === record.id"
+              @click="act(record, removeStore, '已卸载')"
+            >
+              <template #icon><DeleteOutlined /></template>
+            </Button>
+          </Tooltip>
         </Space>
       </template>
     </template>

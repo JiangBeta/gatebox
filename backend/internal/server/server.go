@@ -13,7 +13,9 @@ import (
 	"github.com/JiangBeta/gatebox/internal/adapter/cert"
 	"github.com/JiangBeta/gatebox/internal/adapter/docker/client"
 	"github.com/JiangBeta/gatebox/internal/adapter/docker/stats"
+	"github.com/JiangBeta/gatebox/internal/adapter/mosdns"
 	"github.com/JiangBeta/gatebox/internal/component"
+	"github.com/JiangBeta/gatebox/internal/extension"
 	"github.com/JiangBeta/gatebox/internal/gateway"
 	"github.com/JiangBeta/gatebox/internal/handler"
 	"github.com/JiangBeta/gatebox/internal/plugin"
@@ -22,16 +24,20 @@ import (
 )
 
 // New 构造完整 HTTP handler。
-func New(s *repository.Store, cm cert.CertManager, dc *client.Client, coll *stats.Collector, caddyCli *caddy.Client, health *gateway.HealthCollector, daemonJSON, dataDir, caddyBin string, httpPort, httpsPort int, extraHTTPSPorts []int, ac *acme.Issuer, reg *component.CoreRegistry, mgr *plugin.Manager) http.Handler {
+func New(s *repository.Store, cm cert.CertManager, dc *client.Client, coll *stats.Collector, caddyCli *caddy.Client, health *gateway.HealthCollector, daemonJSON, dataDir, caddyBin, staticRoot string, httpPort, httpsPort int, extraHTTPSPorts []int, ac *acme.Issuer, reg *component.CoreRegistry, mgr *plugin.Manager, ext *extension.Registry, mos *mosdns.Manager) http.Handler {
 	mux := http.NewServeMux()
-	handler.Register(mux, s, cm, ac)
-	gw := handler.RegisterGateway(mux, s, dc, caddyCli, health, dataDir, caddyBin, httpPort, httpsPort, extraHTTPSPorts, ac)
+	apiH := handler.Register(mux, s, cm, ac)
+	gw := handler.RegisterGateway(mux, s, dc, caddyCli, health, dataDir, caddyBin, staticRoot, httpPort, httpsPort, extraHTTPSPorts, ac, ext)
+	// 域名页二级域名统计需含 docker 派生(编排)服务。
+	apiH.SetExtraServices(gw.DerivedServices)
 	if dc != nil {
 		// docker 单位回调 = 网关派生+重载(ADR-026 §7:编排动作自动同步/手动「同步到网关」)。
 		handler.RegisterDocker(mux, dc, coll, s, daemonJSON, dataDir, gw.SyncDockerLabels)
 	}
-	// 组件运行时 + 插件（v3）。
-	handler.RegisterComponents(mux, reg, mgr)
+	// 组件运行时 + 插件 + 扩展平台（v3）。
+	handler.RegisterComponents(mux, reg, mgr, ext)
+	// 内网 DNS（mosdns）管理页：配置读写 + 内网解析记录 + 日志。
+	handler.RegisterMosdns(mux, mos, reg)
 
 	// 内嵌前端(若已构建);缺失时仅提供 API。
 	if distFS, err := fs.Sub(web.Dist, "dist"); err == nil {

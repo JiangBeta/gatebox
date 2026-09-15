@@ -96,9 +96,16 @@ func (c *CLI) command(ctx context.Context, args ...string) *exec.Cmd {
 	return exec.CommandContext(ctx, "docker", append([]string{"compose"}, args...)...)
 }
 
+// ManagedRoot 返回托管项目根目录 <dataDir>/appData。
+// 这是「托管项目目录」的唯一真源,其余路径(ManagedDir/ManagedFile、容器
+// 系统变量 GB_PROJ_FILE)都必须由它派生,避免多处手写 filepath.Join 漂移。
+func (c *CLI) ManagedRoot() string {
+	return filepath.Join(c.dataDir, "appData")
+}
+
 // ManagedDir 返回托管项目的数据目录 <dataDir>/appData/<project>。
 func (c *CLI) ManagedDir(project string) string {
-	return filepath.Join(c.dataDir, "appData", project)
+	return filepath.Join(c.ManagedRoot(), project)
 }
 
 // ManagedFile 返回托管项目的 compose 文件路径。

@@ -1,7 +1,10 @@
 // Package models 定义领域实体。
 package model
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // DNS 供应商枚举(与 ADR-003/006 一致)
 const (
@@ -92,17 +95,23 @@ func ValidateProjectName(s string) bool {
 	return true
 }
 
-// 代理类型(ADR-018:收敛为 reverse_proxy/file_server,tcp_stream/L4 后置)。
+// 代理类型(ADR-018:收敛为 reverse_proxy/file_server)。
 const (
 	RouteTypeReverseProxy = "reverse_proxy"
 	RouteTypeFileServer   = "file_server"
 )
 
-// 域名行传输协议(ADR-018 修订:支持 https/http,L4 tcp/udp 后置)。
+// 域名行传输协议(ADR-018 修订:https/http;其余协议名由「端口页」登记,
+// 由能力型扩展经扩展注册表代理(ADR-036))。
 const (
 	DomainProtoHTTPS = "https"
 	DomainProtoHTTP  = "http"
 )
+
+// IsHTTPProto 判断域名协议是否走 HTTP(Caddy http app);否则交给扩展 renderer。
+func IsHTTPProto(proto string) bool {
+	return proto == "" || proto == DomainProtoHTTPS || proto == DomainProtoHTTP
+}
 
 // App 应用分租实体(gateway 三层模型的顶层,ADR-018 修订)。
 // 纯分组,不绑定 rootDomain;一个 App 下 0..N 个 Service。
@@ -174,12 +183,12 @@ type Service struct {
 	CreatedAt      time.Time `json:"createdAt"`
 }
 
-// 内置 Caddy 片段 ID(只读清单,不落库为可编辑实例,ADR-018 修订 Q7)。
+// 内置 Caddy 片段 ID(只读清单,不落库为可编辑实例,ADR-018 修订 Q7 / ADR-033)。
+// 7 个:健康检查不再是片段,由 Service.HealthURI 字段承载(ADR-033)。
 const (
 	FragmentGzip        = "frag-gzip"
 	FragmentBasicAuth   = "frag-basic-auth"
 	FragmentSkipVerify  = "frag-skip-verify"
-	FragmentHealthcheck = "frag-healthcheck"
 	FragmentLogConfig   = "frag-log-config"
 	FragmentBlockCommon = "frag-block-common"
 	FragmentStaticCache = "frag-static-cache"
@@ -222,8 +231,9 @@ type Fragment struct {
 	CreatedAt     time.Time `json:"createdAt"`
 }
 
-// Variable 用户自定义 Caddy 片段变量(ADR-018 修订 §5.1)。
-// key 不得以 GB_ 开头(保留前缀);引用写法 <%KEY%>。
+// Variable 用户变量(ADR-035:网关与容器统一存储)。
+// 是「命名值」的抽象:同一份 key→value 供网关 Caddyfile(<%KEY%>)与容器 compose
+// (${KEY})共同引用。key 不得以 GB_ 开头(保留前缀);引用写法随上下文而变。
 type Variable struct {
 	Key         string    `json:"key"` // 主键
 	Value       string    `json:"value"`
@@ -231,19 +241,81 @@ type Variable struct {
 	CreatedAt   time.Time `json:"createdAt"`
 }
 
+// VariableKeyCharset 变量 key 允许的字符集(compose ${KEY} 与 Caddy <%KEY%> 的交集):
+// 首字符字母/下划线,其余字母/数字/下划线。不允许连字符、不允许数字开头。
+const VariableKeyCharset = "[A-Za-z_][A-Za-z0-9_]*"
+
+// ValidVariableKey 校验用户变量 key:非空、匹配 VariableKeyCharset、不得以 GB_ 开头。
+func ValidVariableKey(key string) bool {
+	key = strings.TrimSpace(key)
+	if key == "" || strings.HasPrefix(key, "GB_") {
+		return false
+	}
+	for i, r := range key {
+		switch {
+		case r == '_',
+			r >= 'A' && r <= 'Z',
+			r >= 'a' && r <= 'z',
+			i > 0 && r >= '0' && r <= '9':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// VariableConflict 迁移冲突:同名异值或键名不合法的存量项(ADR-035 §8)。
+type VariableConflict struct {
+	Key            string `json:"key"`
+	Reason         string `json:"reason"` // conflict(同名异值) | invalid-key(键名不合法)
+	GatewayValue   string `json:"gatewayValue,omitempty"`
+	ContainerValue string `json:"containerValue,omitempty"`
+	Description    string `json:"description,omitempty"`
+}
+
+// VariableMigration 变量统一迁移报告(ADR-035 §8):自动迁移的结果快照,
+// 冲突项不自动导入,由用户在设置页处理。
+type VariableMigration struct {
+	At        time.Time          `json:"at"`
+	Migrated  int                `json:"migrated"`
+	Conflicts []VariableConflict `json:"conflicts"`
+}
+
 // PortBinding 对外协议端口记录(网关 → 端口,ADR-026 多端口)。
 // Protocol 是主键(如 "http"/"https"/"mysql")。
 // HTTP/HTTPS 为系统内置项(Builtin=true,不可删除),其 Ports 驱动 caddy 监听
 // (HTTP 取首端口作 http_port;HTTPS 取首端口作 https_port、后续为额外 https 端口)。
-// 其它协议暂为管理态(L4 代理后置),记录并展示。
+// 其它协议为管理态,是否可代理由能力注册表决定(ADR-036)。
 type PortBinding struct {
-	Protocol    string    `json:"protocol"` // 主键,小写字母/数字
-	Description string    `json:"description"`
-	DefaultPort int       `json:"defaultPort"` // 协议约定默认端口(展示/新建提示)
-	Ports       []int     `json:"ports"`       // 实际监听/使用端口(可多个)
-	Enabled     bool      `json:"enabled"`     // 停用=false
-	Builtin     bool      `json:"builtin"`     // 系统默认项(HTTP/HTTPS),不可删除
-	CreatedAt   time.Time `json:"createdAt"`
+	Protocol    string `json:"protocol"` // 主键,小写字母/数字
+	Description string `json:"description"`
+	Ports       []int  `json:"ports"` // 实际监听/使用端口(可多个,首个为主端口)
+	// Network 传输网络(tcp|udp|both)。http/https 恒 tcp;非 HTTP 协议由
+	// 能力型扩展按此网络监听/转发(ADR-036)。
+	Network   string    `json:"network,omitempty"`
+	Enabled   bool      `json:"enabled"` // 停用=false
+	Builtin   bool      `json:"builtin"` // 系统默认项(HTTP/HTTPS),不可删除
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// 传输网络取值。
+const (
+	NetTCP  = "tcp"
+	NetUDP  = "udp"
+	NetBoth = "both"
+)
+
+// Nets 返回该记录对应的传输网络列表(tcp/udp);http/https 或无值恒 tcp。
+// 具体由哪类扩展代理这些协议由能力注册表决定(ADR-036),核心不关心。
+func (p PortBinding) Nets() []string {
+	switch p.Network {
+	case NetUDP:
+		return []string{"udp"}
+	case NetBoth:
+		return []string{"tcp", "udp"}
+	default:
+		return []string{"tcp"}
+	}
 }
 
 // CertLog 证书操作日志(SSL 证书 → 日志)。

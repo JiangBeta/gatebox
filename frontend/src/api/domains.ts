@@ -10,6 +10,7 @@ export interface Domain {
 export interface DomainOverview {
   id: string
   name: string
+  credentialId: string
   certStatus: 'success' | 'expiring' | 'expired' | 'unissued'
   subdomainCount: number
   createdAt: string

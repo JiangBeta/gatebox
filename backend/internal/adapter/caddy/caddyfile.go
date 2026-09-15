@@ -24,6 +24,11 @@ type GenerateOptions struct {
 	// ExtraHTTPPorts 额外的 http 监听端口(与主 http 端口并存):
 	// 为每个 http 站点额外生成 http://host:<port> 重复 site block。
 	ExtraHTTPPorts []int
+	// StaticRoot 全局静态根目录,填充内建变量 <%GB_STATIC_ROOT%>(ADR-033)。
+	StaticRoot string
+	// GlobalSnippets 由扩展注册表 renderer 产出的全局块片段(原样插入全局块)。
+	// 核心不解析其内容——能力型插件(如 Caddy-L4)经此接入(ADR-036)。
+	GlobalSnippets []string
 }
 
 // Generate 根据服务与 Caddy 片段生成完整 Caddyfile(ADR-002)。
@@ -60,12 +65,15 @@ func Generate(services []model.Service, apps []model.App, fragments []model.Frag
 			continue
 		}
 		applied := serviceFragments(svc, fragMap)
-		if err := writeServiceBlocks(&b, svc, appNames, applied, fragMap, varEnv, dataDir, dns, opt.ExtraHTTPSPorts, opt.ExtraHTTPPorts); err != nil {
+		if err := writeServiceBlocks(&b, svc, appNames, applied, fragMap, varEnv, dataDir, opt.StaticRoot, dns, opt.ExtraHTTPSPorts, opt.ExtraHTTPPorts); err != nil {
 			return "", err
 		}
 	}
 	return b.String(), nil
 }
+
+// collectL4Servers 已移除：非 HTTP 协议的代理块由扩展注册表中的 renderer 产出
+// （核心只提供中性规则，不认识 layer4 语法，ADR-036）。
 
 // fragmentBody 片段渲染体(内置或用户,形式一致)。
 type fragmentBody struct {
@@ -73,7 +81,8 @@ type fragmentBody struct {
 }
 
 // serviceFragments 计算某服务实际应用的片段 ID:
-// = FragmentIDs(API 层已 seed 默认启用) ∖ ExcludeFragmentIDs,并剔除不存在的 ID。
+// = FragmentIDs(API 层已 seed 默认启用) ∖ ExcludeFragmentIDs,并剔除不存在的 ID;
+// 另按 UpstreamProto 条件应用「忽略证书校验」(https,ADR-033 §2)。
 func serviceFragments(svc model.Service, fragMap map[string]fragmentBody) []string {
 	set := map[string]bool{}
 	for _, id := range svc.FragmentIDs {
@@ -84,6 +93,14 @@ func serviceFragments(svc model.Service, fragMap map[string]fragmentBody) []stri
 	for _, ex := range svc.ExcludeFragmentIDs {
 		delete(set, ex)
 	}
+	// 忽略证书校验:仅后端协议 = https 时应用,与落库 FragmentIDs 解耦(避免协议变更残留)。
+	if svc.UpstreamProto == "https" {
+		if _, ok := fragMap[model.FragmentSkipVerify]; ok {
+			set[model.FragmentSkipVerify] = true
+		}
+	} else {
+		delete(set, model.FragmentSkipVerify)
+	}
 	var ids []string
 	for id := range set {
 		ids = append(ids, id)
@@ -92,7 +109,7 @@ func serviceFragments(svc model.Service, fragMap map[string]fragmentBody) []stri
 	return ids
 }
 
-// writeGlobalBlock 写全局选项块:http/https 端口覆盖(可选) + access log 写文件、JSON 格式。
+// writeGlobalBlock 写全局选项块:http/https 端口覆盖(可选) + access log + 扩展全局片段(可选)。
 func writeGlobalBlock(b *strings.Builder, dataDir string, opt GenerateOptions) {
 	b.WriteString("{\n")
 	if opt.HTTPPort > 0 {
@@ -101,19 +118,40 @@ func writeGlobalBlock(b *strings.Builder, dataDir string, opt GenerateOptions) {
 	if opt.HTTPSPort > 0 {
 		fmt.Fprintf(b, "\thttps_port %d\n", opt.HTTPSPort)
 	}
-	accessLog := filepath.Join(dataDir, "tools", "caddy", "logs", "access.log")
-	fmt.Fprintf(b, "\tlog {\n\t\toutput file %s {\n\t\t\troll_size 100mb\n\t\t\troll_keep 5\n\t\t}\n\t\tformat json\n\t}\n}\n\n", accessLog)
+	accessLog := filepath.Join(dataDir, "logs", "caddy", "access.log")
+	fmt.Fprintf(b, "\tlog {\n\t\toutput file %s {\n\t\t\troll_size 100mb\n\t\t\troll_keep 5\n\t\t}\n\t\tformat json\n\t}\n", accessLog)
+	for _, snip := range opt.GlobalSnippets {
+		writeIndented(b, snip, "\t")
+	}
+	b.WriteString("}\n\n")
+}
+
+// writeIndented 把多行片段整体缩进后写入(空行不缩进)。
+func writeIndented(b *strings.Builder, snippet, indent string) {
+	snippet = strings.TrimRight(snippet, "\n")
+	for _, ln := range strings.Split(snippet, "\n") {
+		if ln == "" {
+			b.WriteString("\n")
+			continue
+		}
+		b.WriteString(indent)
+		b.WriteString(ln)
+		b.WriteString("\n")
+	}
 }
 
 // writeServiceBlocks 为一个服务(可能多个域名行)生成多个 site block。
 // https 域名行额外为 ExtraHTTPSPorts 各生成一个 host:<port> 重复块;http 域名行
 // 额外为 ExtraHTTPPorts 各生成一个 http://host:<port> 重复块(多端口并存,ADR-026)。
-func writeServiceBlocks(b *strings.Builder, svc model.Service, appNames map[string]string, applied []string, fragMap map[string]fragmentBody, varEnv map[string]string, dataDir string, dns map[string]model.DNSCredential, extraHTTPSPorts, extraHTTPPorts []int) error {
+func writeServiceBlocks(b *strings.Builder, svc model.Service, appNames map[string]string, applied []string, fragMap map[string]fragmentBody, varEnv map[string]string, dataDir, staticRoot string, dns map[string]model.DNSCredential, extraHTTPSPorts, extraHTTPPorts []int) error {
 	if len(svc.Domains) == 0 {
 		return fmt.Errorf("服务 %s 没有域名行", svc.Name)
 	}
 	for _, d := range svc.Domains {
-		if err := writeSiteBlockAt(b, siteAddress(d), svc, appNames, d, applied, fragMap, varEnv, dataDir, dns); err != nil {
+		if !model.IsHTTPProto(d.Protocol) {
+			continue // 非 HTTP 协议由全局扩展片段处理(核心不生成)
+		}
+		if err := writeSiteBlockAt(b, siteAddress(d), svc, appNames, d, applied, fragMap, varEnv, dataDir, staticRoot, dns); err != nil {
 			return err
 		}
 		switch d.Protocol {
@@ -121,14 +159,14 @@ func writeServiceBlocks(b *strings.Builder, svc model.Service, appNames map[stri
 			// 额外 https 端口:host:<port> 重复块。Caddy 会为不同端口各建一个 https server,
 			// 但自动 HTTPS 对同一 host 只签发一次证书(按存储缓存),两个端口都能用。
 			for _, p := range extraHTTPSPorts {
-				if err := writeSiteBlockAt(b, fmt.Sprintf("%s:%d", d.Host(), p), svc, appNames, d, applied, fragMap, varEnv, dataDir, dns); err != nil {
+				if err := writeSiteBlockAt(b, fmt.Sprintf("%s:%d", d.Host(), p), svc, appNames, d, applied, fragMap, varEnv, dataDir, staticRoot, dns); err != nil {
 					return err
 				}
 			}
 		case model.DomainProtoHTTP:
 			// 额外 http 端口:http://host:<port> 重复块。
 			for _, p := range extraHTTPPorts {
-				if err := writeSiteBlockAt(b, fmt.Sprintf("http://%s:%d", d.Host(), p), svc, appNames, d, applied, fragMap, varEnv, dataDir, dns); err != nil {
+				if err := writeSiteBlockAt(b, fmt.Sprintf("http://%s:%d", d.Host(), p), svc, appNames, d, applied, fragMap, varEnv, dataDir, staticRoot, dns); err != nil {
 					return err
 				}
 			}
@@ -157,7 +195,10 @@ func siteAddress(d model.ProxyDomain) string {
 }
 
 // writeSiteBlockAt 写单个域名行、指定 site 地址的 block(主端口与额外 https 端口共用)。
-func writeSiteBlockAt(b *strings.Builder, addr string, svc model.Service, appNames map[string]string, d model.ProxyDomain, applied []string, fragMap map[string]fragmentBody, varEnv map[string]string, dataDir string, dns map[string]model.DNSCredential) error {
+//
+// 片段按作用域分流(ADR-033 §1):顶层片段直接写 site block;`reverse_proxy { ... }`
+// 包裹片段收集内部行,随后合并进受控反代块。
+func writeSiteBlockAt(b *strings.Builder, addr string, svc model.Service, appNames map[string]string, d model.ProxyDomain, applied []string, fragMap map[string]fragmentBody, varEnv map[string]string, dataDir, staticRoot string, dns map[string]model.DNSCredential) error {
 	fmt.Fprintf(b, "%s {\n", addr)
 
 	if d.Protocol == model.DomainProtoHTTPS {
@@ -166,15 +207,17 @@ func writeSiteBlockAt(b *strings.Builder, addr string, svc model.Service, appNam
 		}
 	}
 
+	var rpLines []string
 	for _, id := range applied {
 		body := fragMap[id]
-		lines, err := renderFragmentBody(body.code, svc, appNames, d, varEnv)
+		site, rp, err := parseFragment(body.code, svc, appNames, d, varEnv, staticRoot, dataDir)
 		if err != nil {
 			return fmt.Errorf("片段 %s: %w", id, err)
 		}
-		for _, ln := range lines {
+		for _, ln := range site {
 			fmt.Fprintf(b, "\t%s\n", ln)
 		}
+		rpLines = append(rpLines, rp...)
 	}
 
 	// 透传的 caddy.* 子指令(docker 派生 Escape,ADR-026 §5 中段)。
@@ -188,12 +231,12 @@ func writeSiteBlockAt(b *strings.Builder, addr string, svc model.Service, appNam
 		// 受控反代段(ADR-026 §5 末段):仅当存在 upstream 时生成。
 		// 无 upstream 的派生行 = caddy.reverse_proxy 已透传(ExtraDirectives 承载)。
 		if len(svc.Upstream) > 0 {
-			if err := writeReverseProxy(b, svc); err != nil {
+			if err := writeReverseProxy(b, svc, rpLines); err != nil {
 				return err
 			}
 		}
 	case model.RouteTypeFileServer:
-		if err := writeFileServer(b, svc, appNames, d, varEnv); err != nil {
+		if err := writeFileServer(b, svc, appNames, d, varEnv, staticRoot, dataDir); err != nil {
 			return err
 		}
 	default:
@@ -207,23 +250,29 @@ func writeSiteBlockAt(b *strings.Builder, addr string, svc model.Service, appNam
 	return nil
 }
 
-// writeReverseProxy 写 reverse_proxy 指令(healthUri / 目标 https 走 tls transport)。
+// writeReverseProxy 写 reverse_proxy 指令(片段内部行 / healthUri / 目标 https 走 tls transport)。
 // 多个 upstream(负载均衡,ADR-018「字段数组化向后兼容」)写块形式,
-// caddy 默认按 round-robin 分摊;单 upstream 无附加选项时保持单行(输出稳定)。
-func writeReverseProxy(b *strings.Builder, svc model.Service) error {
+// caddy 默认按 round-robin 分摊;单 upstream 且无附加选项时保持单行(输出稳定)。
+// 片段已提供 transport 时,生成器不再注入默认 tls transport(片段优先,ADR-033 §1)。
+func writeReverseProxy(b *strings.Builder, svc model.Service, rpLines []string) error {
 	if len(svc.Upstream) == 0 {
 		return fmt.Errorf("反向代理 %s 缺少 upstream", svc.Name)
 	}
 	ups := strings.Join(svc.Upstream, " ")
-	var inner []string
-	if svc.HealthURI != "" {
-		inner = append(inner, "\thealth_uri "+svc.HealthURI)
+	inner := make([]string, 0, len(rpLines)+2)
+	inner = append(inner, rpLines...)
+	if svc.HealthURI != "" && !hasReverseProxyDirective(rpLines, "health_uri") {
+		inner = append(inner, "health_uri "+svc.HealthURI)
 	}
-	if svc.UpstreamProto == "https" {
-		inner = append(inner, "\ttransport http {\n\t\ttls\n\t}")
+	if svc.UpstreamProto == "https" && !hasReverseProxyDirective(rpLines, "transport") {
+		inner = append(inner, "transport http {", "\ttls", "}")
 	}
 	if len(inner) > 0 || len(svc.Upstream) > 1 {
-		fmt.Fprintf(b, "\treverse_proxy %s {\n%s\n\t}\n", ups, strings.Join(inner, "\n"))
+		fmt.Fprintf(b, "\treverse_proxy %s {\n", ups)
+		for _, ln := range inner {
+			fmt.Fprintf(b, "\t%s\n", ln)
+		}
+		b.WriteString("\t}\n")
 		return nil
 	}
 	fmt.Fprintf(b, "\treverse_proxy %s\n", ups)
@@ -231,8 +280,8 @@ func writeReverseProxy(b *strings.Builder, svc model.Service) error {
 }
 
 // writeFileServer 写 file_server 指令(root 可含 <%VAR%>,browse 开关)。
-func writeFileServer(b *strings.Builder, svc model.Service, appNames map[string]string, d model.ProxyDomain, varEnv map[string]string) error {
-	root, err := interpolateVars(svc.Root, svc, appNames, d, varEnv)
+func writeFileServer(b *strings.Builder, svc model.Service, appNames map[string]string, d model.ProxyDomain, varEnv map[string]string, staticRoot, dataDir string) error {
+	root, err := interpolateVars(svc.Root, svc, appNames, d, varEnv, staticRoot, dataDir)
 	if err != nil {
 		return err
 	}

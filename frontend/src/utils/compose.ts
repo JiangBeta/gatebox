@@ -12,7 +12,7 @@ import { parse, stringify } from 'yaml'
 export interface CaddyRoute {
   domain?: string
   path?: string
-  proto?: 'https' | 'http' // 访问协议(ADR-026:site 地址编码,默认 https)
+  proto?: string // 访问协议(ADR-026:site 地址编码,默认 https;非 http/https = L4 协议名,如 mqtt)
   port?: number            // 自定义访问端口(显式 :port)
   /** 行级反代目标(ADR-026 修订):caddy[.N].reverse_proxy 的 {{upstreams ...}} 模板串。
    *  仅当前行(站点)生效,不设则继承服务级/自动。 */
@@ -364,11 +364,16 @@ function parseSiteAddr(tok: string): CaddyRoute {
   const route: CaddyRoute = {}
   if (!tok) return route
   let rest = tok
-  let proto: 'https' | 'http' | undefined
-  const m = tok.match(/^https?:\/\//)
+  let proto: string | undefined
+  const m = tok.match(/^([a-z][a-z0-9]{0,31}):\/\//)
   if (m) {
-    proto = (m[0] === 'http://' ? 'http' : 'https') as 'http' | 'https'
+    const scheme = m[1]
     rest = tok.slice(m[0].length)
+    if (scheme !== 'http' && scheme !== 'https') {
+      // L4 协议:`mqtt://`(无 host;监听端口由网关端口页驱动)。
+      return { proto: scheme }
+    }
+    proto = scheme
   }
   if (rest.includes('/')) {
     route.domain = rest.split('/')[0]
@@ -459,6 +464,8 @@ function serializeCaddyLabels(routes: CaddyRoute[] | undefined): Record<string, 
     const proto = r.proto || 'https'
     let addr = host
     if (proto === 'http') addr = 'http://' + host
+    // 非 http/https = L4 协议:编码为 `<proto>://`(无 host)。
+    else if (proto !== 'https') addr = `${proto}://`
     if (r.port) addr += ':' + r.port
     const parts = [addr]
     if (r.path) parts.push(r.path)

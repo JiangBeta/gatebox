@@ -57,14 +57,59 @@ if [ -n "$TOOLS" ] && [ -d "$TOOLS" ]; then
   cp -a "$TOOLS/." "$DATA_DIR/tools/" 2>/dev/null || true
 fi
 
+# ensure_service_user 创建低权服务用户 gatebox(系统服务以 User=gatebox 运行)。
+# 低端口能力由 systemd AmbientCapabilities 授予,不依赖二进制文件能力。
+ensure_service_user() {
+  if id gatebox >/dev/null 2>&1; then
+    return
+  fi
+  if command -v useradd >/dev/null 2>&1; then
+    useradd --system --home-dir "$DATA_DIR" --shell /usr/sbin/nologin gatebox 2>/dev/null \
+      || useradd -r -d "$DATA_DIR" -s /sbin/nologin gatebox 2>/dev/null || true
+  fi
+  if id gatebox >/dev/null 2>&1; then
+    echo "==> 已创建服务用户 gatebox"
+  else
+    echo "!! 未能创建用户 gatebox,请手动创建后重装 caddy 单元" >&2
+  fi
+}
+
+# install_caddy_unit 安装系统级 caddy 服务(AmbientCapabilities 授低端口能力)。
+install_caddy_unit() {
+  local unit=/etc/systemd/system/caddy.service
+  install -m 0644 "$ROOT/configs/services/caddy.service" "$unit"
+  sed -i "s#/opt/gatebox#$DATA_DIR#g" "$unit"
+  if ! id gatebox >/dev/null 2>&1; then
+    # 无 gatebox 用户时退回 root 运行(无需能力)。
+    sed -i "s#^User=gatebox#User=root#; s#^AmbientCapabilities=.*##; s#^CapabilityBoundingSet=.*##" "$unit"
+  fi
+  # polkit:允许 gatebox(若存在)重启 caddy.service(GateBox 组件页用)。
+  if id gatebox >/dev/null 2>&1 && [ -d /etc/polkit-1/rules.d ]; then
+    cat > /etc/polkit-1/rules.d/49-gatebox-caddy.rules <<'RULES'
+polkit.addRule(function(action, subject) {
+  if (action.id == "org.freedesktop.systemd1.manage-units" &&
+      subject.user == "gatebox" &&
+      action.lookup("unit") == "caddy.service") {
+    return polkit.Result.YES;
+  }
+});
+RULES
+    echo "==> 已写入 polkit 规则(允许 gatebox 重启 caddy.service)"
+  fi
+  systemctl enable caddy.service
+}
+
 install_service() {
   if command -v systemctl >/dev/null 2>&1; then
     echo "==> 安装 systemd 服务"
+    ensure_service_user
+    chown -R gatebox:gatebox "$DATA_DIR" 2>/dev/null || true
     install -m 0644 "$ROOT/configs/services/gatebox.service" /etc/systemd/system/gatebox.service
     sed -i "s#GATEBOX_DATA_DIR=/opt/gatebox#GATEBOX_DATA_DIR=$DATA_DIR#" /etc/systemd/system/gatebox.service
+    install_caddy_unit
     systemctl daemon-reload
     systemctl enable gatebox.service
-    echo "  启动：systemctl start gatebox"
+    echo "  启动：systemctl start gatebox caddy"
   elif [ -x /etc/init.d/gatebox ] || command -v rc-update >/dev/null 2>&1; then
     echo "==> 安装 OpenRC 服务"
     install -m 0755 "$ROOT/configs/services/gatebox.openrc" /etc/init.d/gatebox

@@ -12,7 +12,6 @@ const routes = [
         { key: 'routes', label: '代理' },
         { key: 'ports', label: '端口' },
         { key: 'fragments', label: 'Caddy 片段' },
-        { key: 'variables', label: '变量' },
       ],
     },
   },
@@ -27,7 +26,6 @@ const routes = [
         { key: 'images', label: '镜像' },
         { key: 'networks', label: '网络' },
         { key: 'volumes', label: '存储卷' },
-        { key: 'variables', label: '变量' },
       ],
     },
   },
@@ -38,19 +36,53 @@ const routes = [
       title: '域名',
       tabs: [
         { key: 'overview', label: '概览' },
-        { key: 'manage', label: '域名管理' },
-        { key: 'cert', label: 'SSL 证书' },
+        { key: 'cert', label: '域名管理' },
         { key: 'credential', label: 'DNS 凭证' },
       ],
     },
   },
-  { path: '/network', component: () => import('../views/NetworkView.vue'), meta: { title: '网络' } },
+  {
+    path: '/services',
+    component: () => import('../views/ServicesView.vue'),
+    meta: { title: '服务' },
+  },
+  {
+    path: '/services/mosdns',
+    component: () => import('../views/services/MosdnsView.vue'),
+    meta: {
+      title: 'MosDNS',
+      component: 'mosdns',
+      tabs: [
+        { key: 'status', label: '状态' },
+        { key: 'basic', label: '基础设置' },
+        { key: 'hosts', label: '内网解析' },
+        { key: 'config', label: '配置文件' },
+        { key: 'logs', label: '日志' },
+      ],
+    },
+  },
   {
     path: '/extensions',
     component: () => import('../views/ExtensionView.vue'),
-    meta: { title: '扩展' },
+    meta: {
+      title: '扩展',
+      tabs: [
+        { key: 'components', label: '组件' },
+        { key: 'plugins', label: '插件' },
+      ],
+    },
   },
-  { path: '/settings', component: () => import('../views/SettingsView.vue'), meta: { title: '设置' } },
+  {
+    path: '/settings',
+    component: () => import('../views/SettingsView.vue'),
+    meta: {
+      title: '设置',
+      tabs: [
+        { key: 'general', label: '常规' },
+        { key: 'variables', label: '变量' },
+      ],
+    },
+  },
 ]
 
 export default createRouter({

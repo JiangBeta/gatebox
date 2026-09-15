@@ -3,6 +3,7 @@ package gateway
 
 import (
 	"context"
+	"net"
 	"sync"
 	"time"
 
@@ -19,6 +20,9 @@ const (
 // DefaultHealthInterval 健康轮询周期。
 const DefaultHealthInterval = 5 * time.Second
 
+// probeTimeout 单次主动探测超时。
+const probeTimeout = 2 * time.Second
+
 // upstreamFetcher 健康状态来源(caddy.Client 实现),便于测试注入。
 type upstreamFetcher interface {
 	Upstreams(ctx context.Context) ([]caddy.Upstream, error)
@@ -26,9 +30,15 @@ type upstreamFetcher interface {
 
 // HealthCollector 单例健康采集器(ADR-020 §1):定期轮询 caddy Admin API,
 // 聚合 upstream 健康快照供前端轮询,避免列表逐行实时查 caddy 打爆 Admin API。
+//
+// 注意:caddy 的 GET /reverse_proxy/upstreams 自 2.5 起只返回
+// address/num_requests/fails,不再暴露主动健康状态(动态 upstream 回归),
+// 因此无 health_status 时由本采集器主动 TCP 探测地址可达性作为兜底。
 type HealthCollector struct {
 	fetch    upstreamFetcher
 	interval time.Duration
+	// probe 主动探测后端地址是否可达;默认 probeTCP。可为测试注入。
+	probe func(ctx context.Context, address string) bool
 
 	mu        sync.Mutex
 	status    map[string]string // address → healthy|unhealthy
@@ -37,7 +47,7 @@ type HealthCollector struct {
 
 // NewHealthCollector 构造采集器并启动后台轮询。
 func NewHealthCollector(fetch upstreamFetcher, interval time.Duration) *HealthCollector {
-	c := &HealthCollector{fetch: fetch, interval: interval, status: map[string]string{}}
+	c := &HealthCollector{fetch: fetch, interval: interval, probe: probeTCP, status: map[string]string{}}
 	go c.loop()
 	return c
 }
@@ -56,25 +66,60 @@ func (c *HealthCollector) Poll() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	ups, err := c.fetch.Upstreams(ctx)
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	if err != nil {
 		// caddy 不可达:清空快照、标记不可达,前端健康列统一「未知」(ADR-020 §1 降级)。
+		c.mu.Lock()
 		c.reachable = false
 		c.status = map[string]string{}
+		c.mu.Unlock()
 		return
 	}
-	c.reachable = true
-	next := make(map[string]string, len(ups))
-	for _, u := range ups {
-		st := u.HealthStatus
-		if st == "" {
-			st = HealthUnknown
+	// 并发探测未带 health_status 的地址(不持锁,避免阻塞前端读取快照)。
+	stati := make([]string, len(ups))
+	var wg sync.WaitGroup
+	for i, u := range ups {
+		if u.HealthStatus != "" {
+			stati[i] = u.HealthStatus
+			continue
 		}
-		next[u.Address] = st
+		wg.Add(1)
+		go func(idx int, address string) {
+			defer wg.Done()
+			stati[idx] = c.probeStatus(ctx, address)
+		}(i, u.Address)
 	}
+	wg.Wait()
+
+	next := make(map[string]string, len(ups))
+	for i, u := range ups {
+		next[u.Address] = stati[i]
+	}
+	c.mu.Lock()
+	c.reachable = true
 	c.status = next
+	c.mu.Unlock()
+}
+
+// probeStatus 对无 health_status 的后端做主动探测;probe 未配置时返回未知。
+func (c *HealthCollector) probeStatus(ctx context.Context, address string) string {
+	if c.probe == nil {
+		return HealthUnknown
+	}
+	if c.probe(ctx, address) {
+		return HealthHealthy
+	}
+	return HealthUnhealthy
+}
+
+// probeTCP 以 TCP 连接探测地址是否可达(协议无关,兼容 http/https/tcp 后端)。
+func probeTCP(ctx context.Context, address string) bool {
+	d := net.Dialer{Timeout: probeTimeout}
+	conn, err := d.DialContext(ctx, "tcp", address)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
 }
 
 // Snapshot 返回 address → 健康状态的快照。

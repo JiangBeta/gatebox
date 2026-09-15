@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, h } from 'vue'
+import { ref, computed, h, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   ConfigProvider, Layout, Menu, Tooltip,
@@ -11,27 +11,62 @@ import {
   ClusterOutlined, AppstoreOutlined,
 } from '@ant-design/icons-vue'
 import theme from './theme'
+import { listComponents } from './api/components'
+import { toolRoute } from './utils/toolRoutes'
+import TaskCenter from './components/TaskCenter.vue'
 
 interface TabMeta {
   key: string
   label: string
 }
 
+interface MenuNode {
+  key: string
+  label: string
+  icon?: () => unknown
+  children?: MenuNode[]
+}
+
 const route = useRoute()
 const router = useRouter()
 
 const collapsed = ref(false)
+const openKeys = ref<string[]>(['/services'])
 
-const menuItems = [
-  { key: '/dashboard', label: '仪表盘', icon: () => h(DashboardOutlined) },
-  // 网关:无 caddy 官方图标,用向上的代理箭头(ApiOutlined)近似
-  { key: '/gateway', label: '网关', icon: () => h(ApiOutlined) },
-  { key: '/docker', label: '容器', icon: () => h(ContainerOutlined) },
-  { key: '/domain', label: '域名', icon: () => h(GlobalOutlined) },
-  { key: '/network', label: '网络', icon: () => h(ClusterOutlined) },
-  { key: '/extensions', label: '扩展', icon: () => h(AppstoreOutlined) },
-  { key: '/settings', label: '设置', icon: () => h(SettingOutlined) },
-]
+// 「服务」子菜单 = 已安装的独立进程类组件（ddns-go / mosdns / tailscale / flame）。
+const serviceItems = ref<MenuNode[]>([])
+
+const menuItems = computed<MenuNode[]>(() => {
+  const items: MenuNode[] = [
+    { key: '/dashboard', label: '仪表盘', icon: () => h(DashboardOutlined) },
+    { key: '/gateway', label: '网关', icon: () => h(ApiOutlined) },
+    { key: '/docker', label: '容器', icon: () => h(ContainerOutlined) },
+    { key: '/domain', label: '域名', icon: () => h(GlobalOutlined) },
+  ]
+  items.push({
+    key: '/services',
+    label: '服务',
+    icon: () => h(ClusterOutlined),
+    ...(serviceItems.value.length ? { children: serviceItems.value } : {}),
+  })
+  items.push(
+    { key: '/extensions', label: '扩展', icon: () => h(AppstoreOutlined) },
+    { key: '/settings', label: '设置', icon: () => h(SettingOutlined) },
+  )
+  return items
+})
+
+async function loadServices() {
+  try {
+    const all = await listComponents()
+    // 列出全部独立进程类组件（含未安装），保证 mosdns / ddns-go 等管理页入口稳定可达。
+    serviceItems.value = all
+      .filter((c) => c.Kind === 'process')
+      .map((c) => ({ key: `comp:${c.ID}`, label: c.Name }))
+  } catch {
+    /* 接口异常时菜单降级，不阻塞导航 */
+  }
+}
 
 // 底部功能区:icon + hover tooltip
 const footerItems = [
@@ -42,17 +77,61 @@ const footerItems = [
 ]
 
 const activeKey = computed(() => route.path)
+// 服务子页（?component=）或带 meta.component 的专用页（如 /services/mosdns）选中对应子菜单项。
+const selectedKeys = computed<string[]>(() => {
+  const comp = (route.query.component as string | undefined) || (route.meta.component as string | undefined)
+  if (comp) return [`comp:${comp}`]
+  return [activeKey.value]
+})
 const title = computed(() => (route.meta.title as string) || 'GateBox')
 const tabs = computed<TabMeta[]>(() => (route.meta.tabs as TabMeta[]) || [])
 const activeTab = computed(() => (route.query.tab as string) || tabs.value[0]?.key || '')
 
 function onMenu(info: { key: string }) {
-  router.push(info.key)
+  const key = String(info.key)
+  // 服务子菜单：comp:<id> → 该组件的工具页（服务页附带 component 参数用于聚焦）。
+  if (key.startsWith('comp:')) {
+    const id = key.slice(5)
+    const path = toolRoute(id)
+    if (path === '/services') router.push({ path, query: { component: id } })
+    else router.push(path)
+    return
+  }
+  router.push(key)
+}
+
+function onOpenChange(keys: string[]) {
+  openKeys.value = keys
+}
+
+// 折叠/展开：折叠时清空已展开子菜单，展开时恢复上次展开项（Ant Design 官方推荐做法）。
+let preOpenKeys: string[] = ['/services']
+watch(openKeys, (_val, oldVal) => { preOpenKeys = oldVal || [] })
+function toggleCollapse() {
+  collapsed.value = !collapsed.value
+  openKeys.value = collapsed.value ? [] : preOpenKeys
+}
+
+// 子菜单弹层固定挂到 body:避免被 Sider 的 overflow:hidden 裁剪（折叠态弹层超出侧栏宽度）。
+function getPopupContainer() {
+  return document.body
+}
+
+function onComponentsChanged() {
+  void loadServices()
 }
 
 function onTab(key: string) {
   router.replace({ query: { ...route.query, tab: key } })
 }
+
+onMounted(() => {
+  void loadServices()
+  window.addEventListener('gatebox:components-changed', onComponentsChanged)
+})
+onUnmounted(() => {
+  window.removeEventListener('gatebox:components-changed', onComponentsChanged)
+})
 </script>
 
 <template>
@@ -94,10 +173,12 @@ function onTab(key: string) {
 
         <Menu
           mode="inline"
-          :inline-collapsed="collapsed"
-          :selected-keys="[activeKey]"
+          :selected-keys="selectedKeys"
+          :open-keys="openKeys"
           :items="menuItems"
+          :get-popup-container="getPopupContainer"
           @click="onMenu"
+          @open-change="onOpenChange"
           :style="{ flex: 1, overflow: 'auto', borderRight: 0 }"
         />
 
@@ -180,7 +261,7 @@ function onTab(key: string) {
               <Tooltip :title="collapsed ? '展开菜单' : '收起菜单'" placement="bottom">
                 <span
                   class="collapse-btn"
-                  @click="collapsed = !collapsed"
+                  @click="toggleCollapse"
                 >
                   <MenuUnfoldOutlined v-if="collapsed" />
                   <MenuFoldOutlined v-else />
@@ -188,16 +269,19 @@ function onTab(key: string) {
               </Tooltip>
               <span class="page-title">{{ title }}</span>
             </div>
-            <div v-if="tabs.length" class="header-tabs">
-              <span
-                v-for="t in tabs"
-                :key="t.key"
-                class="header-tab"
-                :class="{ active: activeTab === t.key }"
-                @click="onTab(t.key)"
-              >
-                {{ t.label }}
-              </span>
+            <div class="header-right">
+              <div v-if="tabs.length" class="header-tabs">
+                <span
+                  v-for="t in tabs"
+                  :key="t.key"
+                  class="header-tab"
+                  :class="{ active: activeTab === t.key }"
+                  @click="onTab(t.key)"
+                >
+                  {{ t.label }}
+                </span>
+              </div>
+              <TaskCenter class="header-task" />
             </div>
           </div>
         </Layout.Header>
@@ -216,9 +300,22 @@ function onTab(key: string) {
   flex-direction: column;
   height: 100%;
 }
-/* 一级导航文字:18px */
-:deep(.app-sider .ant-menu-item) {
+/* 一级导航与子菜单标题同字号(18px)，保证「服务」与「网关」一致 */
+:deep(.app-sider .ant-menu-item),
+:deep(.app-sider .ant-menu-submenu-title) {
   font-size: 18px;
+}
+/* 二级子菜单项字号更小 */
+:deep(.app-sider .ant-menu-sub.ant-menu-inline .ant-menu-item) {
+  font-size: 14px;
+  height: 34px;
+  line-height: 34px;
+}
+/* 增强已选中的子菜单项：主色底 + 左侧强调条 + 加粗 */
+:deep(.app-sider .ant-menu-sub .ant-menu-item-selected) {
+  font-weight: 600;
+  background: #e6f4ff;
+  box-shadow: inset 3px 0 0 #1677ff;
 }
 .header-row {
   display: flex;
@@ -230,6 +327,14 @@ function onTab(key: string) {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+.header-right {
+  display: flex;
+  align-items: stretch;
+  gap: 16px;
+}
+.header-task {
+  align-self: center;
 }
 .collapse-btn {
   display: inline-flex;

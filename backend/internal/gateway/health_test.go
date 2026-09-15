@@ -42,6 +42,28 @@ func TestHealthCollector(t *testing.T) {
 	}
 }
 
+// TestHealthCollectorProbeFallback caddy 不返回 health_status 时,
+// 由主动探测兜底:可达=healthy,不可达=unhealthy。
+func TestHealthCollectorProbeFallback(t *testing.T) {
+	m := &mockFetcher{ups: []caddy.Upstream{
+		{Address: "127.0.0.1:8096"},
+		{Address: "127.0.0.1:9000"},
+	}}
+	c := &HealthCollector{
+		fetch:  m,
+		status: map[string]string{},
+		probe:  func(_ context.Context, addr string) bool { return addr == "127.0.0.1:8096" },
+	}
+	c.Poll()
+
+	if got := c.Status("127.0.0.1:8096"); got != HealthHealthy {
+		t.Errorf("可达地址 = %q, want healthy", got)
+	}
+	if got := c.Status("127.0.0.1:9000"); got != HealthUnhealthy {
+		t.Errorf("不可达地址 = %q, want unhealthy", got)
+	}
+}
+
 func TestHealthCollectorUnreachable(t *testing.T) {
 	m := &mockFetcher{err: errors.New("connection refused")}
 	c := &HealthCollector{fetch: m, status: map[string]string{"127.0.0.1:8096": HealthHealthy}}

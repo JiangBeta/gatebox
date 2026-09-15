@@ -15,8 +15,8 @@ import (
 
 	"github.com/JiangBeta/gatebox/internal/adapter/acme"
 	"github.com/JiangBeta/gatebox/internal/adapter/caddy"
-	"github.com/JiangBeta/gatebox/internal/adapter/ddns"
 	dockerclient "github.com/JiangBeta/gatebox/internal/adapter/docker/client"
+	"github.com/JiangBeta/gatebox/internal/extension"
 	"github.com/JiangBeta/gatebox/internal/gateway"
 	"github.com/JiangBeta/gatebox/internal/model"
 	"github.com/JiangBeta/gatebox/internal/repository"
@@ -30,11 +30,12 @@ type gatewayAPI struct {
 	health          *gateway.HealthCollector // 健康快照(ADR-020 §1)
 	dataDir         string                   // 定位日志文件与 user 扩展目录
 	caddyBin        string                   // caddy 二进制路径(前置 validate;空则 fallback dataDir/tools/caddy/caddy)
+	staticRoot      string                   // 全局静态根(<%GB_STATIC_ROOT%>,ADR-033)
 	httpPort        int                      // 生成器全局 http_port 覆盖(0=80,与 traefik 共存用)
 	httpsPort       int                      // 生成器全局 https_port 覆盖(0=443)
 	extraHTTPSPorts []int                    // 额外 https 监听端口(与主端口并存,ADR-026)
 	acme            *acme.Issuer             // acme.sh 证书签发(DNS-01,ADR-013 修订)
-	ddns            *ddns.Manager            // ddns-go 二级域名上报配置联动
+	ext             *extension.Registry      // 扩展注册表:能力/渲染/配置同步(ADR-036)
 
 	versionOnce sync.Once // caddy 版本 CLI 读取只做一次(运行期不变)
 	version     string
@@ -42,11 +43,10 @@ type gatewayAPI struct {
 
 // RegisterGateway 注册网关相关路由。返回 gatewayAPI 实例,供 docker 单位回调
 // (SyncDockerLabels,ADR-026 §7)。
-func RegisterGateway(mux *http.ServeMux, s *repository.Store, cli *dockerclient.Client, caddyCli *caddy.Client, health *gateway.HealthCollector, dataDir, caddyBin string, httpPort, httpsPort int, extraHTTPSPorts []int, ac *acme.Issuer) *gatewayAPI {
+func RegisterGateway(mux *http.ServeMux, s *repository.Store, cli *dockerclient.Client, caddyCli *caddy.Client, health *gateway.HealthCollector, dataDir, caddyBin, staticRoot string, httpPort, httpsPort int, extraHTTPSPorts []int, ac *acme.Issuer, ext *extension.Registry) *gatewayAPI {
 	a := &gatewayAPI{
-		s: s, cli: cli, caddyCli: caddyCli, health: health, dataDir: dataDir, caddyBin: caddyBin,
-		httpPort: httpPort, httpsPort: httpsPort, extraHTTPSPorts: extraHTTPSPorts, acme: ac,
-		ddns: ddns.NewManager(filepath.Join(dataDir, "tools", "ddnsgo", ".ddns_go_config.yaml")),
+		s: s, cli: cli, caddyCli: caddyCli, health: health, dataDir: dataDir, caddyBin: caddyBin, staticRoot: staticRoot,
+		httpPort: httpPort, httpsPort: httpsPort, extraHTTPSPorts: extraHTTPSPorts, acme: ac, ext: ext,
 	}
 
 	mux.HandleFunc("GET /api/v1/gateway/apps", a.listGroups)
@@ -63,6 +63,7 @@ func RegisterGateway(mux *http.ServeMux, s *repository.Store, cli *dockerclient.
 	mux.HandleFunc("DELETE /api/v1/gateway/services/{id}", a.deleteService)
 	mux.HandleFunc("POST /api/v1/gateway/services/{id}/stop", a.stopService)
 	mux.HandleFunc("POST /api/v1/gateway/services/{id}/start", a.startService)
+	mux.HandleFunc("POST /api/v1/gateway/services/{id}/restart", a.restartService)
 	mux.HandleFunc("GET /api/v1/gateway/services/{id}/logs", a.serviceLogs)
 
 	mux.HandleFunc("GET /api/v1/gateway/fragments", a.listFragments)
@@ -70,10 +71,14 @@ func RegisterGateway(mux *http.ServeMux, s *repository.Store, cli *dockerclient.
 	mux.HandleFunc("PUT /api/v1/gateway/fragments/{id}", a.updateFragment)
 	mux.HandleFunc("DELETE /api/v1/gateway/fragments/{id}", a.deleteFragment)
 
-	mux.HandleFunc("GET /api/v1/gateway/variables", a.listVariables)
-	mux.HandleFunc("POST /api/v1/gateway/variables", a.createVariable)
-	mux.HandleFunc("PUT /api/v1/gateway/variables/{key}", a.updateVariable)
-	mux.HandleFunc("DELETE /api/v1/gateway/variables/{key}", a.deleteVariable)
+	// 统一变量(设置 → 变量,ADR-035):网关与容器共用同一份用户变量。
+	mux.HandleFunc("GET /api/v1/settings/variables", a.listVariables)
+	mux.HandleFunc("GET /api/v1/settings/variables/system", a.listSystemVariables)
+	mux.HandleFunc("GET /api/v1/settings/variables/migration", a.getVariableMigration)
+	mux.HandleFunc("DELETE /api/v1/settings/variables/migration", a.clearVariableMigration)
+	mux.HandleFunc("POST /api/v1/settings/variables", a.createVariable)
+	mux.HandleFunc("PUT /api/v1/settings/variables/{key}", a.updateVariable)
+	mux.HandleFunc("DELETE /api/v1/settings/variables/{key}", a.deleteVariable)
 
 	mux.HandleFunc("GET /api/v1/gateway/templates", a.listTemplates)
 	mux.HandleFunc("GET /api/v1/gateway/health", a.gatewayHealth)
@@ -91,6 +96,9 @@ func RegisterGateway(mux *http.ServeMux, s *repository.Store, cli *dockerclient.
 	// 网关端口设置(conf 持久化,ADR-026 多 https 端口)
 	mux.HandleFunc("GET /api/v1/settings/gateway", a.getGatewaySettings)
 	mux.HandleFunc("PUT /api/v1/settings/gateway", a.putGatewaySettings)
+
+	// 扩展投影(只读,ADR-036 I2):供消费型插件(如 ddns-go)自行收敛。
+	mux.HandleFunc("GET /api/v1/extensions/me/projection/domains", a.getDomainsProjection)
 	return a
 }
 
@@ -305,16 +313,24 @@ func (in *serviceInput) validate() (string, bool) {
 	if len(in.Domains) == 0 {
 		return "至少需要一个域名", false
 	}
+	hasNonHTTP := false
 	for _, d := range in.Domains {
-		if strings.TrimSpace(d.RootDomain) == "" {
-			return "域名行缺少 rootDomain", false
-		}
 		if d.Protocol == "" {
 			return "域名行缺少协议", false
+		}
+		if model.IsHTTPProto(d.Protocol) {
+			if strings.TrimSpace(d.RootDomain) == "" {
+				return "域名行缺少 rootDomain", false
+			}
+		} else {
+			hasNonHTTP = true // 非 HTTP 协议:无 rootDomain,端口取自端口页,由能力型扩展代理
 		}
 		if d.CustomPort && (d.Port < 1 || d.Port > 65535) {
 			return "自定义端口需在 1~65535", false
 		}
+	}
+	if hasNonHTTP && in.Type != model.RouteTypeReverseProxy {
+		return "非 HTTP 协议仅支持反向代理", false
 	}
 	return "", true
 }
@@ -342,19 +358,8 @@ func (in *serviceInput) toService(appID string, enabled bool, fragIDs []string, 
 	if in.Type == model.RouteTypeReverseProxy && proto == "" {
 		proto = "http"
 	}
-	// HTTPS 后端自动注入忽略证书校验片段(前端隐藏此片段,由后端保证)
-	if in.Type == model.RouteTypeReverseProxy && proto == "https" {
-		has := false
-		for _, id := range fragIDs {
-			if id == model.FragmentSkipVerify {
-				has = true
-				break
-			}
-		}
-		if !has {
-			fragIDs = append(fragIDs, model.FragmentSkipVerify)
-		}
-	}
+	// 忽略证书校验不再写入 FragmentIDs:生成器按 UpstreamProto=https 条件应用(ADR-033 §2),
+	// 避免「下游协议变更后片段残留」导致 transport 与协议冲突。
 	return model.Service{
 		ID: newID(), AppID: appID, Name: strings.TrimSpace(in.Name), Description: in.Description,
 		Type: in.Type, Domains: domains, Upstream: in.Upstream, UpstreamProto: proto,
@@ -709,6 +714,26 @@ func (a *gatewayAPI) deleteService(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusNoContent, nil)
 }
 
+// restartService 只作用于 caddy:按当前配置重新生成并 load(手动/派生通用)。
+func (a *gatewayAPI) restartService(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if !strings.HasPrefix(id, "docker:") {
+		if _, err := a.s.GetService(id); err != nil {
+			if errors.Is(err, repository.ErrNotFound) {
+				writeErr(w, http.StatusNotFound, "服务不存在")
+			} else {
+				writeErr(w, http.StatusInternalServerError, err.Error())
+			}
+			return
+		}
+	}
+	if err := a.reloadCaddy(r.Context()); err != nil {
+		writeErr(w, http.StatusInternalServerError, "重启失败: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 func (a *gatewayAPI) stopService(w http.ResponseWriter, r *http.Request) {
 	a.setServiceEnabled(w, r, false)
 }
@@ -718,8 +743,22 @@ func (a *gatewayAPI) startService(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *gatewayAPI) setServiceEnabled(w http.ResponseWriter, r *http.Request, enabled bool) {
-	svc, err := a.s.GetService(r.PathValue("id"))
+	id := r.PathValue("id")
+	svc, err := a.s.GetService(id)
 	if errors.Is(err, repository.ErrNotFound) {
+		// Docker 派生服务:写本地「已停止」覆盖,仅影响 caddy 生成,不触碰容器。
+		if strings.HasPrefix(id, "docker:") {
+			if err := a.s.SetDerivedDisabled(id, !enabled); err != nil {
+				writeErr(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			if err := a.reloadCaddy(r.Context()); err != nil {
+				writeErr(w, http.StatusInternalServerError, "状态已更新但 caddy 加载失败: "+err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"id": id, "enabled": enabled})
+			return
+		}
 		writeErr(w, http.StatusNotFound, "服务不存在")
 		return
 	}
@@ -916,7 +955,7 @@ func (a *gatewayAPI) deleteFragment(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusNoContent, nil)
 }
 
-// --- Variable(用户变量) ---
+// --- Variable(用户变量,网关+容器统一,ADR-035) ---
 
 type variableInput struct {
 	Key         string `json:"key"`
@@ -924,21 +963,53 @@ type variableInput struct {
 	Description string `json:"description"`
 }
 
-// validVariableKey 校验 key:非空、不得以 GB_ 开头(保留前缀,ADR-018 修订 §5.1)。
-func validVariableKey(key string) bool {
-	key = strings.TrimSpace(key)
-	if key == "" {
-		return false
+// systemVariableView 系统变量描述符(只读、上下文派生,ADR-035 §1/§10)。
+type systemVariableView struct {
+	Key         string `json:"key"`
+	Placeholder string `json:"placeholder"` // 引用写法:网关 <%KEY%> / 容器 ${KEY}
+	Value       string `json:"value,omitempty"`
+	Description string `json:"description"`
+	Context     string `json:"context"` // gateway | container
+}
+
+// listSystemVariables 下发两侧系统变量描述符(只读,ADR-033 §3 / ADR-035 §1)。
+// 物理路径解析为实际值、服务上下文保留占位;容器内置以「模式」形式返回。
+func (a *gatewayAPI) listSystemVariables(w http.ResponseWriter, r *http.Request) {
+	out := make([]systemVariableView, 0, 10)
+	for _, v := range caddy.SystemVariables(a.dataDir, a.staticRoot) {
+		out = append(out, systemVariableView{
+			Key:         v.Key,
+			Placeholder: "<%" + v.Key + "%>",
+			Value:       v.Value,
+			Description: v.Description,
+			Context:     "gateway",
+		})
 	}
-	if strings.HasPrefix(key, "GB_") {
-		return false
+	out = append(out, containerSystemVariables(a.dataDir)...)
+	writeJSON(w, http.StatusOK, out)
+}
+
+// getVariableMigration 返回变量统一迁移报告(ADR-035 §8);无报告返回 204。
+func (a *gatewayAPI) getVariableMigration(w http.ResponseWriter, r *http.Request) {
+	rep, err := a.s.VariableMigrationReport()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
 	}
-	for _, r := range key {
-		if !(r == '_' || r == '-' || (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')) {
-			return false
-		}
+	if rep == nil {
+		writeJSON(w, http.StatusNoContent, nil)
+		return
 	}
-	return true
+	writeJSON(w, http.StatusOK, rep)
+}
+
+// clearVariableMigration 用户确认处理完毕,清除迁移报告。
+func (a *gatewayAPI) clearVariableMigration(w http.ResponseWriter, r *http.Request) {
+	if err := a.s.ClearVariableMigrationReport(); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusNoContent, nil)
 }
 
 func (a *gatewayAPI) listVariables(w http.ResponseWriter, r *http.Request) {
@@ -956,8 +1027,8 @@ func (a *gatewayAPI) createVariable(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "请求体解析失败")
 		return
 	}
-	if !validVariableKey(in.Key) {
-		writeErr(w, http.StatusBadRequest, "变量 key 不合法(不得以 GB_ 开头)")
+	if !model.ValidVariableKey(in.Key) {
+		writeErr(w, http.StatusBadRequest, "变量 key 不合法(仅允许字母/数字/下划线、不得数字开头、不得以 GB_ 开头)")
 		return
 	}
 	key := strings.TrimSpace(in.Key)
@@ -1093,10 +1164,11 @@ func (a *gatewayAPI) reloadCaddy(ctx context.Context) error {
 		}
 		wg.Wait()
 	}
-	opts, err := a.caddyPortOptions()
+	opts, err := a.caddyPortOptions(services)
 	if err != nil {
 		return err
 	}
+	opts.StaticRoot = a.staticRoot
 	caddyfile, err := caddy.Generate(services, apps, fragments, variables, caddy.BuiltinFragmentCatalog(), a.dataDir, dns, opts)
 	if err != nil {
 		return err
@@ -1111,13 +1183,15 @@ func (a *gatewayAPI) reloadCaddy(ctx context.Context) error {
 	}
 	// 成功加载后写 $DATA_DIR/Caddyfile 备份(ADR-002「成功落盘」/ADR-022 上提)。
 	a.persistCaddyfile(caddyfile)
-	// DDNS 上报配置随每次配置变更重算(创建/删除/启停服务都会经过这里):
-	// 只统计落库的启用服务,删除/停用自动从上报集合移除(ADR-021 §2)。
-	a.syncDDNSWarn()
+	// 扩展配置同步随每次配置变更重算(创建/删除/启停服务都会经过这里):
+	// 核心只提供投影,由 config-sync 提供者(如 ddns-go)自行渲染落盘(ADR-036 I2)。
+	a.syncExtensionConfigs()
 	return nil
 }
 
 // validateCaddyfile 生成后前置校验(软失败策略)。
+// 统一用当前 active caddy 制品校验;能力型插件替换 active 制品后自然生效,
+// 核心不为任何插件特判(ADR-036 I1)。
 func (a *gatewayAPI) validateCaddyfile(ctx context.Context, caddyfile string) error {
 	bin := a.caddyBin
 	if bin == "" {
@@ -1164,30 +1238,30 @@ func (a *gatewayAPI) persistCaddyfile(caddyfile string) {
 	}
 }
 
-// syncDDNSWarn 把当前启用服务的二级域名上报集合写入 ddns-go 配置。
-// 失败仅告警不阻塞主流程(与证书签发失败同策略);ddns-go 周期重读配置,无需重启。
-func (a *gatewayAPI) syncDDNSWarn() {
-	if a.ddns == nil {
+// syncExtensionConfigs 在配置变更后触发扩展 config-sync 契约。
+// 核心只构建投影(启用服务/域名/凭证),具体渲染与落盘由提供者负责;
+// 失败仅告警不阻塞主流程(与证书签发失败同策略)。
+func (a *gatewayAPI) syncExtensionConfigs() {
+	if a.ext == nil || !a.ext.HasPoint(extension.PointConfigSync) {
 		return
 	}
 	services, err := a.s.ListServices()
 	if err != nil {
-		log.Printf("[gateway] ddns 同步读服务失败: %v", err)
+		log.Printf("[gateway] 扩展同步读服务失败: %v", err)
 		return
 	}
 	domains, err := a.s.ListDomains()
 	if err != nil {
-		log.Printf("[gateway] ddns 同步读域名失败: %v", err)
+		log.Printf("[gateway] 扩展同步读域名失败: %v", err)
 		return
 	}
 	creds, err := a.s.ListCredentials()
 	if err != nil {
-		log.Printf("[gateway] ddns 同步读凭证失败: %v", err)
+		log.Printf("[gateway] 扩展同步读凭证失败: %v", err)
 		return
 	}
-	entries := ddns.BuildEntries(services, domains, creds)
-	if err := a.ddns.Sync(entries); err != nil {
-		log.Printf("[gateway] ddns 配置写盘失败(继续): %v", err)
+	if err := a.ext.SyncConfig(extension.ProjectionInput{Services: services, Domains: domains, Creds: creds}); err != nil {
+		log.Printf("[gateway] 扩展配置同步失败(继续): %v", err)
 	}
 }
 
@@ -1214,6 +1288,11 @@ func (a *gatewayAPI) buildDNSMap() (map[string]model.DNSCredential, error) {
 	return dns, nil
 }
 
+// DerivedServices 返回 docker 派生服务(未落库),供域名统计等外部聚合复用。
+func (a *gatewayAPI) DerivedServices(ctx context.Context) []model.Service {
+	return a.deriveDockerServices(ctx)
+}
+
 // deriveDockerServices 派生 docker 自动 Service(docker 不可用时为空)。
 func (a *gatewayAPI) deriveDockerServices(ctx context.Context) []model.Service {
 	if a.cli == nil {
@@ -1231,7 +1310,16 @@ func (a *gatewayAPI) deriveDockerServices(ctx context.Context) []model.Service {
 	}
 	// 默认启用片段集(ADR-026 §3):与 manual Service 的 preselect 一致,派生自动带上。
 	defaults := a.seedDefaultFragments(nil, nil)
-	return gateway.DeriveRoutes(containers, domains, fragments, defaults)
+	svcs := gateway.DeriveRoutes(containers, domains, fragments, defaults)
+	// 应用本地「已停止」覆盖:派生服务不落库,停止=不生成该 site block(仅 caddy 层)。
+	if disabled, err := a.s.ListDerivedDisabled(); err == nil && len(disabled) > 0 {
+		for i := range svcs {
+			if disabled[svcs[i].ID] {
+				svcs[i].Enabled = false
+			}
+		}
+	}
+	return svcs
 }
 
 // proxyableContainers 读容器并映射为网关单位消费的视图(ADR-016/019)。

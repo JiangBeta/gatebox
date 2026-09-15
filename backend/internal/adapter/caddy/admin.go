@@ -68,10 +68,12 @@ func detectLoadBodyError(body string) error {
 	return fmt.Errorf("caddy /load 失败: %s", e.Error)
 }
 
-// Upstream 反向代理 upstream 的健康状态(对应 GET /reverse_proxy/upstreams)。
+// Upstream 反向代理 upstream(对应 GET /reverse_proxy/upstreams)。
+// 注:caddy ≥2.5 该接口只返回 address/num_requests/fails,不再暴露主动健康状态,
+// health_status 通常为空——健康状态由 gateway.HealthCollector 主动探测兜底。
 type Upstream struct {
 	Address      string `json:"address"`
-	HealthStatus string `json:"health_status"` // healthy | unhealthy
+	HealthStatus string `json:"health_status"` // 通常为空(兼容旧版/预留)
 }
 
 // Upstreams 返回所有 reverse_proxy upstream 及其健康状态(ADR-020 §1 健康状态真相源)。

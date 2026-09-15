@@ -6,13 +6,18 @@ import {
 } from 'ant-design-vue'
 import {
   getCompose, createCompose, saveCompose, validateCompose, wsURL,
-  dockerInfo, listImages, listNetworks, listContainerVariables, createContainerVariable,
-  type DeployProgress, type DockerInfo, type ImageView, type NetworkView, type ContainerVariable,
+  dockerInfo, listImages, listNetworks,
+  type DeployProgress, type DockerInfo, type ImageView, type NetworkView,
 } from '../api/docker'
+import {
+  listVariables, listSystemVariables, createVariable,
+  type Variable, type SystemVariable,
+} from '../api/settings'
 import { listDomains, type Domain } from '../api/domains'
 import { parseCompose, serializeCompose, type ComposeState, type ServiceConfig, type CaddyRoute } from '../utils/compose'
 import { listFragments, type FragmentView } from '../api/gateway'
 import { listPorts, createPort, type PortBinding } from '../api/gateway'
+import { listCapabilities, hasNonHTTPProtocol, type Capability } from '../api/capabilities'
 import CodeEditor from './CodeEditor.vue'
 // maple-mono 字体:按需引入 latin 子集的 400/700 字重
 import '@fontsource/maple-mono/latin-400.css'
@@ -137,12 +142,10 @@ const editorRef = ref<InstanceType<typeof CodeEditor> | null>(null)
 const yamlText = ref('')
 let settingYaml = false
 
-// 容器页面变量(与网关变量独立):编辑 YAML 时点击标签在光标处插入 ${KEY}
-const containerVars = ref<ContainerVariable[]>([])
-// 系统变量:仅保留 GB_PROJ_FILE(项目默认地址)。GB_PROJECT/GB_DISPLAY 已移除。
-const containerBuiltinVars = [
-  { key: 'GB_PROJ_FILE', desc: '项目默认地址：<gatebox>/appData/<项目名>/（不含结尾 /）' },
-]
+// 统一变量(ADR-035,网关+容器共用):编辑 YAML 时点击标签在光标处插入 ${KEY}
+const containerVars = ref<Variable[]>([])
+// 容器系统变量(只读,后端下发)
+const containerBuiltinVars = ref<SystemVariable[]>([])
 function insertContainerVar(key: string) {
   insertText(`\${${key}}`)
 }
@@ -154,7 +157,8 @@ function insertText(text: string) {
   nextTick(() => ed.insertAtCursor(text))
 }
 function loadContainerVars() {
-  listContainerVariables().then((vs) => { containerVars.value = vs }).catch(() => {})
+  listVariables().then((vs) => { containerVars.value = vs }).catch(() => {})
+  listSystemVariables().then((sys) => { containerBuiltinVars.value = sys.filter((v) => v.context === 'container') }).catch(() => {})
 }
 
 /** 项目变量(EDIT 变量框下半):分 3 行(项目变量 / 应用名称 / 外部)。
@@ -211,7 +215,7 @@ async function saveAddVar() {
     if (r.key.startsWith('GB_')) return messageApi.warning(`「${r.key}」不能以 GB_ 开头(保留前缀)`)
   }
   try {
-    for (const r of rows) await createContainerVariable(r.key, r.value, r.description)
+    for (const r of rows) await createVariable(r.key, r.value, r.description)
     messageApi.success(`已创建 ${rows.length} 个变量`)
     addVarVisible.value = false
     loadContainerVars()
@@ -349,6 +353,7 @@ watch(() => props.show, async (v) => {
     listDomains().then((ds) => { domains.value = ds }).catch(() => {})
     listFragments().then((fs) => { fragList.value = fs }).catch(() => {})
     loadPortProtocols()
+    listCapabilities('proxy-protocols').then((caps) => { capabilities.value = caps }).catch(() => {})
   } else {
     closeDeploy()
   }
@@ -714,22 +719,30 @@ interface DomainAccessRow {
   subdomain: string
   rootDomain: string
   protocols: string[] // 支持的多协议(引用「网关→端口」启用协议;每个协议下所有端口均可用)
-  upstream: string // '' = 自动(继承/唯一映射端口);否则为容器内部端口;'__custom' = 自定义
-  upstreamCustom: string
+  upstream: string // 指向端口:该服务「端口映射」中的容器内部端口(空 = 未指定)
   fragSel: string[] // 行级 Caddy 片段名
 }
 const domainList = ref<DomainAccessRow[]>([])
 const domainOptions = computed(() => domains.value.map((d) => ({ label: d.name, value: d.name })))
-// 协议下拉动态引用「网关 → 端口」的协议记录(HTTP/HTTPS 可用,其它协议暂不代理入口)。
+// 协议下拉动态引用「网关 → 端口」的协议记录;非 http/https 需能力提供者支持(ADR-036)。
 const portProtocols = ref<PortBinding[]>([])
+const capabilities = ref<Capability[]>([])
+const nonHttpEnabled = computed(() => hasNonHTTPProtocol(capabilities.value))
 const protoOptions = computed(() =>
   portProtocols.value
     .filter((p) => p.enabled)
-    .map((p) => ({
-      label: p.protocol === 'http' || p.protocol === 'https' ? `${p.description}（${p.ports.join(' / ')}）` : `${p.description}（暂不代理）`,
-      value: p.protocol,
-      disabled: p.protocol !== 'http' && p.protocol !== 'https',
-    })),
+    .map((p) => {
+      const http = p.protocol === 'http' || p.protocol === 'https'
+      const enabled = http || nonHttpEnabled.value
+      const net = ({ udp: 'UDP', both: 'TCP & UDP' } as Record<string, string>)[p.network || 'tcp'] || 'TCP'
+      return {
+        label: http
+          ? `${p.description}（${p.ports.join(' / ')}）`
+          : `${p.description}（${net} · ${p.ports.join(' / ')}）${enabled ? '' : ' · 需启用 TCP/UDP 扩展'}`,
+        value: p.protocol,
+        disabled: !enabled,
+      }
+    }),
 )
 async function loadPortProtocols() {
   try {
@@ -742,10 +755,23 @@ async function loadPortProtocols() {
 // 「添加协议」:走网关→端口创建(新增协议后即可在域名访问中选择)
 const protoModalShow = ref(false)
 const protoSaving = ref(false)
-const protoForm = ref({ protocol: '', description: '', defaultPort: 0, ports: [] as number[], enabled: true })
+const protoForm = ref({ protocol: '', description: '', ports: [] as (number | string)[], enabled: true })
 function openNewProtocol() {
-  protoForm.value = { protocol: '', description: '', defaultPort: 0, ports: [], enabled: true }
+  protoForm.value = { protocol: '', description: '', ports: [], enabled: true }
   protoModalShow.value = true
+}
+// parseProtoPorts 归一化 tags 输入(字符串/数字)为升序端口;校验 1~65535 且无重复。
+function parseProtoPorts(list: (number | string)[]): { ok: boolean; ports: number[]; msg: string } {
+  const ports: number[] = []
+  for (const v of list || []) {
+    if (v === '' || v === null || v === undefined) continue
+    const n = Number(String(v).trim())
+    if (!Number.isInteger(n) || n < 1 || n > 65535) return { ok: false, ports: [], msg: `实际端口 ${v} 非法(需 1~65535)` }
+    if (ports.includes(n)) return { ok: false, ports: [], msg: `实际端口 ${n} 重复` }
+    ports.push(n)
+  }
+  if (ports.length === 0) return { ok: false, ports: [], msg: '请填写至少一个实际端口' }
+  return { ok: true, ports: ports.sort((a, b) => a - b), msg: '' }
 }
 async function saveNewProtocol() {
   const f = protoForm.value
@@ -753,17 +779,14 @@ async function saveNewProtocol() {
     messageApi.warning('协议名需为小写字母/数字')
     return
   }
-  if (f.defaultPort <= 0 || f.defaultPort > 65535) {
-    messageApi.warning('默认端口非法')
-    return
-  }
-  if (!f.ports.length || !f.ports.every((n) => Number.isInteger(n) && n > 0 && n <= 65535)) {
-    messageApi.warning('请填写至少一个 1~65535 的实际端口')
+  const parsed = parseProtoPorts(f.ports)
+  if (!parsed.ok) {
+    messageApi.warning(parsed.msg)
     return
   }
   protoSaving.value = true
   try {
-    await createPort(f)
+    await createPort({ protocol: f.protocol, description: f.description, ports: parsed.ports, enabled: f.enabled })
     messageApi.success('协议已添加，可在域名访问中选择')
     protoModalShow.value = false
     await loadPortProtocols()
@@ -774,21 +797,24 @@ async function saveNewProtocol() {
   }
 }
 
-// 每行「指向端口」下拉选项:该服务「端口映射」行 + 自定义容器内部端口。
+// 每行「指向端口」下拉选项:仅该服务「端口映射」中的容器内部端口(无自动/自定义)。
 function rowUpstreamOptions(): { label: string; value: string }[] {
-  const opts = [{ label: '自动(继承/唯一映射端口)', value: '' }]
+  const opts: { label: string; value: string }[] = []
   for (const p of portRows()) {
     if (!p.container) continue
     const hostLabel = p.host ? `:${p.host}` : '(随机)'
     opts.push({ label: `宿主${hostLabel} → 容器 ${p.container}`, value: p.container })
   }
-  opts.push({ label: '自定义容器内部端口…', value: '__custom' })
   return opts
 }
 
 // Caddy 片段备选(组件级,按名引用)。
 const fragList = ref<FragmentView[]>([])
 const fragOptions = computed(() => fragList.value.map((f) => ({ label: f.name, value: f.name })))
+// 默认启用(且非隐藏)的片段名——新建域名行预勾选,与「创建代理」的 preselect 一致。
+function defaultFragNames(): string[] {
+  return fragList.value.filter((f) => f.defaultEnabled && !f.defaultHidden).map((f) => f.name)
+}
 
 // upstreamTemplateRe 提取 {{upstreams [https] <port>}} 中的容器内部端口(回显用)。
 const upstreamTemplateRe = /\{\{\s*upstreams(?:\s+(https?))?(?:\s+(\d+))?\s*\}\}/
@@ -805,7 +831,7 @@ function reloadDomain() {
     const root = rootD || host.split('.').slice(1).join('.')
     let row = byHost.get(host)
     if (!row) {
-      row = { subMode: 'custom', subdomain: sub, rootDomain: root, protocols: [], upstream: '', upstreamCustom: '', fragSel: [] }
+      row = { subMode: 'custom', subdomain: sub, rootDomain: root, protocols: [], upstream: '', fragSel: [] }
       byHost.set(host, row)
       order.push(host)
     }
@@ -814,11 +840,7 @@ function reloadDomain() {
     if (!row.protocols.includes(proto)) row.protocols.push(proto)
     // 行级指向端口与片段(同域名多协议共享,取首个非空)
     const m = r.upstreamRef ? upstreamTemplateRe.exec(r.upstreamRef) : null
-    if (m && m[2]) {
-      const idxs = new Set(portRows().map((p) => p.container).filter(Boolean))
-      if (idxs.has(m[2])) row.upstream = m[2]
-      else { row.upstream = '__custom'; row.upstreamCustom = m[2] }
-    }
+    if (m && m[2]) row.upstream = m[2]
     if (r.fragmentNames?.length && row.fragSel.length === 0) row.fragSel = [...r.fragmentNames]
   }
   domainList.value = order.map((h) => byHost.get(h)!)
@@ -832,12 +854,7 @@ function syncDomain() {
     const host = [(r.subMode === 'default' ? appName() : r.subdomain), r.rootDomain].filter(Boolean).join('.')
     for (const proto of r.protocols) {
       const route: CaddyRoute = { domain: host, proto }
-      if (r.upstream === '__custom') {
-        const n = r.upstreamCustom.trim()
-        if (n) route.upstreamRef = `{{upstreams ${n}}}`
-      } else if (r.upstream) {
-        route.upstreamRef = `{{upstreams ${r.upstream}}}`
-      }
+      if (r.upstream) route.upstreamRef = `{{upstreams ${r.upstream}}}`
       if (r.fragSel.length) route.fragmentNames = [...r.fragSel]
       routes.push(route)
     }
@@ -856,11 +873,22 @@ function domainSummary(r: DomainAccessRow): string {
     .join(' · ')
 }
 function domainAdd() {
-  domainList.value.push({ subMode: 'default', subdomain: '', rootDomain: '', protocols: ['https'], upstream: '', upstreamCustom: '', fragSel: [] })
+  // 指向端口只能从本服务「端口映射」中选择;默认取首个映射的容器内部端口。
+  const first = portRows().find((p) => p.container)
+  domainList.value.push({ subMode: 'default', subdomain: '', rootDomain: '', protocols: ['https'], upstream: first?.container || '', fragSel: defaultFragNames() })
   syncDomain()
   formToYaml()
 }
 function domainRemove(i: number) { domainList.value.splice(i, 1); syncDomain(); formToYaml() }
+
+// 片段列表异步加载完成后,给仍为空的行补上默认启用片段(与创建代理一致)。
+watch(fragList, () => {
+  const d = defaultFragNames()
+  if (!d.length) return
+  let changed = false
+  domainList.value.forEach((r) => { if (!r.fragSel.length) { r.fragSel = [...d]; changed = true } })
+  if (changed) { syncDomain(); formToYaml() }
+})
 
 // longestRootDomain 按受管域名列表做最长后缀匹配(与后端 DERIVE matchRootDomain 对齐)。
 function longestRootDomain(host: string): string {
@@ -1015,7 +1043,7 @@ function fmtMemGB(): string {
           {{ showYaml ? '隐藏 YAML' : '显示 YAML' }}
         </a-button>
       </div>
-      <div style="flex: 1; overflow: hidden; display: flex; flex-direction: column; gap: 12px; padding: 16px 24px">
+      <div style="flex: 1; overflow: hidden; display: flex; flex-direction: column; gap: 8px; padding: 16px 24px">
       <div style="display: flex; gap: 12px">
         <div style="flex: 1">
           <div class="dw-label">项目名称<span class="dw-required">*</span><span style="color: #999; font-size: 12px">（{{ isNew ? '创建后不可改' : '只读' }}）</span></div>
@@ -1068,28 +1096,26 @@ function fmtMemGB(): string {
             >+ 服务</div>
           </div>
           <!-- 表单内容 -->
-          <div v-if="activeService && formState.services[activeService]" style="flex: 1; overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px">
+          <div v-if="activeService && formState.services[activeService]" style="flex: 1; overflow: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px">
 
           <div>
             <div class="dw-section">基本信息</div>
-            <div style="display: flex; gap: 10px">
-              <div style="flex: 2">
-                <div class="dw-label">镜像</div>
-                <div style="display: flex; gap: 6px; align-items: center">
-                  <a-input size="small" :value="formState.services[activeService].image" disabled placeholder="选择或拉取镜像" style="flex: 1" />
-                  <a-button size="small" :disabled="!editable" @click="openImageSelect">选择镜像</a-button>
-                  <a-button size="small" :disabled="!editable" @click="openPull">拉取镜像</a-button>
-                </div>
+            <div>
+              <div class="dw-label">镜像</div>
+              <div style="display: flex; gap: 6px; align-items: center">
+                <a-input size="small" :value="formState.services[activeService].image" disabled placeholder="选择或拉取镜像" style="flex: 1" />
+                <a-button size="small" :disabled="!editable" @click="openImageSelect">选择镜像</a-button>
+                <a-button size="small" :disabled="!editable" @click="openPull">拉取镜像</a-button>
               </div>
+            </div>
+            <div style="display: flex; gap: 10px; margin-top: 8px">
               <div style="flex: 1">
                 <div class="dw-label">应用名称(容器名)</div>
                 <a-input size="small" :value="formState.services[activeService].container_name" :disabled="!editable" :placeholder="`Ser-${serviceNo(activeService.value)}（应用名）`" @update:value="(v: any) => { formState.services[activeService].container_name = v; formToYaml() }" @blur="() => renameService(activeService.value, formState.services[activeService].container_name)" />
               </div>
-            </div>
-            <div style="display: flex; gap: 10px; margin-top: 10px; align-items: center">
               <div style="flex: 1">
                 <div class="dw-label">重启策略</div>
-                <a-select size="small" v-model:value="formState.services[activeService].restart" :options="restartOptions" :disabled="!editable" @blur="formToYaml" />
+                <a-select size="small" v-model:value="formState.services[activeService].restart" :options="restartOptions" :disabled="!editable" style="width: 100%" @blur="formToYaml" />
               </div>
             </div>
           </div>
@@ -1106,7 +1132,7 @@ function fmtMemGB(): string {
           </div>
 
           <!-- 基本配置 -->
-          <div v-if="configTab === 'basic'" style="display: flex; flex-direction: column; gap: 12px">
+          <div v-if="configTab === 'basic'" style="display: flex; flex-direction: column; gap: 8px">
 
             <div>
               <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px">
@@ -1120,7 +1146,7 @@ function fmtMemGB(): string {
               </div>
             </div>
 
-            <div style="border-top: 1px solid #f0f0f0; padding-top: 12px">
+            <div class="cf-sec">
               <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px">
                 <div class="dw-section">挂载或存储卷</div>
                 <a-button v-if="editable" size="small" type="primary" @click="mountAdd">+ 添加目录</a-button>
@@ -1135,7 +1161,7 @@ function fmtMemGB(): string {
               </div>
             </div>
 
-            <div style="border-top: 1px solid #f0f0f0; padding-top: 12px">
+            <div class="cf-sec">
               <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px">
                 <div class="dw-section">端口映射</div>
                 <a-button v-if="editable" size="small" type="primary" @click="portAdd">+ 添加端口</a-button>
@@ -1153,7 +1179,7 @@ function fmtMemGB(): string {
               </div>
             </div>
 
-            <div style="border-top: 1px solid #f0f0f0; padding-top: 12px">
+            <div class="cf-sec">
               <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px">
                 <div class="dw-section">域名访问</div>
                 <a-button v-if="editable" size="small" type="primary" @click="domainAdd">+ 添加域名访问</a-button>
@@ -1175,8 +1201,7 @@ function fmtMemGB(): string {
                 <div style="display: flex; align-items: center; gap: 10px; margin-top: 6px; flex-wrap: wrap">
                   <div style="display: flex; align-items: center; gap: 6px">
                     <span class="dw-label">指向端口</span>
-                    <a-select size="small" v-model:value="row.upstream" :options="rowUpstreamOptions()" :disabled="!editable" style="width: 220px" @change="() => { syncDomain(); formToYaml() }" />
-                    <a-input v-if="row.upstream === '__custom'" size="small" v-model:value="row.upstreamCustom" :disabled="!editable" placeholder="容器内部端口" style="width: 110px" @blur="() => { syncDomain(); formToYaml() }" />
+                    <a-select size="small" v-model:value="row.upstream" :options="rowUpstreamOptions()" :disabled="!editable" placeholder="选择端口映射" style="width: 240px" @change="() => { syncDomain(); formToYaml() }" />
                   </div>
                   <div style="display: flex; align-items: center; gap: 6px; flex: 1; min-width: 200px">
                     <span class="dw-label">Caddy 片段</span>
@@ -1187,14 +1212,14 @@ function fmtMemGB(): string {
                 <div style="font-size: 12px; color: #888; margin-top: 2px">
                   <span v-if="row.subMode === 'default'">子域名默认=应用名 {{ gbVar(`SER_${serviceNo(activeService.value)}_NAME`) }}（{{ appName() }}）</span>
                   <span v-if="row.protocols.length">· 访问地址 {{ domainSummary(row) }}</span>
-                  <span v-if="!row.upstream"> · 指向端口未指定:由容器映射端口自动选择(多端口需在本行手工指定)</span>
+                  <span v-if="!row.upstream"> · 指向端口未指定:请选择本服务的端口映射</span>
                 </div>
               </div>
             </div>
           </div>
 
           <!-- 运行配置 -->
-          <div v-else-if="configTab === 'runtime'" style="display: flex; flex-direction: column; gap: 12px">
+          <div v-else-if="configTab === 'runtime'" style="display: flex; flex-direction: column; gap: 8px">
             <div>
               <div class="dw-section">日志配置</div>
               <div style="display: flex; gap: 10px; margin-top: 6px">
@@ -1213,7 +1238,7 @@ function fmtMemGB(): string {
               </div>
             </div>
 
-            <div style="border-top: 1px solid #f0f0f0; padding-top: 12px">
+            <div class="cf-sec">
               <div class="dw-section">健康检查</div>
               <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 6px">
                 <div class="dw-label">执行脚本</div>
@@ -1238,7 +1263,7 @@ function fmtMemGB(): string {
               </div>
             </div>
 
-            <div style="border-top: 1px solid #f0f0f0; padding-top: 12px">
+            <div class="cf-sec">
               <div class="dw-section">资源限制</div>
               <div style="display: flex; gap: 10px; margin-top: 6px">
                 <div style="flex: 1">
@@ -1256,7 +1281,7 @@ function fmtMemGB(): string {
               </div>
             </div>
 
-            <div style="border-top: 1px solid #f0f0f0; padding-top: 12px">
+            <div class="cf-sec">
               <div class="dw-section">用户与权限</div>
               <div style="display: flex; gap: 10px; margin-top: 6px">
                 <div style="flex: 1">
@@ -1273,7 +1298,7 @@ function fmtMemGB(): string {
               </div>
             </div>
 
-            <div style="border-top: 1px solid #f0f0f0; padding-top: 12px">
+            <div class="cf-sec">
               <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px">
                 <div class="dw-section">启动命令 command</div>
                 <a-button v-if="editable" size="small" type="primary" @click="commandAdd">+ 添加参数</a-button>
@@ -1285,7 +1310,7 @@ function fmtMemGB(): string {
               <Typography.Text v-if="commandList.length === 0" type="secondary" style="font-size: 12px; margin-top: 4px">不填写则使用镜像默认入口点</Typography.Text>
             </div>
 
-            <div style="border-top: 1px solid #f0f0f0; padding-top: 12px">
+            <div class="cf-sec">
               <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px">
                 <div class="dw-section">Linux 能力 cap_add</div>
                 <a-button v-if="editable" size="small" type="primary" @click="capAddAdd">+ 添加能力</a-button>
@@ -1299,12 +1324,12 @@ function fmtMemGB(): string {
           </div>
 
           <!-- 关联配置 -->
-          <div v-else style="display: flex; flex-direction: column; gap: 12px">
+          <div v-else style="display: flex; flex-direction: column; gap: 8px">
             <div>
               <div class="dw-section">启动依赖 depends_on</div>
               <a-select size="small" multiple :value="formState.services[activeService].depends_on || []" :options="serviceOptions" :disabled="!editable" placeholder="选择本编排内服务" style="margin-top: 6px" @change="(v: any) => { formState.services[activeService].depends_on = v; formToYaml() }" />
             </div>
-            <div style="border-top: 1px solid #f0f0f0; padding-top: 12px">
+            <div class="cf-sec">
               <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px">
                 <div class="dw-section">关联网络</div>
                 <a-button v-if="editable" size="small" type="primary" @click="openNetworkJoin">加入现有网络</a-button>
@@ -1318,7 +1343,7 @@ function fmtMemGB(): string {
                 </a-popconfirm>
               </div>
             </div>
-            <div style="border-top: 1px solid #f0f0f0; padding-top: 12px">
+            <div class="cf-sec">
               <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px">
                 <div class="dw-section">关联宿主机网络</div>
                 <a-button v-if="editable" size="small" type="primary" @click="hostAdd">+ 添加宿主机网络</a-button>
@@ -1331,7 +1356,7 @@ function fmtMemGB(): string {
                 </a-popconfirm>
               </div>
             </div>
-            <div style="border-top: 1px solid #f0f0f0; padding-top: 12px">
+            <div class="cf-sec">
               <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px">
                 <div class="dw-section">关联设备</div>
                 <a-button v-if="editable" size="small" type="primary" @click="deviceAdd">+ 添加关联设备</a-button>
@@ -1345,7 +1370,7 @@ function fmtMemGB(): string {
                 </a-popconfirm>
               </div>
             </div>
-            <div style="border-top: 1px solid #f0f0f0; padding-top: 12px">
+            <div class="cf-sec">
               <div style="display: flex; gap: 10px">
                 <div style="flex: 1">
                   <div class="dw-section">network_mode</div>
@@ -1385,7 +1410,7 @@ function fmtMemGB(): string {
             <template v-if="!varCollapsed">
             <div style="display: flex; flex-wrap: wrap; gap: 4px; align-items: center">
               <span style="color: #999; font-size: 12px">系统变量：</span>
-              <Tooltip v-for="bv in containerBuiltinVars" :key="bv.key" :title="bv.desc">
+              <Tooltip v-for="bv in containerBuiltinVars" :key="bv.key" :title="bv.description">
                 <Tag size="small" style="cursor: pointer; font-family: monospace; font-size: 12px; background: #f0f0f0" @click="insertContainerVar(bv.key)">{{ bv.key }}</Tag>
               </Tooltip>
               <Tooltip v-for="v in containerVars" :key="v.key" :title="'值：' + (v.value || '（空）') + (v.description ? ' · ' + v.description : '')">
@@ -1489,10 +1514,6 @@ function fmtMemGB(): string {
         <a-input v-model:value="protoForm.description" placeholder="如 MySQL" />
       </div>
       <div>
-        <div class="dw-label">默认端口</div>
-        <a-input-number v-model:value="protoForm.defaultPort" :min="1" :max="65535" style="width: 160px" />
-      </div>
-      <div>
         <div class="dw-label">实际端口(回车/逗号新增,可多个)</div>
         <a-select v-model:value="protoForm.ports" mode="tags" :open="false" placeholder="如 3306" :token-separators="[',', ' ']" style="width: 100%" />
       </div>
@@ -1502,7 +1523,7 @@ function fmtMemGB(): string {
 
   <!-- 拉取镜像 -->
   <a-modal :open="pullShow" title="拉取镜像" :width="480" :mask-closable="!pullActive" :keyboard="!pullActive" @cancel="pullShow = false">
-    <div style="display: flex; flex-direction: column; gap: 12px">
+    <div style="display: flex; flex-direction: column; gap: 8px">
       <a-input size="small" v-model:value="pullName" placeholder="nginx 或 registry.example.com/foo" :disabled="pullActive" />
       <div style="display: flex; gap: 12px">
         <a-input size="small" v-model:value="pullTag" placeholder="版本(latest)" :disabled="pullActive" style="flex: 1" />
@@ -1545,5 +1566,13 @@ function fmtMemGB(): string {
 }
 :deep(.cm-content) {
   min-height: 100%;
+}
+/* 编排表单紧凑化(仅样式) */
+.cf-sec {
+  border-top: 1px solid #f0f0f0;
+  padding-top: 10px;
+}
+.cf-sec .dw-label {
+  margin-bottom: 2px;
 }
 </style>

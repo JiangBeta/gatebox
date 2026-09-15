@@ -425,27 +425,6 @@ export async function syncCaddy(): Promise<void> {
   await http.post('/docker/sync-caddy', null, LONG)
 }
 
-// --- 容器页变量(与网关变量独立) ---
+// 容器变量入口已并入「设置 → 变量」(ADR-035,见 api/settings.ts)。
 
-export interface ContainerVariable {
-  key: string
-  value: string
-  description?: string
-  createdAt: string
-}
 
-export async function listContainerVariables(): Promise<ContainerVariable[]> {
-  return (await http.get('/docker/variables')).data
-}
-
-export async function createContainerVariable(key: string, value: string, description?: string): Promise<ContainerVariable> {
-  return (await http.post('/docker/variables', { key, value, description })).data
-}
-
-export async function updateContainerVariable(key: string, value: string, description?: string): Promise<ContainerVariable> {
-  return (await http.put(`/docker/variables/${encodeURIComponent(key)}`, { value, description })).data
-}
-
-export async function deleteContainerVariable(key: string): Promise<void> {
-  await http.delete(`/docker/variables/${encodeURIComponent(key)}`)
-}

@@ -39,6 +39,9 @@ const (
 
 // siteKeyRE 拆 caddy / caddy_N / caddy_N.reverse_proxy 等键。
 var siteKeyRE = regexp.MustCompile(`^caddy(?:_(\d+))?$`)
+
+// protoNameRE 非 http/https 的协议名(小写字母/数字,如 mqtt),由能力注册表决定可否代理。
+var protoNameRE = regexp.MustCompile(`^[a-z][a-z0-9]{0,31}$`)
 var siteRPRE = regexp.MustCompile(`^caddy(?:_(\d+))?\.reverse_proxy$`)
 var siteFragRE = regexp.MustCompile(`^gatebox\.fragments(?:_(\d+))?$`)
 
@@ -100,6 +103,18 @@ func DeriveRoutes(containers []ProxyableContainer, domains []model.Domain, fragm
 	return out
 }
 
+// FirstSiteHost 返回 label 集合中首个 caddy 站点的主机名(不含端口),无则空。
+// 供容器变量 GB_SUB_DOMAIN 以编排项目的首个站点域名解析(单域名场景最常用)。
+func FirstSiteHost(labels map[string]string) string {
+	st := parseContainerLabels(labels)
+	for _, s := range st.sites {
+		if s.spec.host != "" {
+			return s.spec.host
+		}
+	}
+	return ""
+}
+
 // siteSpec 一条解析后的站点地址(caddy-docker-proxy 风格)。
 type siteSpec struct {
 	proto  string // https | http
@@ -132,10 +147,11 @@ func parseContainerLabels(labels map[string]string) derivedState {
 	for k, v := range labels {
 		switch {
 		case k == "caddy":
-			st.sites = append(st.sites, siteParsed{idx: 0, spec: firstSite(v)})
+			// 用 siteByIndex 复用占位(行级覆盖可能先于站点 key 出现),避免重复站点丢覆盖。
+			siteByIndex(&st, 0).spec = firstSite(v)
 		case siteKeyRE.MatchString(k) && k != "caddy":
 			if n, err := strconv.Atoi(strings.TrimPrefix(k, "caddy_")); err == nil {
-				st.sites = append(st.sites, siteParsed{idx: n, spec: firstSite(v)})
+				siteByIndex(&st, n).spec = firstSite(v)
 			}
 		case siteRPRE.MatchString(k):
 			m := siteRPRE.FindStringSubmatch(k)
@@ -199,7 +215,8 @@ func firstSite(v string) siteSpec {
 
 // deriveSite 派生一个站点的独立 Service;站点无有效 spec 时返回 nil。
 func deriveSite(c ProxyableContainer, s siteParsed, st derivedState, domains []model.Domain, fragIDByName map[string]string, defaultFragmentIDs []string) *model.Service {
-	if s.spec.host == "" {
+	// 非 HTTP 站点无 host;HTTP 站点必须有 host。
+	if s.spec.host == "" && model.IsHTTPProto(s.spec.proto) {
 		return nil
 	}
 	// 该站点的行级/服务级值
@@ -284,18 +301,31 @@ func parseSiteAddr(tok string) (siteSpec, bool) {
 	}
 	proto := model.DomainProtoHTTPS
 	rest := tok
+	explicit := false
 	if i := strings.Index(tok, "://"); i >= 0 {
-		switch tok[:i] {
+		scheme := tok[:i]
+		switch scheme {
 		case "http":
 			proto = model.DomainProtoHTTP
 		case "https":
 			// 保持 https
 		default:
-			return siteSpec{}, false
+			// 非 http/https scheme → 协议名(如 `mqtt://`);须为小写字母/数字。
+			if !protoNameRE.MatchString(scheme) {
+				return siteSpec{}, false
+			}
+			proto = scheme
 		}
 		rest = tok[i+3:]
+		explicit = true
 	}
-	if rest == "" || strings.ContainsAny(rest, "/ \t") {
+	if rest == "" {
+		if explicit && !model.IsHTTPProto(proto) {
+			return siteSpec{proto: proto}, true // 如 mqtt://(无 host,端口由端口页驱动)
+		}
+		return siteSpec{}, false
+	}
+	if strings.ContainsAny(rest, "/ \t") {
 		return siteSpec{}, false
 	}
 	host := rest
@@ -364,6 +394,9 @@ func (c ProxyableContainer) uniqueHostPort() (int, bool) {
 // upstream 为空(或 enabled=false)表示仅展示;upstreamProto https 走 tls transport。
 func derivedService(c ProxyableContainer, spec siteSpec, domains []model.Domain, upstream []string, upstreamProto string, enabled bool, extras []string, fragRaw string, fragIDByName map[string]string, defaultFragmentIDs []string) model.Service {
 	svc := model.Service{
+		// 稳定 ID:供前端操作列(停止/启动/重启/日志)与本地启停覆盖引用,不落库。
+		// 用 ~ 分隔且不含 /,保证可作为 URL 路径段直接传递。
+		ID:              fmt.Sprintf("docker:%s~%s~%s~%d~%s", c.Project, c.Service, spec.host, spec.port, spec.proto),
 		AppID:           c.Project,
 		Description:     c.Labels[LabelDescription],
 		Type:            model.RouteTypeReverseProxy,
@@ -379,12 +412,10 @@ func derivedService(c ProxyableContainer, spec siteSpec, domains []model.Domain,
 	return svc
 }
 
-// derivedName 派生服务展示名:多站点时区分 = <compose 展示名/服务名> · 域名。
+// derivedName 派生服务展示名:仅服务名;多站点时追加 · 域名 以区分。
+// 归属(compose 展示名)不再拼进名称,改由前端「服务名称」下方以 <icon>/<归属> 呈现。
 func derivedName(c ProxyableContainer, siteCount int, host string) string {
 	base := c.Service
-	if c.DisplayName != "" {
-		base = c.DisplayName + "/" + c.Service
-	}
 	if siteCount > 1 && host != "" {
 		// 域名去掉通配符 `*`?,保留原样即可
 		return base + " · " + host
@@ -393,7 +424,8 @@ func derivedName(c ProxyableContainer, siteCount int, host string) string {
 }
 
 // resolveFragmentIDs 计算派生站点的片段集合(ADR-026 §3):
-// = 默认启用集 ∪ gatebox.fragments[_N] 解析的 ID(+ 上游 https 时补 frag-skip-verify)。
+// = 默认启用集 ∪ gatebox.fragments[_N] 解析的 ID。
+// 忽略证书校验不在此写入:由生成器按 UpstreamProto=https 条件应用(ADR-033 §2)。
 func resolveFragmentIDs(fragRaw string, fragIDByName map[string]string, defaults []string, upstreamProto string) []string {
 	set := make(map[string]bool, len(defaults)+2)
 	for _, id := range defaults {
@@ -411,9 +443,6 @@ func resolveFragmentIDs(fragRaw string, fragIDByName map[string]string, defaults
 			// 引用缺失:忽略 + 温和降级(ADR-026 §3,不阻断代理)
 		}
 	}
-	if upstreamProto == model.DomainProtoHTTPS {
-		set[model.FragmentSkipVerify] = true
-	}
 	ids := make([]string, 0, len(set))
 	for id := range set {
 		ids = append(ids, id)
@@ -424,6 +453,10 @@ func resolveFragmentIDs(fragRaw string, fragIDByName map[string]string, defaults
 
 // toDomain 把站点地址转为网关域名行(ADR-026 §1/§6)。
 func (s siteSpec) toDomain(domains []model.Domain) model.ProxyDomain {
+	// 非 HTTP:无 host/子域,协议名即端口页协议;监听端口由端口页驱动。
+	if !model.IsHTTPProto(s.proto) {
+		return model.ProxyDomain{Protocol: s.proto}
+	}
 	d := model.ProxyDomain{
 		Protocol: s.proto,
 		Port:     defaultPort(s.proto),

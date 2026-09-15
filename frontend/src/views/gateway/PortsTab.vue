@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted, h } from 'vue'
-import { Table, Button, Modal, Form, Input, InputNumber, Select, Tag, Popconfirm, Alert, message } from 'ant-design-vue'
-import { PlusOutlined, EditOutlined, PlayCircleOutlined, StopOutlined, CaretRightOutlined, DeleteOutlined } from '@ant-design/icons-vue'
-import { listPorts, createPort, updatePort, deletePort, restartPorts, type PortBinding } from '../../api/gateway'
+import { Table, Button, Tag, Popconfirm, Tooltip, message } from 'ant-design-vue'
+import { PlusOutlined, EditOutlined, DeleteOutlined, StopOutlined, CaretRightOutlined } from '@ant-design/icons-vue'
+import { listPorts, updatePort, deletePort, restartPorts, type PortBinding } from '../../api/gateway'
+import PortFormModal from '../../components/PortFormModal.vue'
 
 const [messageApi, contextHolder] = message.useMessage()
 
@@ -11,11 +12,9 @@ const loading = ref(false)
 const restarting = ref(false)
 const toggling = ref<Record<string, boolean>>({})
 
-// 编辑/新建弹层
+// 新建/编辑弹层(共享 PortFormModal)
 const modalShow = ref(false)
-const modalIsNew = ref(false)
-const saving = ref(false)
-const form = ref({ protocol: '', description: '', defaultPort: 0, ports: [] as number[], enabled: true })
+const editTarget = ref<PortBinding | null>(null)
 
 async function load() {
   loading.value = true
@@ -30,57 +29,19 @@ async function load() {
 onMounted(load)
 
 function openNew() {
-  modalIsNew.value = true
-  form.value = { protocol: '', description: '', defaultPort: 0, ports: [], enabled: true }
+  editTarget.value = null
   modalShow.value = true
 }
 
 function openEdit(row: PortBinding) {
-  modalIsNew.value = false
-  form.value = { protocol: row.protocol, description: row.description, defaultPort: row.defaultPort, ports: [...row.ports], enabled: row.enabled }
+  editTarget.value = row
   modalShow.value = true
-}
-
-function validatePorts(list: number[]): boolean {
-  return list.length > 0 && list.every((n) => Number.isInteger(n) && n > 0 && n <= 65535)
-}
-
-async function save() {
-  const f = form.value
-  if (!/^[a-z][a-z0-9]{0,31}$/.test(f.protocol)) {
-    messageApi.warning('协议名需为小写字母/数字')
-    return
-  }
-  if (f.defaultPort <= 0 || f.defaultPort > 65535) {
-    messageApi.warning('默认端口非法')
-    return
-  }
-  if (!validatePorts(f.ports)) {
-    messageApi.warning('请填写至少一个 1~65535 的实际端口')
-    return
-  }
-  saving.value = true
-  try {
-    if (modalIsNew.value) {
-      await createPort(f)
-      messageApi.success('已新增')
-    } else {
-      await updatePort(f.protocol, f)
-      messageApi.success('已保存')
-    }
-    modalShow.value = false
-    await load()
-  } catch (e: any) {
-    messageApi.error(e.message)
-  } finally {
-    saving.value = false
-  }
 }
 
 async function toggle(row: PortBinding) {
   toggling.value = { ...toggling.value, [row.protocol]: true }
   try {
-    await updatePort(row.protocol, { description: row.description, defaultPort: row.defaultPort, ports: row.ports, enabled: !row.enabled })
+    await updatePort(row.protocol, { description: row.description, ports: row.ports, enabled: !row.enabled })
     await load()
   } catch (e: any) {
     messageApi.error(e.message)
@@ -113,10 +74,37 @@ async function doDelete(row: PortBinding) {
   }
 }
 
+/** 操作按钮:icon-only + hover Tooltip,与变量页/片段页风格统一。 */
+function actionBtn(icon: any, color: string, title: string, onClick?: () => void, disabled = false) {
+  return h(
+    Tooltip,
+    { title, mouseEnterDelay: 0.3 },
+    {
+      default: () =>
+        h(
+          Button,
+          { size: 'small', type: 'text', disabled, onClick },
+          { default: () => h(icon, { style: { fontSize: '14px', color } }) },
+        ),
+    },
+  )
+}
+
 const columns = [
-  { title: '协议', dataIndex: 'protocol', key: 'protocol' },
-  { title: '说明', dataIndex: 'description', key: 'description' },
-  { title: '默认端口', dataIndex: 'defaultPort', key: 'defaultPort', width: 110 },
+  {
+    title: '协议',
+    key: 'protocol',
+    width: 110,
+    customRender: ({ record }: { record: PortBinding }) => h(Tag, { size: 'small' }, { default: () => record.protocol }),
+  },
+  { title: '说明', dataIndex: 'description', key: 'description', ellipsis: true },
+  {
+    title: '网络',
+    key: 'network',
+    width: 100,
+    customRender: ({ record }: { record: PortBinding }) =>
+      h(Tag, { size: 'small' }, { default: () => ({ udp: 'UDP', both: 'TCP & UDP' } as Record<string, string>)[record.network || 'tcp'] || 'TCP' }),
+  },
   {
     title: '实际端口',
     dataIndex: 'ports',
@@ -127,62 +115,69 @@ const columns = [
       )),
   },
   {
+    title: '状态',
+    key: 'status',
+    width: 80,
+    customRender: ({ record }: { record: PortBinding }) => record.enabled
+      ? h(Tag, { color: 'success', size: 'small' }, { default: () => '启用' })
+      : h(Tag, { color: 'default', size: 'small' }, { default: () => '停用' }),
+  },
+  {
+    title: '来源',
+    key: 'builtin',
+    width: 80,
+    customRender: ({ record }: { record: PortBinding }) => record.builtin
+      ? h(Tag, { color: 'processing', size: 'small' }, { default: () => '内置' })
+      : h(Tag, { color: 'success', size: 'small' }, { default: () => '自定义' }),
+  },
+  {
     title: '操作',
     key: 'actions',
-    width: 220,
+    width: 140,
     customRender: ({ record }: { record: PortBinding }) =>
-      h('div', { style: 'display:flex;gap:6px' }, [
+      h('div', { style: 'display:flex; align-items:center; justify-content:flex-start; gap:2px; white-space:nowrap' }, [
         record.enabled
-          ? h(Popconfirm, { title: `停用 ${record.protocol}？`, onConfirm: () => toggle(record) }, { default: () => h(Button, { size: 'small', loading: toggling.value[record.protocol] }, { default: () => h(StopOutlined) }) })
-          : h(Popconfirm, { title: `启用 ${record.protocol}？`, onConfirm: () => toggle(record) }, { default: () => h(Button, { size: 'small', type: 'primary', ghost: true, loading: toggling.value[record.protocol] }, { default: () => h(CaretRightOutlined) }) }),
-        h(Button, { size: 'small', onClick: () => openEdit(record) }, { default: () => h(EditOutlined) }),
-        h(Button, { size: 'small', type: 'primary', ghost: true, onClick: doRestart }, { default: () => h(PlayCircleOutlined) }),
+          ? actionBtn(StopOutlined, '#fa8c16', '停用', () => toggle(record), !!toggling.value[record.protocol])
+          : actionBtn(CaretRightOutlined, '#52c41a', '启用', () => toggle(record), !!toggling.value[record.protocol]),
+        actionBtn(EditOutlined, '#722ed1', '修改', () => openEdit(record)),
         record.builtin
-          ? h(Tag, { size: 'small', color: 'default' }, { default: () => '内置' })
-          : h(Popconfirm, { title: `删除 ${record.protocol}？`, okText: '删除', okButtonProps: { danger: true }, onConfirm: () => doDelete(record) }, { default: () => h(Button, { size: 'small', danger: true }, { default: () => h(DeleteOutlined) }) }),
+          ? h('span', { style: 'color:#999;font-size:12px;white-space:nowrap;padding-left:4px' }, '只读')
+          : h(
+              Popconfirm,
+              { title: `删除 ${record.protocol}？`, okText: '删除', okButtonProps: { danger: true }, onConfirm: () => doDelete(record) },
+              {
+                default: () =>
+                  h(
+                    Button,
+                    { size: 'small', type: 'text', danger: true },
+                    { default: () => h(DeleteOutlined, { style: { fontSize: '14px' } }) },
+                  ),
+              },
+            ),
       ]),
   },
 ]
 </script>
 
 <template>
-  <div style="max-width: 960px; padding: 4px 8px">
-    <contextHolder />
-    <Alert
-      type="info"
-      show-icon
-      :style="{ marginBottom: '12px' }"
-      message="一个对外协议可对应多个实际端口；HTTP/HTTPS 为系统默认项不可删除，其余可增删改"
-      description="完成修改后点「重启」即刻按新端口重新加载 Caddy，无需重启进程。"
-    />
-    <div style="display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 10px">
+  <contextHolder />
+  <div style="margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center">
+    <span style="color: #888; font-size: 13px">
+      一个对外协议可对应多个实际端口（首个为主端口）；HTTP/HTTPS 为系统内置项不可删除。
+      修改后点「重启」按新端口重新加载 Caddy，无需重启进程。
+    </span>
+    <div style="display: flex; gap: 8px">
       <Button :loading="restarting" @click="doRestart">重启</Button>
       <Button type="primary" :icon="h(PlusOutlined)" @click="openNew">+ 添加协议</Button>
     </div>
-    <Table
-      :columns="columns"
-      :data-source="rows"
-      :loading="loading"
-      :row-key="(r: PortBinding) => r.protocol"
-      :pagination="false"
-      size="small"
-    />
-
-    <Modal :open="modalShow" :title="modalIsNew ? '添加协议端口' : `编辑 ${form.protocol}`" :confirm-loading="saving" @ok="save" @cancel="modalShow = false">
-      <Form layout="vertical">
-        <Form.Item label="协议">
-          <Input v-model:value="form.protocol" :disabled="!modalIsNew" placeholder="http / https / mysql / ..." />
-        </Form.Item>
-        <Form.Item label="说明">
-          <Input v-model:value="form.description" placeholder="HTTP / MySQL ..." />
-        </Form.Item>
-        <Form.Item label="默认端口">
-          <InputNumber v-model:value="form.defaultPort" :min="1" :max="65535" style="width: 160px" />
-        </Form.Item>
-        <Form.Item label="实际端口（回车/逗号分隔新增，可多个）">
-          <Select v-model:value="form.ports" mode="tags" :open="false" placeholder="如 443 / 9443" :token-separators="[',', ' ']" style="max-width: 420px" />
-        </Form.Item>
-      </Form>
-    </Modal>
   </div>
+  <Table
+    :columns="columns"
+    :data-source="rows"
+    :loading="loading"
+    :row-key="(r: PortBinding) => r.protocol"
+    :pagination="false"
+  />
+
+  <PortFormModal v-model:show="modalShow" :edit-target="editTarget" @saved="load" />
 </template>

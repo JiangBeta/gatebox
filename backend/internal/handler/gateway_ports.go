@@ -12,20 +12,33 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"regexp"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/JiangBeta/gatebox/internal/adapter/caddy"
+	"github.com/JiangBeta/gatebox/internal/extension"
 	"github.com/JiangBeta/gatebox/internal/model"
 )
 
 var protocolRE = regexp.MustCompile(`^[a-z][a-z0-9]{0,31}$`)
 
-// caddyPortOptions 从 port_bindings 派生 Caddyfile 生成端口选项。
-// 无记录时回退启动配置(config 参数)。
-func (a *gatewayAPI) caddyPortOptions() (caddy.GenerateOptions, error) {
+// nonHTTPBinding 非 HTTP 协议的监听配置(端口 + 网络)。
+type nonHTTPBinding struct {
+	ports []int
+	nets  []string
+}
+
+// caddyPortOptions 从 port_bindings 派生 Caddyfile 生成选项。
+//
+// 协议类别由能力注册表决定(ADR-036 I1):核心不判断具体协议名是否属于某插件;
+//   - class=http  → 内置监听端口(http_port/https_port);
+//   - class=non-http → 收集中性规则,交给注册表中声明该类别的 renderer 产出全局片段;
+//   - 无类别(无提供者) → 管理态,忽略。
+func (a *gatewayAPI) caddyPortOptions(services []model.Service) (caddy.GenerateOptions, error) {
 	bs, err := a.s.ListPortBindings()
 	if err != nil {
 		return caddy.GenerateOptions{}, err
@@ -33,25 +46,86 @@ func (a *gatewayAPI) caddyPortOptions() (caddy.GenerateOptions, error) {
 	if len(bs) == 0 {
 		return caddy.GenerateOptions{HTTPPort: a.httpPort, HTTPSPort: a.httpsPort, ExtraHTTPSPorts: a.extraHTTPSPorts}, nil
 	}
-	var opts caddy.GenerateOptions
+	opts := caddy.GenerateOptions{}
+	nonHTTP := map[string]nonHTTPBinding{}
 	for _, b := range bs {
 		if !b.Enabled || len(b.Ports) == 0 {
 			continue
 		}
-		switch b.Protocol {
-		case "http":
-			opts.HTTPPort = b.Ports[0]
-			if len(b.Ports) > 1 {
-				opts.ExtraHTTPPorts = append(opts.ExtraHTTPPorts, b.Ports[1:]...)
+		switch a.classOf(b.Protocol) {
+		case extension.ClassHTTP:
+			switch b.Protocol {
+			case model.DomainProtoHTTP:
+				opts.HTTPPort = b.Ports[0]
+				if len(b.Ports) > 1 {
+					opts.ExtraHTTPPorts = append(opts.ExtraHTTPPorts, b.Ports[1:]...)
+				}
+			case model.DomainProtoHTTPS:
+				opts.HTTPSPort = b.Ports[0]
+				if len(b.Ports) > 1 {
+					opts.ExtraHTTPSPorts = append(opts.ExtraHTTPSPorts, b.Ports[1:]...)
+				}
 			}
-		case "https":
-			opts.HTTPSPort = b.Ports[0]
-			if len(b.Ports) > 1 {
-				opts.ExtraHTTPSPorts = append(opts.ExtraHTTPSPorts, b.Ports[1:]...)
+		case extension.ClassNonHTTP:
+			nonHTTP[b.Protocol] = nonHTTPBinding{ports: b.Ports, nets: b.Nets()}
+		}
+	}
+	rules := collectNonHTTPRules(services, nonHTTP)
+	if len(rules) > 0 {
+		if rd, ok := a.ext.RendererFor(extension.ClassNonHTTP); ok {
+			snip, err := rd.Render(rules)
+			if err != nil {
+				return caddy.GenerateOptions{}, err
+			}
+			if strings.TrimSpace(snip) != "" {
+				opts.GlobalSnippets = append(opts.GlobalSnippets, snip)
 			}
 		}
 	}
 	return opts, nil
+}
+
+// classOf 查询协议类别;ext 为空时回退内置 http/https 判断(不影响主闭环)。
+func (a *gatewayAPI) classOf(protocol string) string {
+	if a.ext == nil {
+		if model.IsHTTPProto(protocol) {
+			return extension.ClassHTTP
+		}
+		return ""
+	}
+	return a.ext.ClassOf(protocol)
+}
+
+// collectNonHTTPRules 汇集非 HTTP 中性代理规则(按协议+上游去重,稳定排序)。
+func collectNonHTTPRules(services []model.Service, bindings map[string]nonHTTPBinding) []extension.ProxyRule {
+	var rules []extension.ProxyRule
+	seen := map[string]bool{}
+	for _, svc := range services {
+		if !svc.Enabled || svc.Type != model.RouteTypeReverseProxy || len(svc.Upstream) == 0 {
+			continue
+		}
+		for _, d := range svc.Domains {
+			b, ok := bindings[d.Protocol]
+			if !ok || len(b.ports) == 0 || len(b.nets) == 0 {
+				continue
+			}
+			key := d.Protocol + "|" + svc.Upstream[0]
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			rules = append(rules, extension.ProxyRule{
+				Protocol: d.Protocol, Upstream: svc.Upstream[0], Ports: b.ports, Nets: b.nets,
+			})
+		}
+	}
+	sort.Slice(rules, func(i, j int) bool {
+		if rules[i].Protocol != rules[j].Protocol {
+			return rules[i].Protocol < rules[j].Protocol
+		}
+		return rules[i].Upstream < rules[j].Upstream
+	})
+	return rules
 }
 
 // seedDefaultPorts 首次加载时用启动配置写入 HTTP/HTTPS 内置项。
@@ -74,8 +148,8 @@ func (a *gatewayAPI) seedDefaultPorts() error {
 	httpsPorts := []int{httpsDefault}
 	httpsPorts = append(httpsPorts, a.extraHTTPSPorts...)
 	builtins := []model.PortBinding{
-		{Protocol: "http", Description: "HTTP", DefaultPort: 80, Ports: []int{httpDefault}, Enabled: true, Builtin: true, CreatedAt: now},
-		{Protocol: "https", Description: "HTTPS", DefaultPort: 443, Ports: httpsPorts, Enabled: true, Builtin: true, CreatedAt: now},
+		{Protocol: "http", Description: "HTTP", Network: model.NetTCP, Ports: []int{httpDefault}, Enabled: true, Builtin: true, CreatedAt: now},
+		{Protocol: "https", Description: "HTTPS", Network: model.NetTCP, Ports: httpsPorts, Enabled: true, Builtin: true, CreatedAt: now},
 	}
 	for i := range builtins {
 		if err := a.s.SavePortBinding(&builtins[i]); err != nil {
@@ -103,24 +177,67 @@ func (a *gatewayAPI) getGatewayPorts(w http.ResponseWriter, r *http.Request) {
 type portBindingInput struct {
 	Protocol    string `json:"protocol"`
 	Description string `json:"description"`
-	DefaultPort int    `json:"defaultPort"`
 	Ports       []int  `json:"ports"`
+	Network     string `json:"network"` // tcp | udp | both(缺省 tcp)
 	Enabled     *bool  `json:"enabled"`
+}
+
+// normalizeNetwork 归一化网络取值;http/https 恒 tcp。
+func normalizeNetwork(protocol, network string) (string, bool) {
+	if protocol == model.DomainProtoHTTP || protocol == model.DomainProtoHTTPS {
+		return model.NetTCP, true
+	}
+	switch network {
+	case "", model.NetTCP:
+		return model.NetTCP, true
+	case model.NetUDP:
+		return model.NetUDP, true
+	case model.NetBoth:
+		return model.NetBoth, true
+	default:
+		return "", false
+	}
 }
 
 func (in *portBindingInput) validate() (string, bool) {
 	if !protocolRE.MatchString(in.Protocol) {
 		return "协议名需为小写字母/数字", false
 	}
-	if in.DefaultPort <= 0 || in.DefaultPort > 65535 {
-		return "默认端口非法", false
+	if _, ok := normalizeNetwork(in.Protocol, in.Network); !ok {
+		return "网络需为 tcp / udp / both", false
 	}
 	if len(in.Ports) == 0 {
 		return "至少需要一个实际端口", false
 	}
+	seen := make(map[int]bool, len(in.Ports))
 	for _, p := range in.Ports {
-		if p <= 0 || p > 65535 {
-			return "端口超出范围", false
+		if p < 1 || p > 65535 {
+			return fmt.Sprintf("端口 %d 超出范围(1~65535)", p), false
+		}
+		if seen[p] {
+			return fmt.Sprintf("实际端口 %d 重复", p), false
+		}
+		seen[p] = true
+	}
+	return "", true
+}
+
+// checkPortConflict 校验 ports 是否与其它协议已登记的端口冲突(跳过 protocol 自身)。
+func (a *gatewayAPI) checkPortConflict(protocol string, ports []int) (string, bool) {
+	bs, err := a.s.ListPortBindings()
+	if err != nil {
+		return "读取端口失败: " + err.Error(), false
+	}
+	for _, b := range bs {
+		if b.Protocol == protocol {
+			continue
+		}
+		for _, p := range ports {
+			for _, existing := range b.Ports {
+				if p == existing {
+					return fmt.Sprintf("端口 %d 已被协议 %s 占用", p, b.Protocol), false
+				}
+			}
 		}
 	}
 	return "", true
@@ -145,13 +262,18 @@ func (a *gatewayAPI) createGatewayPort(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "该协议已存在")
 		return
 	}
+	if msg, ok := a.checkPortConflict(in.Protocol, in.Ports); !ok {
+		writeErr(w, http.StatusConflict, msg)
+		return
+	}
 	enabled := true
 	if in.Enabled != nil {
 		enabled = *in.Enabled
 	}
+	netVal, _ := normalizeNetwork(in.Protocol, in.Network)
 	p := model.PortBinding{
-		Protocol: in.Protocol, Description: in.Description, DefaultPort: in.DefaultPort,
-		Ports: in.Ports, Enabled: enabled, Builtin: false, CreatedAt: time.Now(),
+		Protocol: in.Protocol, Description: in.Description,
+		Ports: in.Ports, Network: netVal, Enabled: enabled, Builtin: false, CreatedAt: time.Now(),
 	}
 	if err := a.s.SavePortBinding(&p); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -186,9 +308,13 @@ func (a *gatewayAPI) updateGatewayPort(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, msg)
 		return
 	}
+	if msg, ok := a.checkPortConflict(in.Protocol, in.Ports); !ok {
+		writeErr(w, http.StatusConflict, msg)
+		return
+	}
 	cur.Description = in.Description
-	cur.DefaultPort = in.DefaultPort
 	cur.Ports = in.Ports
+	cur.Network, _ = normalizeNetwork(in.Protocol, in.Network)
 	if in.Enabled != nil {
 		cur.Enabled = *in.Enabled
 	}

@@ -339,12 +339,16 @@ function renderMemory(record: ContainerView) {
     ['可用量(Avail)', fmtGiB(hst?.memAvailGiB)],
     ['缓存(Cache)', fmtGiB(hst?.memCacheGiB)],
   ]
-  const content = h('div', { style: 'min-width: 210px' }, items.map(([k, v]) => h('div', {
-    style: 'display:flex; justify-content:space-between; gap:20px; padding:3px 6px; white-space:nowrap',
-  }, [
-    h('span', { style: 'color:#666; font-size:13px' }, k),
-    h('span', { style: 'color:#1677ff; font-family:monospace; font-weight:600; font-size:13px' }, v),
-  ])))
+  const content = h('div', { style: 'min-width: 210px' }, [
+    ...items.map(([k, v]) => h('div', {
+      style: 'display:flex; justify-content:space-between; gap:20px; padding:3px 6px; white-space:nowrap',
+    }, [
+      h('span', { style: 'color:#666; font-size:13px' }, k),
+      h('span', { style: 'color:#1677ff; font-family:monospace; font-weight:600; font-size:13px' }, v),
+    ])),
+    h('div', { style: 'color:#999; font-size:11px; border-top:1px solid #f0f0f0; margin-top:3px; padding:4px 6px 0' },
+      '总量=系统 MemTotal（实际可用物理内存，低于标称容量属正常）'),
+  ])
   return hoverPanel(trigger, content)
 }
 

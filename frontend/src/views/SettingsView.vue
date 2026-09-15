@@ -1,7 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { Card, Alert, message } from 'ant-design-vue'
 import { getGatewaySettings } from '../api/settings'
+import VariableTab from './settings/VariableTab.vue'
+
+const route = useRoute()
+const active = computed(() => (route.query.tab as string) || 'general')
 
 const [messageApi, contextHolder] = message.useMessage()
 
@@ -24,8 +29,9 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div style="max-width: 640px; padding: 16px 24px">
-    <contextHolder />
+  <contextHolder />
+  <VariableTab v-if="active === 'variables'" />
+  <div v-else style="max-width: 640px; padding: 16px 24px">
     <Card size="small" title="网关端口" :loading="loading">
       <Alert
         type="info"

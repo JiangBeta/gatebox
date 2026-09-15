@@ -66,6 +66,8 @@ ComposeInstance (1) ──< Container (N) ──< Service (M, M ≤ N)
 
 Tab 顺序 **容器 / 编排 / 镜像 / 网络 / 存储卷**，**默认落在「容器」**（Q11）。编排虽是聚合根，但打开 Docker 页最高频的意图是「我的服务还活着吗」，首屏应服从使用频率而非模型地位。合并 Tab 会制造三级 Tab，违反 `layout.md` 的层级约定。
 
+> **变量入口已迁至「设置 → 变量」**（ADR-035）：容器页曾短暂设有独立「变量」Tab，现与网关变量合并为统一存储与统一管理入口。本节维持 5 Tab 结构；容器变量的引用写法与插值语义见 §5.7。
+
 ### 3.1 Tab 1 · 容器
 
 **列表列**：名称 · 来源(托管/外部/游离 tag) · 端口 · CPU · 内存 · 创建时间 · 运行时间 · 操作
@@ -301,6 +303,26 @@ type ProxyablePort struct{ Internal, Host uint16 }
   - 片段（行级覆盖）：`gatebox.fragments_N` ＞ `gatebox.fragments`；说明：`gatebox.description`。
 - **表单「指向端口」从「端口映射」行中选，序列化为该行 `caddy[.N].reverse_proxy: "{{upstreams <容器内部端口>}}"`**（caddy-docker-proxy 风格，Edit 区 label 中明确体现）。
 
+### 5.7 容器变量（统一至设置页，ADR-035）
+
+**用户变量**统一存于 bucket `variables`，由「设置 → 变量」页 CRUD（ADR-035）；容器侧原 `/api/v1/docker/variables` 端点与前端 Tab 已删除。「设置 → 变量」是两套上下文的**单一数据源**，容器的引用写法为 `${KEY}`（compose 原生）。
+
+**系统变量**（只读、上下文派生，不入库）：
+
+| 变量 | 含义 | 来源 |
+|---|---|---|
+| `${GB_PROJ_NAME}` | 项目名（= `projectName`） | 渲染时按项目注入 |
+| `${GB_PROJ_FILE}` | 项目默认地址 `<dataDir>/appData/<项目名>/`（不含结尾 `/`） | 渲染时按项目注入 |
+| `${GB_SER_<n>_PORT_<m>}` | 第 n 个服务的第 m 个发布端口 | 从 compose YAML 端口映射推导 |
+
+三者经 `GET /api/v1/settings/variables/system` 下发描述符（`GB_SER_*` 为派生模式、以「模式说明」返回）。
+
+**插值语义**（现状）：`interpolateContainerVars` 在 `createCompose` / `saveCompose` **写盘前**把 `${KEY}` 替换为实际值——即**保存即固化**，磁盘上的 compose 文件不再保留占位符。
+
+- 未定义的 `${KEY}` **原样透传**给 docker compose（保留 `.env` / 宿主环境回退），不做 GateBox 侧报错；`validateCompose` 另经 `detectUndefinedVars` 产生「未定义变量将被替换为空串」的**阻断式告警**（§4.1 ③）。
+- `${KEY:-默认}` / `${KEY:?错误}` 不被容器插值正则匹配，原样透传给 compose；`detectUndefinedVars` 能识别这些修饰形态用于告警抑制。
+- **已知债务**：由于保存即固化，**修改容器变量不会回溯已有编排**，需重新保存 / 部署才生效；设置变量页须明确标注（ADR-035 §7）。插值时机与网关的「生成时实时替换」不统一。
+
 ## 6. 后端设计
 
 ### 6.1 模块（`backend/internal/`）
@@ -350,6 +372,8 @@ type ProxyablePort struct{ Internal, Host uint16 }
 | POST | `/docker/volumes/prune` | 清理未使用 |
 | GET/PUT | `/docker/daemon/config` | daemon 白名单字段（含 `writable` 标记） |
 | GET | `/docker/proxyable` | **跨单位接口**：供网关单位消费 |
+
+> 原 `/docker/variables`（用户变量 CRUD）已删除，统一到 `GET/POST/PUT/DELETE /api/v1/settings/variables`（ADR-035，见 §5.7）。
 
 ## 7. 前端设计
 

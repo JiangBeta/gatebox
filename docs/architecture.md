@@ -2,7 +2,7 @@
 
 > 状态：**已定稿**（逐轮讨论 + 领域建模产出，编码前的唯一权威设计）
 > 日期：2026-09-14
-> 关联：`docs/PRD.md`、`docs/glossary.md`、`docs/adr/`（ADR-027 ~ ADR-032）
+> 关联：`docs/PRD.md`、`docs/glossary.md`、`docs/adr/`（ADR-027 ~ ADR-036）
 > 旧版实现完整保留于 `./old/`（见 §13）。
 
 本文件是 v3 重构的**总纲**：定义系统本体、组件/插件模型、分层与命名标准、目录蓝图与推进分期。**编码中凡遇「放哪一层 / 用什么字号 / 怎么命名」，以本文件为准，不再逐次讨论。**
@@ -110,54 +110,76 @@ Status { State, Healthy bool, Message, Since, Metrics map[string]any }
 
 ---
 
-## 4. 插件模型（ADR-029）
+## 4. 扩展平台（ADR-036）
 
-### 4.1 数据驱动，不引入解释器
+> ADR-029 的「三种 kind」升级为**五个部件 + 两类贡献原型**。核心只认扩展点、不认插件身份。
+> 三个不变式：**I1** 核心无插件身份；**I2** 核心→插件只经投影 API；**I3** 插件→核心只经贡献声明。
 
-v1 采用 **manifest + 通用引擎**：插件是**数据**，不是需要 GateBox 重编译的代码。`kind` 预留扩展位。
+### 4.1 五个部件
 
-| kind | 形态 | 引擎行为 | 例子 |
+| 部件 | 职责 |
+|---|---|
+| **Manifest v2** | 强类型：`artifacts[]`（带 role）、`contributes{capabilities,ui,backend,data}`、`permissions` |
+| **能力注册表** | 核心与插件统一注册「能力」；网关/容器/前端只查表 |
+| **投影 API** | 核心状态只读视图（domains/certs/ports/services）+ `revision` + 变更通知 |
+| **扩展契约** | `template`（声明式）或 `sidecar`（进程，JSON over stdin/HTTP） |
+| **槽位/页面注册表** | 前端具名合并点 + 三档渲染 |
+
+### 4.2 两类贡献原型（由贡献点导出，非硬编码）
+
+| 原型 | 贡献点 | 作用 | 例 |
 |---|---|---|---|
-| `caddy-module` | 替换 caddy 制品 + 注入片段 | 切换 active 制品（复用校验失败回退）+ 写 Caddyfile 片段 | Coraza |
-| `process` | 独立进程 | 下载二进制 → 落 `$DATA_DIR/tools/<id>/` → 启停 + 健康 + 声明式操作 | Tailscale / MosDNS / flame |
-| `config-only` | 只注入配置 | 注册 manifest + 写配置 | 轻量指令扩展 |
+| **Provider（能力型）** | `capabilities` + `backend.renderer` + `ui.slots` | 扩展核心行为 | Caddy-L4 |
+| **Consumer（数据型）** | `data.subscribe` + `backend.config-sync`/`reconcile` + `ui.page` | 消费核心数据、作用于外部 | ddns-go |
 
-> 预留（未来，非 v1）：Traefik 式 Yaegi/WASM（`kind` 扩展）、Terraform 式子进程 gRPC 协议。
+核心内置能力注册为 `_core` provider（http/https + HTTP site 渲染器），与插件同构。
 
-### 4.2 manifest schema（v1）
+### 4.3 扩展点（point）
+
+| point | 语义 |
+|---|---|
+| `proxy-protocols` | 可代理的协议类别（`class`: http\|non-http、`label`、`networks`、`requiresPrimaryDomain`） |
+| `renderer` | 中性规则 → Caddyfile 片段（`for`、`scope`: global\|site、`impl`: template\|sidecar） |
+| `validator` | 校验器（`bin` 缺省 = 当前 active caddy 制品） |
+| `config-sync` | 从投影渲染插件配置并落盘 + reload（`projection`、`target`、`template`） |
+| `reconcile` | 核心通知侧车，侧车拉投影自行收敛（`entry`、`interval`） |
+
+### 4.4 中性规则与渲染分发
+
+核心只定义 `ProxyRule{Protocol, Upstream, Ports, Nets}`：HTTP 走内置渲染器（site block）；非 HTTP 按协议查注册表 → 调用其 renderer → 全局块片段。**核心不解析片段内容，不认识 `layer4`。**
+
+### 4.5 manifest schema（v2）
 
 ```yaml
-apiVersion: gatebox/v1
-kind: caddy-module            # caddy-module | process | config-only
-id: coraza
-name: Coraza WAF
+apiVersion: gatebox/v2
+kind: caddy-module            # process | caddy-module | config-only
+id: caddy-l4
+name: Caddy L4
 version: 0.1.0
-summary: OWASP CRS 规则的 Caddy WAF
-requires:
-  gatebox: ">=0.3.0"
-  components: [caddy]
-source:
-  channel: official
-artifact:
-  amd64: { url: "...", sha256: "..." }
-  arm64: { url: "...", sha256: "..." }
-runtime:
-  swap: [caddy]               # caddy-module
-  process: { cmd: [...], health: {...}, workDir: "..." }   # process
-config:
-  schema: [...]               # 声明式设置表单
-  inject:
-    - component: caddy
-      target: caddyfile
-      snippet: "coraza_waf { ... }"
-operations:                   # process 的声明式操作
-  - { id: status, label: 状态, cmd: ["tailscale","status","--json"], readOnly: true }
+publisher: { id, name, keyID }
+requires: { gatebox, extensionApi, components: [caddy], os, arch }
+artifacts:                    # 带 role 的列表
+  - { role: binary, os: linux, arch: amd64, url, sha256, size,
+      install: { to: tools/caddy-l4/caddy-l4, mode: "0755" } }
+  - { role: ui, format: esm, url, sha256, entry: index.js }
 contributions:
-  nav: [{ path: /waf, label: WAF, icon: shield }]
-  page: { type: iframe | settings }   # v1 仅 导航 + iframe + 声明式设置表单
+  capabilities:
+    - point: proxy-protocols
+      data: { class: non-http, label: "TCP/UDP", networks: [tcp, udp], requiresPrimaryDomain: false }
+  backend:
+    - point: renderer
+      for: non-http
+      scope: global
+      impl: { type: template, template: "..." }
+  ui:
+    slots:
+      - { slot: port-form.protocol-options, from: proxy-protocols }
+permissions:
+  - { filesystem: { write: [tools/caddy-l4] } }
+  - { api: [gateway:read] }
 ```
 
-### 4.3 状态机与持久化
+### 4.6 状态机与持久化
 
 ```
 available ──install──▶ installed ──enable──▶ enabled
@@ -166,23 +188,25 @@ available ──install──▶ installed ──enable──▶ enabled
                          任一环节失败 ──▶ error
 ```
 
-- BoltDB bucket：`plugins`（安装状态 + 用户配置）、`component_state`（版本/来源缓存）。
-- 卸载 = 回到 `available`（删制品 + 移除注入配置）。
+- BoltDB bucket：`plugins`（安装状态 + 用户配置 + 制品清单 + 权限）、`component_state`（版本/来源缓存）。
+- 卸载 = 回到 `available`（删制品 + 注销贡献，能力从注册表消失）。
 
-### 4.4 分发：静态索引 + 多源（无服务端，ADR-029）
+### 4.7 前端渲染三档
 
-v1 **不需要常驻服务端**。用一个可静态托管的索引，实现「在线安装/升级」：
+| 层 | 形态 | 隔离 | 本阶段 |
+|---|---|---|---|
+| L0 元数据驱动 | 核心按 slot/schema 渲染 | — | 实现 |
+| L1 iframe + postMessage 桥 | 强隔离 | 实现 |
+| L2 远程 ESM 组件 | 同源（等价 XSS） | 预留，按信任级门禁 |
 
-- 索引文件 `index.json` + 签名（minisign/cosign），可托管于 GitHub Pages / 对象存储 / CDN：
-  ```json
-  { "id": "...", "name": "...", "kind": "...", "version": "...", "channel": "...",
-    "arch": "...", "artifact": { "url": "...", "sha256": "...", "size": 0 }, "manifest": {} }
-  ```
-- 制品放 GitHub Releases（含用户自编译的 coraza-caddy）。
-- 客户端流程：拉索引 → 按 `channel` 比较版本 → 校验签名 + sha256 → 安装 / 替换 / 回滚。
-- **协议抽象为接口**，未来若引入动态注册表服务，客户端无感。
+### 4.8 分发：静态索引 + 多源（无服务端）
 
-**安全**：安装第三方制品 = 执行代码。必须签名 + 校验和 + 显式用户确认（与 `docker.sock` 提示同级告知）。
+- 索引 `index.json` + 签名（minisign/cosign），可托管于 GitHub Pages / 对象存储 / CDN。
+- 制品放 GitHub Releases（含用户自编译制品），可打包为单一签名 tar.gz。
+- 客户端：拉索引 → 按 `channel` 比较版本 → 校验签名 + sha256 → 安装/替换/回滚。
+- **协议抽象为接口**，未来引入动态注册表服务客户端无感；**本阶段不实现在线索引下载**。
+
+**安全**：安装第三方制品 = 执行代码。必须签名 + 校验和 + 显式用户确认（与 `docker.sock` 提示同级）。
 
 ---
 
@@ -235,6 +259,7 @@ v1 **不需要常驻服务端**。用一个可静态托管的索引，实现「�
 GateBox（控制面：Go 后端 + Vue3 前端 + BoltDB）
     │  组件运行时：统一 Descriptor / 可选接口 / 注册表
     │  制品源：official | custom | system（索引 + 签名 + 下载）
+    │  扩展平台：能力注册表 + 投影 API + 扩展契约（template | sidecar）
     │  插件引擎：caddy-module | process | config-only
     │
     ├── [core]   caddy        反向代理 + 站点生成 + 文件证书加载
@@ -248,7 +273,7 @@ GateBox（控制面：Go 后端 + Vue3 前端 + BoltDB）
     └── [opt]    coraza       WAF（caddy-module）
 ```
 
-**自动化联动**（已有 + 保留）：docker label → 派生 Service → Caddyfile → `/load`；命中受管根域的域名进入 acme 证书 + ddns 上报闭环；mosdns 内网解析。
+**自动化联动**：docker label → 派生 Service → Caddyfile → `/load`；命中受管根域的域名进入 acme 证书闭环，并作为**投影**供插件（ddns-go）自行收敛上报；mosdns 内网解析。**核心不直接驱动 ddns，插件经投影 + `config-sync` 契约接入**（ADR-036）。
 
 ---
 
@@ -267,6 +292,7 @@ backend/
     ├── model/       # 领域实体
     ├── component/   # 组件运行时：接口 + 注册表 + 状态 + 生命周期引擎
     ├── plugin/      # 插件引擎：manifest 解析 + 三形态实现
+    ├── extension/   # 扩展平台：能力注册表 + 投影 + 扩展契约（渲染/配置同步）
     ├── source/      # 制品源：索引 / 签名 / 下载 / 版本解析
     ├── adapter/     # 外部系统适配：caddy / docker / acme / ddns / mosdns / systemd
     ├── gateway/     # 领域：Caddyfile 生成 + label 派生
@@ -285,6 +311,7 @@ backend/
 | 读写本系统数据 | `repository` | 只出入 `model`，**禁止返回 HTTP/DTO** |
 | 调用外部组件 | `adapter` 或 `plugin` | 每个外部系统一个包 |
 | 组件/插件的统一抽象与生命周期 | `component` / `plugin` | 不直接依赖具体 adapter |
+| 扩展点、能力注册表、投影契约 | `extension` | 不依赖具体插件实现（核心无插件身份，ADR-036） |
 | 制品获取与版本解析 | `source` | 不依赖业务 |
 | 领域数据 | `model` | **不依赖任何内部包** |
 | 跨领域纯工具 | `pkg` | 无业务 |
@@ -358,6 +385,12 @@ Vue 组件 PascalCase 且与文件名同名；composable 一律 `useXxx`。
 - 定义一张 `Capability` 常量表**预留**未来扩展，**不引入 Casbin/RBAC**。
 - 未来加能力只需在表里加项，不阻塞当前开发。
 
+### 11.1 服务身份与 Docker 权限（ADR-034）
+
+- GateBox 本体以专用低权用户 `gatebox` 运行（systemd `User=gatebox`），托管进程同权限。
+- Docker 权限分两层：API 访问 = 加入 `docker.sock` 属组；`docker.service` 的 reload/restart = systemd 下由 polkit 规则最小授权（OpenRC/procd 回退 sudoers）。
+- 重启语义：默认软重启（`reload`，不中断容器）；「强制重启」= `restart`（中断容器，UI 二次确认）。
+
 ---
 
 ## 12. 运行时目录 `$DATA_DIR`
@@ -426,7 +459,7 @@ gatebox/
 |---|---|---|
 | **P0 地基** | 目录重建 + `old/` + `go.work` + 标准文档 + lint/CI 门禁 | 可构建空骨架 + 门禁生效 |
 | **P1 组件运行时** | `component` 接口/注册表 + `source` 索引/签名/下载 + 四个核心组件适配（caddy/acme/compose/docker） | 组件页可用、版本显示、升级（replace）闭环 |
-| **P2 插件** | manifest + 三形态引擎 + 状态机 + 内置 Coraza/Tailscale 样例 | 插件页可装/启/停/卸 |
+| **P2 插件/扩展** | manifest v2 + 三形态引擎 + 状态机 + 能力注册表 + 投影 API + 内置样例（Coraza/Caddy-L4/ddns-go） | 插件页可装/启/停/卸，能力驱动 UI 生效 |
 | **P3 前端重建** | `design/lib/app/modules` 骨架 + 网关/容器/域名页迁移 | 三大页零回归 |
 | **P4 网络/首页/设置** | mosdns/tailscale 页 + flame 内嵌 + 极简权限 | 6 入口全通 |
 | **P5 部署交付** | `install.sh` + 多架构 tarball + systemd/openrc/procd | 可安装可升级 |
@@ -437,5 +470,5 @@ gatebox/
 
 ## 16. 文档导航
 
-- [PRD](PRD.md) · [术语表](glossary.md) · [ADR](adr/)（ADR-001 ~ ADR-032）
+- [PRD](PRD.md) · [术语表](glossary.md) · [ADR](adr/)（ADR-001 ~ ADR-036）
 - 本文件为 v3 架构总纲；单位级设计见 `docs/{infra,docker,gateway,domain,network,home,deploy}.md`

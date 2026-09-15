@@ -2,7 +2,7 @@
 
 > 状态：规划阶段 v2（2026-09「缝合怪」重构版）；架构已升级至 **v3**（组件运行时 + 数据驱动插件 + 分层标准），总纲见 [`docs/architecture.md`](architecture.md)。
 > v2 变更背景：证书签发从 caddy 内置 ACME 改为 **acme.sh 全面接管**；新增 **flame（导航）/ mosdns（内网 DNS）/ Tailscale（组网）** 三个外部组件；目录架构重构；导航重构为 6 顶级入口。
-> v3 变更背景：确立「组件生命周期边界（配方归上游、运行态归 GateBox）」「组件运行时接口」「数据驱动插件 + 静态索引」「核心/插件分类」「后端/前端分层标准」；原代码保留于 `./old/`。见 ADR-027 ~ ADR-032。
+> v3 变更背景：确立「组件生命周期边界（配方归上游、运行态归 GateBox）」「组件运行时接口」「数据驱动插件 + 静态索引」「核心/插件分类」「后端/前端分层标准」；**扩展平台（能力注册表 + 投影 API + 扩展契约）见 ADR-036**。原代码保留于 `./old/`。见 ADR-027 ~ ADR-036。
 > 上一版存档于 `docs/PRD-v1.md`。
 > 参考项目：Charon、caddy-docker-proxy、ctop、lazydocker、flame、mosdns、acme.sh
 
@@ -148,7 +148,7 @@ docs/       # PRD + glossary + adr/
 - **手工代理**：手工设置已有设备或应用（如 openwrt、PVE 主机等）；支持反向代理 & 静态文件。
 - **自动代理**：基于运行中的 docker label 数据自动代理；该数据由「容器」模块获取并实时发送到 caddy API（`/reverse_proxy/upstreams`）。
 - **配置固化**：新配置 `/load` 生效后，自动保存到 `$DATA_DIR/Caddyfile` 备份。
-- **Caddy 片段**：固化的中间件 / 路由规则，可供调用。**默认自动关联**：所有代理启用压缩、阻止常见漏洞、支持 websocket、按服务日志输出、主动健康检查；后端服务为 HTTPS 时自动启用「忽略后端证书校验」。可手动启停某代理的片段，也可自定义片段。
+- **Caddy 片段**：固化的中间件 / 路由规则，可供调用。**默认自动关联**：所有代理启用压缩、阻止常见漏洞、按服务日志输出，反向代理另加支持 websocket；主动健康检查由服务字段（`healthUri`，默认 `/`）承载；后端服务为 HTTPS 时自动启用「忽略后端证书校验」（`tls_insecure_skip_verify`）。可手动启停某代理的片段，也可自定义片段（ADR-033）。
 - **变量**：避免硬编码；除系统指定外可自定义。
 
 > 完成情况：页面、手工代理、caddy 片段、变量功能已开发；**未验证**代理情况（Caddyfile validate）；未完成「片段与代理的关联（特别是自动关联）」「docker 自动代理打通（容器提供数据 → 网关给出 caddy api）」。
@@ -238,7 +238,11 @@ docs/       # PRD + glossary + adr/
 | ADR-030 | 核心/插件分类与运行时目录（core/optional + `$DATA_DIR/tools`） | 新增（v3） |
 | ADR-031 | 后端分层与仓库目录 v3（go-nunu 骨架 + `old/` + `go.work`） | 新增（v3） |
 | ADR-032 | 前端分层与设计 token 强制（AntD 四层 + lint 门禁） | 新增（v3） |
+| ADR-033 | Caddy 内置片段定案（7 片段 + 1 字段，修复非法 code 导致的加载失败） | 新增（v3） |
+| ADR-034 | 服务运行身份与 Docker 权限授予（低权用户 + polkit 最小授权 + 软/硬重启） | 新增（v3） |
+| ADR-035 | 网关与容器统一变量模型（`<%KEY%>` / `${KEY}` 共用存储） | 新增（v3） |
+| ADR-036 | 扩展平台（扩展点 + 能力注册表 + 投影契约 + appstore 数据模型） | 新增（v3） |
 
 ## 16. ADR 索引
 
-见 `docs/adr/`：ADR-001 ~ ADR-032。v3 架构总纲见 [`docs/architecture.md`](architecture.md)。
+见 `docs/adr/`：ADR-001 ~ ADR-036。v3 架构总纲见 [`docs/architecture.md`](architecture.md)。

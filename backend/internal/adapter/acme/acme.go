@@ -17,12 +17,16 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/JiangBeta/gatebox/internal/model"
 )
+
+// runCmd 执行 acme.sh;包级变量便于测试注入。
+var runCmd = run
 
 // CertFile 单个 fqdn 的证书产物路径。
 type CertFile struct {
@@ -37,22 +41,135 @@ type CertFile struct {
 // Issuer 通过 acme.sh 签发并安装证书。
 type Issuer struct {
 	CertsDir string // 证书根目录,如 data/tools/acme/certs
-	BinPath  string // acme.sh 可执行文件路径,默认 "acme.sh"(PATH)
+	// HomeDir acme.sh 工作目录(--home),所有账号/证书缓存都在此目录内完成,
+	// 不经过 ~/.acme.sh。默认取 CertsDir 的上一级(即 <dataDir>/tools/acme)。
+	HomeDir string
+	BinPath string // acme.sh 可执行文件路径,默认 "acme.sh"(PATH)
 
 	mu          sync.Mutex
 	failCooldow map[string]time.Time // fqdn → 下次可重试时间(签发失败后冷却)
+
+	email        string // ACME 注册邮箱(全局,空=不指定)
+	accountReady bool   // 当前 email 是否已注册过账号(避免每次签发重复注册)
+	accountEmail string // accountReady 对应的邮箱
 }
 
 // 签发失败冷却期:避免每次 reloadCaddy 都反复调用 acme.sh 打同一坏域名
 // (例如凭证失效时每次操作等 8-9s×域名数)。冷却期内直接跳过,不影响其余操作。
 const failCooldown = 10 * time.Minute
 
+// dnsSleepSeconds acme.sh --dnssleep:添加 TXT 后固定等待的秒数(替代默认 20s 的
+// 公开 DNS 检查)。DNSPod 双权威 NS 集群同步存在延迟,等待不足时 Let's Encrypt
+// 多视角二次校验会报 "secondary validation: No TXT record found"。
+const dnsSleepSeconds = 300
+
+// issueAttempts 单次 ensure 最多尝试签发次数(含首次),即首次失败后重试 2 次。
+const issueAttempts = 3
+
+// retryableIssueError 判断签发失败是否为 DNS 传播类瞬态错误(值得重试);
+// 凭证错误(401 等)不匹配 → 不重试,避免无谓等待。
+func retryableIssueError(out string) bool {
+	for _, s := range []string{
+		"Invalid status",
+		"No TXT record found",
+		"secondary validation",
+		"Verification error",
+		"timeout",
+	} {
+		if strings.Contains(out, s) {
+			return true
+		}
+	}
+	return false
+}
+
+// issueArgs 构造 acme.sh 签发参数(--home + --issue + DNS-01 + dnssleep)。
+func (i *Issuer) issueArgs(params, fqdn string, force bool) []string {
+	args := i.homeArgs()
+	args = append(args, "--issue", "--dns", params, "-d", fqdn,
+		"--keylength", "ec-256", "--server", "letsencrypt",
+		"--dnssleep", strconv.Itoa(dnsSleepSeconds))
+	if force {
+		args = append(args, "--force")
+	}
+	return args
+}
+
 // New 构造 Issuer。
 func New(certsDir, binPath string) *Issuer {
 	if binPath == "" {
-		binPath = "acme.sh"
+		// 未显式配置时:优先组件安装路径 <dataDir>/tools/acme/acme.sh(= certsDir 的上一级),
+		// 否则回退 PATH 中的 "acme.sh"。
+		cand := filepath.Join(filepath.Dir(certsDir), "acme.sh")
+		if _, err := os.Stat(cand); err == nil {
+			binPath = cand
+		} else {
+			binPath = "acme.sh"
+		}
 	}
-	return &Issuer{CertsDir: certsDir, BinPath: binPath, failCooldow: map[string]time.Time{}}
+	return &Issuer{CertsDir: certsDir, HomeDir: filepath.Dir(certsDir), BinPath: binPath, failCooldow: map[string]time.Time{}}
+}
+
+// homeArgs 返回 acme.sh 的 --home 参数,确保账号/证书全部落在 HomeDir 内
+// (默认 <dataDir>/tools/acme),不读也不写 ~/.acme.sh。
+func (i *Issuer) homeArgs() []string {
+	if i.HomeDir == "" {
+		return nil
+	}
+	return []string{"--home", i.HomeDir}
+}
+
+// SetEmail 设置全局 ACME 注册邮箱;变更后下次签发会重新注册账号。
+func (i *Issuer) SetEmail(email string) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if i.email != email {
+		i.email = email
+		i.accountReady = false
+	}
+}
+
+// Email 返回当前全局 ACME 注册邮箱(空=未设置)。
+func (i *Issuer) Email() string {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	return i.email
+}
+
+// emailEnv 把注册邮箱以 acme.sh 识别的 ACCOUNT_EMAIL 环境变量下发。
+func (i *Issuer) emailEnv() []string {
+	if e := i.Email(); e != "" {
+		return []string{"ACCOUNT_EMAIL=" + e}
+	}
+	return nil
+}
+
+// ensureAccount 在需要时用邮箱注册一次 ACME 账号(幂等:同邮箱仅注册一次)。
+// 邮箱为空时直接返回;注册成功后缓存,避免每个域名重复请求。
+func (i *Issuer) ensureAccount(ctx context.Context, appendLog func(string)) error {
+	email := i.Email()
+	if email == "" {
+		return nil
+	}
+	i.mu.Lock()
+	ready := i.accountReady && i.accountEmail == email
+	i.mu.Unlock()
+	if ready {
+		return nil
+	}
+	args := append(i.homeArgs(), "--register-account", "-m", email, "--server", "letsencrypt")
+	out, err := runCmd(ctx, i.BinPath, i.emailEnv(), args...)
+	if appendLog != nil {
+		appendLog(out)
+	}
+	if err != nil {
+		return fmt.Errorf("acme.sh 注册账号失败: %w", err)
+	}
+	i.mu.Lock()
+	i.accountReady = true
+	i.accountEmail = email
+	i.mu.Unlock()
+	return nil
 }
 
 // CertsDirOf 返回某个 fqdn 的证书目录。
@@ -138,6 +255,7 @@ func (i *Issuer) ensure(ctx context.Context, cred model.DNSCredential, fqdn stri
 	if err != nil {
 		return "", err
 	}
+	env = append(append([]string{}, env...), i.emailEnv()...)
 	if err := os.MkdirAll(p.Dir, 0o750); err != nil {
 		return "", err
 	}
@@ -160,16 +278,40 @@ func (i *Issuer) ensure(ctx context.Context, cred model.DNSCredential, fqdn stri
 		_, _ = f.Write([]byte(out))
 	}
 
+	// 账号注册:配置了邮箱时先确保账号已注册(幂等)。所有操作都在 HomeDir 内。
+	if err := i.ensureAccount(ctx, appendLog); err != nil {
+		if !force {
+			i.mu.Lock()
+			i.failCooldow[fqdn] = time.Now().Add(failCooldown)
+			i.mu.Unlock()
+		}
+		return logFile, err
+	}
+
 	// 签发:acme.sh --issue --dns <params> -d <fqdn> --keylength ec-256 --server letsencrypt
 	// 用 Let's Encrypt 作默认 CA(ZeroSSL 需先注册 EAB,不适合无交互场景)。
-	// force 加 --force:覆盖既有证书强制重签(管理「重新申请」)。
-	args := []string{"--issue", "--dns", params, "-d", fqdn, "--keylength", "ec-256", "--server", "letsencrypt"}
-	if force {
-		args = append(args, "--force")
-	}
+	// --dnssleep 等待 DNS 传播(DNSPod 二次校验需要);force 加 --force。
+	// 瞬态失败(如二次校验 No TXT record found)最多尝试 issueAttempts 次,重试时
+	// 追加 --force 强制新建订单,避免复用已失效订单。
 	issueEnv := envMap(env)
-	issueOut, issueErr := run(ctx, i.BinPath, issueEnv, args...)
-	appendLog(issueOut)
+	baseArgs := i.issueArgs(params, fqdn, force)
+	var issueOut string
+	var issueErr error
+	for attempt := 0; attempt < issueAttempts; attempt++ {
+		attemptArgs := baseArgs
+		if attempt > 0 {
+			attemptArgs = append(append([]string{}, baseArgs...), "--force")
+		}
+		issueOut, issueErr = runCmd(ctx, i.BinPath, issueEnv, attemptArgs...)
+		appendLog(issueOut)
+		if issueErr == nil || strings.Contains(issueErr.Error(), "Domains not changed") {
+			break
+		}
+		if retryableIssueError(issueOut) && attempt < issueAttempts-1 {
+			continue
+		}
+		break
+	}
 	if issueErr != nil && !strings.Contains(issueErr.Error(), "Domains not changed") {
 		// "Domains not changed":acme.sh 侧证书仍有效、跳过重签(exit 2),视为成功,
 		// 继续 install 落盘到 GateBox 证书目录(否则手动签过证书后会被误判失败)。
@@ -181,13 +323,14 @@ func (i *Issuer) ensure(ctx context.Context, cred model.DNSCredential, fqdn stri
 		return logFile, fmt.Errorf("acme.sh 签发失败: %w", issueErr)
 	}
 	// 安装证书到约定目录
-	installOut, installErr := run(ctx, i.BinPath, issueEnv,
-		"--install-cert", "-d", fqdn,
+	installArgs := i.homeArgs()
+	installArgs = append(installArgs, "--install-cert", "-d", fqdn,
 		"--cert-file", filepath.Join(p.Dir, "cert.pem"),
 		"--key-file", p.Key,
 		"--fullchain-file", p.Cert,
 		"--reloadcmd", "true",
 	)
+	installOut, installErr := runCmd(ctx, i.BinPath, issueEnv, installArgs...)
 	appendLog(installOut)
 	if installErr != nil {
 		return logFile, fmt.Errorf("acme.sh 安装证书失败: %w", installErr)

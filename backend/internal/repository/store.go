@@ -26,13 +26,17 @@ var (
 	bucketApps        = []byte("apps")
 	bucketServices    = []byte("services")
 	bucketFragments   = []byte("fragments")
-	bucketVariables   = []byte("variables") // 网关变量(网关页)
+	bucketVariables   = []byte("variables") // 用户变量(网关+容器统一,ADR-035)
 	bucketFragToggles = []byte("fragment_toggles")
 
-	// bucketContainerVariables 容器页变量,与网关 bucketVariables 完全独立(网关/容器各自维护)。
+	// bucketContainerVariables 容器页变量的历史 bucket:ADR-035 起并入 bucketVariables,
+	// 不再创建,仅保留供一次性迁移读取与只读备份。
 	bucketContainerVariables = []byte("container_variables")
+	bucketMeta               = []byte("meta") // 一次性迁移标记与报告
 	bucketPortBindings       = []byte("port_bindings")
 	bucketCertLogs           = []byte("cert_logs")
+	// bucketDerivedDisabled Docker 派生代理的本地「已停止」覆盖(id 稳定键)。
+	bucketDerivedDisabled = []byte("derived_disabled")
 )
 
 // ErrNotFound 记录不存在。
@@ -55,7 +59,7 @@ func Open(dataDir string) (*Store, error) {
 		return nil, err
 	}
 	if err := db.Update(func(tx *bolt.Tx) error {
-		for _, b := range [][]byte{bucketDomains, bucketCredentials, bucketRegistries, bucketCompose, bucketApps, bucketServices, bucketFragments, bucketVariables, bucketFragToggles, bucketContainerVariables, bucketPlugins} {
+		for _, b := range [][]byte{bucketDomains, bucketCredentials, bucketRegistries, bucketCompose, bucketApps, bucketServices, bucketFragments, bucketVariables, bucketFragToggles, bucketMeta, bucketPlugins} {
 			if _, err := tx.CreateBucketIfNotExists(b); err != nil {
 				return err
 			}
@@ -81,7 +85,12 @@ func Open(dataDir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	return &Store{db: db, aead: aead}, nil
+	s := &Store{db: db, aead: aead}
+	if err := s.MigrateVariables(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return s, nil
 }
 
 // Close 关闭数据库。

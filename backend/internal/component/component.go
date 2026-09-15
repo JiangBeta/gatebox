@@ -28,7 +28,9 @@ type Source struct {
 type Descriptor struct {
 	ID             string
 	Name           string
+	Summary        string
 	Kind           Kind
+	Tags           []string // 商店标签，如「独立进程」「Caddy插件」
 	Source         Source
 	Provision      string   // managed | attached
 	Runtime        string   // manage | observe
