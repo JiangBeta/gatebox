@@ -18,6 +18,8 @@ let timer: number | undefined
 
 const running = computed(() => status.value?.state === 'running')
 const installed = computed(() => status.value?.installed ?? false)
+const configured = computed(() => status.value?.configExists ?? false)
+const canStart = computed(() => installed.value && configured.value)
 
 async function load() {
   try {
@@ -95,6 +97,21 @@ onUnmounted(() => {
     </template>
   </Alert>
 
+  <Alert
+    v-else-if="status && installed && !configured"
+    type="warning"
+    show-icon
+    message="尚未生成 mosdns 配置"
+    description="请先在「基础设置」保存一次（或「配置文件 → 生成默认配置」）再启动。"
+    style="margin-bottom: 16px"
+  >
+    <template #action>
+      <Button size="small" @click="router.push({ path: '/services/mosdns', query: { tab: 'basic' } })">
+        前往基础设置
+      </Button>
+    </template>
+  </Alert>
+
   <Card title="运行状态" size="small">
     <template #extra>
       <Tag :color="stateColor(status?.state)">{{ stateText }}</Tag>
@@ -116,7 +133,7 @@ onUnmounted(() => {
       <Button
         v-if="!running"
         type="primary"
-        :disabled="!installed"
+        :disabled="!canStart"
         :loading="busy"
         @click="run(() => startComponent('mosdns'), 'mosdns 已启动')"
       >

@@ -124,7 +124,7 @@ func NewCoreRegistry(dataDir, caddyBin, caddyAdmin string, src *source.Client) *
 				Capabilities: caps("health", "config", "upgradable", "logs", "runnable"),
 				Source:       Source{Channel: "official"}},
 			bin: tools("mosdns", "mosdns"), versionArgs: []string{"version"}, repo: "IrineSistiana/mosdns", assetHint: "mosdns",
-			check: "pid", runArgs: []string{"-d", tools("mosdns"), "-c", tools("mosdns", "config.yaml")}, workDir: tools("mosdns"),
+			check: "pid", runArgs: []string{"start", "-d", tools("mosdns"), "-c", tools("mosdns", "config.yaml")}, workDir: tools("mosdns"),
 		},
 		{
 			desc: Descriptor{ID: "tailscale", Name: "Tailscale", Summary: "跨网组网，安全访问内网服务",
