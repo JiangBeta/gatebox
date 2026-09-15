@@ -504,13 +504,16 @@ func (a *api) listSubdomains(w http.ResponseWriter, r *http.Request) {
 					v = &subdomainCertView{FQDN: fqdn, Subdomain: d.Subdomain, RootDomain: d.RootDomain, Protocol: d.Protocol}
 					byFQDN[fqdn] = v
 				}
-				src := subdomainSource{Type: sourceType}
+				src := subdomainSource{Type: sourceType, ServiceName: svc.Name}
 				if sourceType == "docker" {
+					// 多站点派生名形如 "<compose 服务> · <host>",取 compose 服务名供编辑抽屉定位 tab。
+					if i := strings.Index(src.ServiceName, " · "); i >= 0 {
+						src.ServiceName = src.ServiceName[:i]
+					}
 					src.ProjectName = svc.AppID
 					src.DisplayName = projDisplay[svc.AppID]
 				} else {
 					src.ServiceID = svc.ID
-					src.ServiceName = svc.Name
 					src.AppName = appNames[svc.AppID]
 				}
 				if !containsSource(v.Sources, src) {

@@ -29,6 +29,7 @@ const svcEditorShow = ref(false)
 const svcEditTarget = ref<{ service: ServiceItem; group: GroupView } | null>(null)
 const composeEditorShow = ref(false)
 const composeProject = ref<string | null>(null)
+const composeService = ref<string | null>(null)
 let groupsCache: GroupView[] | null = null
 
 const logs = ref<CertLog[]>([])
@@ -113,7 +114,9 @@ onMounted(() => {
 // --- 来源点击 → 打开编辑抽屉 ---
 
 function sourceTip(s: SubdomainSource) {
-  if (s.type === 'docker') return `Docker 项目：${s.displayName || s.projectName || '-'}（点击编辑）`
+  if (s.type === 'docker') {
+    return `Docker 项目：${s.displayName || s.projectName || '-'} / ${s.serviceName || '-'}（点击编辑）`
+  }
   return `Caddy 服务：${s.appName ? s.appName + ' / ' : ''}${s.serviceName || s.serviceId || '-'}（点击编辑）`
 }
 
@@ -124,6 +127,7 @@ async function openSource(s: SubdomainSource) {
       return
     }
     composeProject.value = s.projectName
+    composeService.value = s.serviceName || null
     composeEditorShow.value = true
     return
   }
@@ -233,14 +237,15 @@ async function viewLog(row: CertLog) {
   }
 }
 
-/** 来源列:Caddy/Docker 品牌图标(对齐网关页归属图标),点击打开对应编辑抽屉;文字 hover 呈现。 */
+/** 来源列:<品牌图标> <服务名>(对齐网关页归属图标),点击打开对应编辑抽屉。 */
 function sourceCell(record: SubdomainCert) {
   if (!record.sources?.length) return '-'
   return h(
     'div',
-    { style: 'display:flex;gap:10px;flex-wrap:wrap;align-items:center' },
-    record.sources.map((s) =>
-      h(
+    { style: 'display:flex;gap:12px;flex-wrap:wrap;align-items:center' },
+    record.sources.map((s) => {
+      const label = s.serviceName || s.displayName || s.projectName || ''
+      return h(
         Tooltip,
         { title: sourceTip(s) },
         {
@@ -248,14 +253,17 @@ function sourceCell(record: SubdomainCert) {
             h(
               'span',
               {
-                style: 'display:inline-flex;align-items:center;cursor:pointer;line-height:1',
+                style: 'display:inline-flex;align-items:center;gap:4px;cursor:pointer;min-width:0',
                 onClick: () => openSource(s),
               },
-              [s.type === 'docker' ? dockerIcon(18) : caddyIcon(18)],
+              [
+                s.type === 'docker' ? dockerIcon(14) : caddyIcon(14),
+                h('span', { style: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap' }, label),
+              ],
             ),
         },
-      ),
-    ),
+      )
+    }),
   )
 }
 
@@ -403,10 +411,11 @@ const logColumns = [
     @saved="onSvcSaved"
   />
 
-  <!-- Docker 来源 → 复用编排项目编辑抽屉 -->
+  <!-- Docker 来源 → 复用编排项目编辑抽屉(定位到对应服务 tab) -->
   <ComposeEditorModal
     v-model:show="composeEditorShow"
     :project="composeProject"
+    :service="composeService"
     @saved="onComposeSaved"
   />
 </template>

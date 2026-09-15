@@ -23,7 +23,7 @@ import CodeEditor from './CodeEditor.vue'
 import '@fontsource/maple-mono/latin-400.css'
 import '@fontsource/maple-mono/latin-700.css'
 
-const props = defineProps<{ show: boolean; project: string | null; readOnly?: boolean }>()
+const props = defineProps<{ show: boolean; project: string | null; readOnly?: boolean; service?: string | null }>()
 const emit = defineEmits<{ 'update:show': (v: boolean) => void; saved: () => void }>()
 
 const [messageApi, contextHolder] = message.useMessage()
@@ -332,7 +332,10 @@ watch(() => props.show, async (v) => {
         yaml = defaultTemplate()
       }
       formState.value = normalizeServiceKeys(parseCompose(yaml))
-      activeService.value = Object.keys(formState.value.services)[0] || ''
+      // 打开时定位到指定服务 tab(如从 SSL 页「来源」点击进入);否则取第一个。
+      const svcKeys = Object.keys(formState.value.services)
+      const wanted = props.service
+      activeService.value = (wanted && svcKeys.includes(wanted) ? wanted : svcKeys[0]) || ''
       reloadRows()
       // 托管且可编辑:立即把规范化(键=应用名)后的 YAML 同步到编辑器;
       // 外部只读项目保留原始文件内容展示。
