@@ -89,29 +89,43 @@ API 概要（`/api/v1`，草案）：
 
 **入口**：侧边栏「服务 → mosdns」（`/services/mosdns`）。参照 [sbwml/luci-app-mosdns](https://github.com/sbwml/luci-app-mosdns) 的功能形态，落到 GateBox「控制面只改写配置 + 调 API」的架构（ADR-001 / ADR-028）。
 
-**运行目录**：`$DATA_DIR/tools/mosdns/`（`config.yaml` · `hosts.txt` · `mosdns.log` · `cache.dump`），与组件运行时的 `pid` 托管目录一致。进程启停复用 `POST /api/v1/components/{id}/{start,stop,restart}`。
+**运行目录**：`$DATA_DIR/tools/mosdns/`（`config.yaml` · `settings.json` · `hosts.txt` · `mosdns.log` · `cache.dump` · `rule/*.txt` · `geosite_*.txt` / `geoip_cn.txt`），与组件运行时的 `pid` 托管目录一致。进程启停复用 `POST /api/v1/components/{id}/{start,stop,restart}`。
 
-**页面（5 Tab）**：
+**页面（7 Tab）**：
 
 | Tab | 能力 |
 |---|---|
 | 状态 | 进程状态（5s 轮询）、版本 / 可升级提示、监听与 API 地址、各文件路径；启停 / 重启 / 刷新缓存 |
-| 基础设置 | 监听地址、日志级别、本地/远程上游、缓存开关与容量；保存即按表单重新生成 `config.yaml` |
+| 基础设置 | 内嵌「基础 / 高级 / Cloudflare」三栏：监听与日志、本地/远程/流媒体上游、Bootstrap、并发与连接复用、ECS、防泄漏、缓存（容量 / Lazy TTL / 落盘）、TTL、RR65、Apple 优化、广告拦截与规则来源；保存即重新生成 `config.yaml` |
 | 内网解析 | hosts 记录（域名 → 一或多个 IP，IPv4/IPv6）增删改，落盘 `hosts.txt` |
+| 规则 | 9 类规则文件编辑（白/黑/灰名单、DDNS、重定向、PTR、流媒体、广告拦截、Cloudflare IP 段） |
+| 数据库 | GeoIP/GeoSite 数据更新（国内/国外/Apple 域名、国内 IP），可配 GitHub 代理 |
 | 配置文件 | CodeMirror 手工编辑 `config.yaml`，YAML + 插件 tag/type 校验；可一键生成默认配置 |
-| 日志 | 读取日志尾部、自动刷新（3s）、清空 |
+| 日志 | WebSocket 实时跟随、等级/关键字过滤、自动滚动、下载、清空（UX 对齐「网关 → 代理 → 日志」） |
 
-**配置生成**：默认模板不依赖 geosite/geoip 等外部数据（首次安装即可运行），主流程为 `hosts → cache → fallback(本地主用 / 远程备用)`；需要分流、广告拦截等高级策略时在「配置文件」页手工编辑。
+**配置生成**（对照 luci 的 `init.d` 移植）：hosts → cache → redirect → Apple/DDNS/白名单/拦截/灰名单/流媒体/国内/国外分流 → fallback(本地主用 / 远程备用)，可选 ECS、Cloudflare 改写、TTL 修正。引用的 `geosite_*.txt` / `geoip_cn.txt` / `rule/*.txt` 在生成配置时若缺失会自动建为空文件，保证 mosdns 一定能启动。
+
+**设置持久化**：表单写入 `settings.json`（与 luci 的 UCI 等价），`config.yaml` 由其生成；`settings.json` 缺失时从 `config.yaml` 尽力还原。「配置文件」页手工编辑不影响 `settings.json`。
+
+**数据来源**：数据库更新下载社区维护的纯文本列表（`Loyalsoldier/v2ray-rules-dat` 的 direct/proxy/apple 列表、`Loyalsoldier/geoip` 的 `text/cn.txt`），mosdns 可直接读取。
 
 **后端**（`internal/adapter/mosdns` + `internal/handler/mosdns.go`）：
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/api/v1/mosdns/status` | 进程态 + 解析出的路径 / 端口 |
-| GET/PUT | `/api/v1/mosdns/settings` | 读取 / 依表单生成配置 |
+| GET/PUT | `/api/v1/mosdns/settings` | 读取 / 保存设置并生成配置 |
 | GET/PUT | `/api/v1/mosdns/config` | 读取 / 写入原始 `config.yaml` |
 | GET/PUT | `/api/v1/mosdns/hosts` | 读取 / 保存内网解析记录 |
-| GET/DELETE | `/api/v1/mosdns/logs` | 读取日志尾部 / 清空 |
+| GET | `/api/v1/mosdns/rules` | 规则列表清单 |
+| GET/PUT | `/api/v1/mosdns/rules/{name}` | 读取 / 保存单个规则文件 |
+| GET | `/api/v1/mosdns/geodata` | 数据库文件状态 |
+| POST | `/api/v1/mosdns/geodata/update` | 下载全部数据库文件 |
+| POST | `/api/v1/mosdns/adblock/update` | 下载广告规则来源 |
+| GET | `/api/v1/mosdns/logs` | 读取日志尾部 |
+| GET | `/api/v1/mosdns/logs/stream` | WebSocket 实时日志 |
+| DELETE | `/api/v1/mosdns/logs` | 清空日志 |
 | POST | `/api/v1/mosdns/flush` | 经 `api.http` 调 `cache` 插件 `/flush` 清空缓存 |
 
-> 未纳入本期：AdGuard 规则集形式的广告拦截（`adblock_set` 为上游 patch，官方 mosdns 无此插件）、Geodata 更新、查询统计（依赖上游 `stats_api` patch）。三者均可在「配置文件」页手工配置 `domain_set` / `ip_set` 等官方插件实现等价效果。
+> **官方制品限制**：GateBox 使用官方 `IrineSistiana/mosdns`，未包含 sbwml 的补丁插件，故：广告/拦截规则用官方 `domain_set`（须为 mosdns 域名规则格式，非 AdGuard `||domain^`）；**缓存预取（prefetch）**、`adblock_set`、`stats_api` 查询统计不生成（这些依赖上游 patch）。需要时请在「配置文件」页手工改用官方 `domain_set` / `ip_set` 等价配置。
+

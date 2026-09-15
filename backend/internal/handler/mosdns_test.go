@@ -123,3 +123,32 @@ func TestMosdnsFlushWithoutCache(t *testing.T) {
 		t.Errorf("无缓存插件时刷新应 502, code=%d", code)
 	}
 }
+
+func TestMosdnsRulesEndpoints(t *testing.T) {
+	ts := newMosdnsTest(t)
+
+	code, body := mosdnsReq(t, http.MethodGet, ts.URL+"/api/v1/mosdns/rules", "")
+	if code != http.StatusOK || !strings.Contains(body, "whitelist") || !strings.Contains(body, "cloudflare-cidr") {
+		t.Fatalf("规则清单异常: code=%d body=%s", code, body)
+	}
+
+	code, body = mosdnsReq(t, http.MethodPut, ts.URL+"/api/v1/mosdns/rules/blocklist", `{"content":"ads.example.com"}`)
+	if code != http.StatusOK {
+		t.Fatalf("写规则失败: code=%d body=%s", code, body)
+	}
+	code, body = mosdnsReq(t, http.MethodGet, ts.URL+"/api/v1/mosdns/rules/blocklist", "")
+	if code != http.StatusOK || !strings.Contains(body, "ads.example.com") {
+		t.Fatalf("读规则失败: code=%d body=%s", code, body)
+	}
+	if code, _ := mosdnsReq(t, http.MethodGet, ts.URL+"/api/v1/mosdns/rules/nope", ""); code != http.StatusNotFound {
+		t.Errorf("未知规则应 404, code=%d", code)
+	}
+}
+
+func TestMosdnsGeodataList(t *testing.T) {
+	ts := newMosdnsTest(t)
+	code, body := mosdnsReq(t, http.MethodGet, ts.URL+"/api/v1/mosdns/geodata", "")
+	if code != http.StatusOK || !strings.Contains(body, "geosite_cn.txt") || !strings.Contains(body, "geoip_cn.txt") {
+		t.Fatalf("数据库清单异常: code=%d body=%s", code, body)
+	}
+}

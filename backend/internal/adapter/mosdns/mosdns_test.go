@@ -3,6 +3,8 @@ package mosdns
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -197,9 +199,9 @@ func TestFlushCacheNoCachePlugin(t *testing.T) {
 
 func TestSettingsMissingConfig(t *testing.T) {
 	m := NewManager(t.TempDir())
-	s, err := m.Settings()
+	s, err := m.ReadSettings()
 	if err != nil {
-		t.Fatalf("Settings: %v", err)
+		t.Fatalf("ReadSettings: %v", err)
 	}
 	if s.Listen != DefaultListen || !s.Cache {
 		t.Fatalf("缺配置时应返回默认设置: %+v", s)
@@ -213,5 +215,102 @@ func TestAPIDefaults(t *testing.T) {
 	}
 	if got := m.LogFile(); got != filepath.Join(m.Dir(), logFileName) {
 		t.Errorf("默认日志路径错误: %s", got)
+	}
+}
+
+func TestRuleReadWrite(t *testing.T) {
+	m := NewManager(t.TempDir())
+	if err := m.WriteRule("whitelist", "example.com\nfull:foo.bar"); err != nil {
+		t.Fatalf("WriteRule: %v", err)
+	}
+	got, err := m.ReadRule("whitelist")
+	if err != nil {
+		t.Fatalf("ReadRule: %v", err)
+	}
+	if !strings.Contains(got, "example.com") || !strings.HasSuffix(got, "\n") {
+		t.Fatalf("规则内容不符: %q", got)
+	}
+	if err := m.WriteRule("nope", "x"); !errors.Is(err, ErrBadRule) {
+		t.Fatalf("未知规则应报 ErrBadRule, got %v", err)
+	}
+	// 缺失文件读取为空。
+	if s, err := m.ReadRule("blocklist"); err != nil || s != "" {
+		t.Fatalf("缺失规则应返回空: %q %v", s, err)
+	}
+	if got := len(GetRuleMeta()); got < 8 {
+		t.Fatalf("规则清单应补全(>=8), got %d", got)
+	}
+}
+
+func TestWriteConfigCreatesDataFiles(t *testing.T) {
+	m := NewManager(t.TempDir())
+	b, err := m.RenderConfig(DefaultSettings())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.WriteConfig(b); err != nil {
+		t.Fatalf("WriteConfig: %v", err)
+	}
+	for _, f := range append([]string{hostsFileName}, geoFileNames...) {
+		if _, err := os.Stat(filepath.Join(m.Dir(), f)); err != nil {
+			t.Errorf("数据文件未创建: %s (%v)", f, err)
+		}
+	}
+	for _, r := range GetRuleMeta() {
+		if _, err := os.Stat(m.RulePath(r.Name)); err != nil {
+			t.Errorf("规则文件未创建: %s (%v)", r.Name, err)
+		}
+	}
+}
+
+func TestRenderConfigRuleWiring(t *testing.T) {
+	m := NewManager(t.TempDir())
+	s := DefaultSettings()
+	s.Adblock = true
+	s.Cloudflare = true
+	s.CloudflareIP = []string{"1.2.3.4"}
+	s.AppleOptimization = true
+	s.CustomStreamMediaDNS = true
+	s.StreamDNS = []string{"tls://8.8.8.8"}
+	s.MinimalTTL = 60
+	s.MaximumTTL = 3600
+	b, err := m.RenderConfig(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := string(b)
+	for _, want := range []string{
+		"tag: whitelist", "tag: blocklist", "tag: greylist", "tag: ddnslist",
+		"tag: redirect", "tag: local_ptr", "tag: stream_media", "tag: adlist",
+		"tag: cloudflare_cidr", "tag: geosite_no_cn", "tag: apple_domain_fallback",
+		"black_hole 1.2.3.4", "ttl 60-3600", "tag: query_is_stream_media_domain",
+	} {
+		if !strings.Contains(cfg, want) {
+			t.Errorf("配置缺少 %q", want)
+		}
+	}
+}
+
+func TestUpdateGeodataFetches(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("example.com\n"))
+	}))
+	defer srv.Close()
+	m := NewManager(t.TempDir())
+	s := DefaultSettings()
+	s.AdSources = []string{srv.URL + "/ads.txt"}
+	if err := m.WriteSettings(s); err != nil {
+		t.Fatal(err)
+	}
+	res := m.UpdateAdSources(context.Background())
+	if len(res) != 1 || res[0].Error != "" {
+		t.Fatalf("广告来源下载失败: %+v", res)
+	}
+	got, err := os.ReadFile(filepath.Join(m.Dir(), adlistDirName, "ads.txt"))
+	if err != nil || !strings.Contains(string(got), "example.com") {
+		t.Fatalf("广告规则未落盘: %v %q", err, got)
+	}
+	if files := m.adlistFiles(); len(files) != 2 {
+		t.Fatalf("adlistFiles 应含 adblock.txt + ads.txt: %v", files)
 	}
 }

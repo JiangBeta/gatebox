@@ -4,6 +4,8 @@ import { useRoute } from 'vue-router'
 import StatusTab from './mosdns/StatusTab.vue'
 import BasicTab from './mosdns/BasicTab.vue'
 import HostsTab from './mosdns/HostsTab.vue'
+import RulesTab from './mosdns/RulesTab.vue'
+import GeodataTab from './mosdns/GeodataTab.vue'
 import ConfigTab from './mosdns/ConfigTab.vue'
 import LogsTab from './mosdns/LogsTab.vue'
 
@@ -15,6 +17,8 @@ const active = computed(() => (route.query.tab as string) || 'status')
   <StatusTab v-if="active === 'status'" />
   <BasicTab v-else-if="active === 'basic'" />
   <HostsTab v-else-if="active === 'hosts'" />
+  <RulesTab v-else-if="active === 'rules'" />
+  <GeodataTab v-else-if="active === 'geodata'" />
   <ConfigTab v-else-if="active === 'config'" />
   <LogsTab v-else-if="active === 'logs'" />
   <StatusTab v-else />

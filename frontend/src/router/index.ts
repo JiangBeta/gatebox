@@ -56,6 +56,8 @@ const routes = [
         { key: 'status', label: '状态' },
         { key: 'basic', label: '基础设置' },
         { key: 'hosts', label: '内网解析' },
+        { key: 'rules', label: '规则' },
+        { key: 'geodata', label: '数据库' },
         { key: 'config', label: '配置文件' },
         { key: 'logs', label: '日志' },
       ],
