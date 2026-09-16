@@ -82,13 +82,7 @@ func (m *Manager) StartSidecar(id string) error {
 	logFile, _ := os.OpenFile(m.sidecarLog(id), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	cmd := exec.Command(bin)
 	cmd.Dir = m.sidecarDir(id)
-	cmd.Env = append(os.Environ(),
-		"GATEBOX_PLUGIN_ID="+id,
-		"GATEBOX_PLUGIN_PORT="+strconv.Itoa(st.Port),
-		"GATEBOX_PLUGIN_TOKEN="+st.Token,
-		"GATEBOX_DATA_DIR="+m.dataDir,
-		"GATEBOX_CORE_URL="+m.coreURL,
-	)
+	cmd.Env = sidecarEnv(m.dataDir, id, st.Port, st.Token, m.coreURL)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if logFile != nil {
 		cmd.Stdout = logFile
@@ -166,6 +160,30 @@ func (m *Manager) Proxy(w http.ResponseWriter, r *http.Request) {
 	q.Del("token")
 	r.URL.RawQuery = q.Encode()
 	proxy.ServeHTTP(w, r)
+}
+
+// sidecarEnv 构造最小化环境变量。
+//
+// 只保留 PATH / LANG / TZ 与插件自身所需变量，**不继承控制面完整环境**，
+// 避免把宿主机/控制面的无关密钥（如各类 TOKEN）泄露给插件进程（ADR-039 §9）。
+func sidecarEnv(dataDir, id string, port int, token, coreURL string) []string {
+	env := []string{
+		"PATH=" + os.Getenv("PATH"),
+		"HOME=" + filepath.Join(dataDir, "tools", id),
+		"GATEBOX_PLUGIN_ID=" + id,
+		"GATEBOX_PLUGIN_PORT=" + strconv.Itoa(port),
+		"GATEBOX_PLUGIN_TOKEN=" + token,
+		"GATEBOX_DATA_DIR=" + dataDir,
+	}
+	if coreURL != "" {
+		env = append(env, "GATEBOX_CORE_URL="+coreURL)
+	}
+	for _, k := range []string{"LANG", "LC_ALL", "TZ"} {
+		if v := os.Getenv(k); v != "" {
+			env = append(env, k+"="+v)
+		}
+	}
+	return env
 }
 
 func readPidFile(path string) int {
