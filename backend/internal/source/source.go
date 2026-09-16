@@ -271,7 +271,7 @@ func extractTarGz(data []byte, hint string) ([]byte, error) {
 	}
 	defer gz.Close()
 	tr := tar.NewReader(gz)
-	var best []byte
+	var best, bestExec []byte
 	for {
 		h, err := tr.Next()
 		if err == io.EOF {
@@ -283,23 +283,28 @@ func extractTarGz(data []byte, hint string) ([]byte, error) {
 		if h.Typeflag != tar.TypeReg || h.Size == 0 {
 			continue
 		}
-		if !strings.HasPrefix(h.Name, ".") && !strings.Contains(h.Name, "/.") && !strings.HasSuffix(h.Name, "/") {
-			b, err := io.ReadAll(tr)
-			if err != nil {
-				return nil, err
-			}
-			if best == nil {
-				best = b
-			}
-			if hint != "" && strings.Contains(filepath.Base(h.Name), hint) {
-				return b, nil
-			}
+		if strings.HasPrefix(h.Name, ".") || strings.Contains(h.Name, "/.") || strings.HasSuffix(h.Name, "/") {
+			continue
+		}
+		base := filepath.Base(h.Name)
+		if isNonBinary(base) {
+			continue
+		}
+		b, err := io.ReadAll(tr)
+		if err != nil {
+			return nil, err
+		}
+		if hint != "" && strings.Contains(base, hint) {
+			return b, nil
+		}
+		if best == nil {
+			best = b
+		}
+		if h.Mode&0o111 != 0 && bestExec == nil {
+			bestExec = b
 		}
 	}
-	if best == nil {
-		return nil, errors.New("压缩包内未找到可执行文件")
-	}
-	return best, nil
+	return pickBinary(best, bestExec)
 }
 
 func extractZip(data []byte, hint string) ([]byte, error) {
@@ -307,9 +312,13 @@ func extractZip(data []byte, hint string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	var best []byte
+	var best, bestExec []byte
 	for _, f := range zr.File {
 		if f.FileInfo().IsDir() {
+			continue
+		}
+		base := filepath.Base(f.Name)
+		if isNonBinary(base) {
 			continue
 		}
 		rc, err := f.Open()
@@ -321,17 +330,41 @@ func extractZip(data []byte, hint string) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
+		if hint != "" && strings.Contains(base, hint) {
+			return b, nil
+		}
 		if best == nil {
 			best = b
 		}
-		if hint != "" && strings.Contains(filepath.Base(f.Name), hint) {
-			return b, nil
+		if f.Mode()&0o111 != 0 && bestExec == nil {
+			bestExec = b
 		}
 	}
-	if best == nil {
-		return nil, errors.New("压缩包内未找到可执行文件")
+	return pickBinary(best, bestExec)
+}
+
+// pickBinary 优先返回可执行文件，其次任意文件；均无则报错。
+func pickBinary(best, bestExec []byte) ([]byte, error) {
+	if bestExec != nil {
+		return bestExec, nil
 	}
-	return best, nil
+	if best != nil {
+		return best, nil
+	}
+	return nil, errors.New("压缩包内未找到可执行文件")
+}
+
+// isNonBinary 判断是否为应跳过的非二进制文件（协议/说明/校验和）。
+func isNonBinary(base string) bool {
+	switch strings.ToUpper(base) {
+	case "LICENSE", "LICENSE.TXT", "LICENSE.MD", "README", "README.MD", "README.TXT", "CHANGELOG", "CHANGELOG.MD":
+		return true
+	}
+	switch strings.ToLower(filepath.Ext(base)) {
+	case ".txt", ".md", ".sha256", ".sha512", ".sig", ".asc", ".json", ".yaml", ".yml":
+		return true
+	}
+	return false
 }
 
 // InstallAtomic 原子替换目标文件：先写临时文件，再 rename；原文件备份为 .bak。
