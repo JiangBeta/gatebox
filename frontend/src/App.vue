@@ -12,6 +12,7 @@ import {
 } from '@ant-design/icons-vue'
 import theme from './theme'
 import { listComponents } from './api/components'
+import { listPlugins } from './api/plugins'
 import { toolRoute } from './utils/toolRoutes'
 import TaskCenter from './components/TaskCenter.vue'
 
@@ -33,8 +34,9 @@ const router = useRouter()
 const collapsed = ref(false)
 const openKeys = ref<string[]>(['/services'])
 
-// 「服务」子菜单 = 已安装的独立进程类组件（ddns-go / mosdns / tailscale / flame）。
+// 「服务」子菜单 = 独立进程类组件（ddns-go / mosdns / tailscale / flame）+ 插件 ui.nav 贡献。
 const serviceItems = ref<MenuNode[]>([])
+const pluginItems = ref<MenuNode[]>([])
 
 const menuItems = computed<MenuNode[]>(() => {
   const items: MenuNode[] = [
@@ -43,11 +45,12 @@ const menuItems = computed<MenuNode[]>(() => {
     { key: '/docker', label: '容器', icon: () => h(ContainerOutlined) },
     { key: '/domain', label: '域名', icon: () => h(GlobalOutlined) },
   ]
+  const children = [...serviceItems.value, ...pluginItems.value]
   items.push({
     key: '/services',
     label: '服务',
     icon: () => h(ClusterOutlined),
-    ...(serviceItems.value.length ? { children: serviceItems.value } : {}),
+    ...(children.length ? { children } : {}),
   })
   items.push(
     { key: '/extensions', label: '扩展', icon: () => h(AppstoreOutlined) },
@@ -68,6 +71,39 @@ async function loadServices() {
   }
 }
 
+// 已注册的插件路由名，避免重复 addRoute。
+const registeredPlugins = new Set<string>()
+
+// 插件导航与路由来自 manifest 的 ui.nav 贡献（核心不认插件身份，ADR-039 §3）。
+// 仅当插件带 role:ui 制品时注册 iframe 页面；纯声明式插件（无 UI 制品）只登记菜单。
+async function loadPlugins() {
+  try {
+    const plugins = await listPlugins()
+    const items: MenuNode[] = []
+    for (const p of plugins) {
+      if (p.state !== 'enabled') continue
+      const nav = p.contributions?.ui?.nav || []
+      const hasUI = (p.artifacts || []).some((a) => a.role === 'ui')
+      for (const n of nav) {
+        items.push({ key: `nav:${n.path}`, label: n.label })
+        if (hasUI && !registeredPlugins.has(p.id)) {
+          registeredPlugins.add(p.id)
+          router.addRoute({
+            path: n.path,
+            name: `plugin:${p.id}`,
+            component: () => import('./components/PluginHost.vue'),
+            props: { id: p.id, title: n.label },
+            meta: { title: n.label },
+          })
+        }
+      }
+    }
+    pluginItems.value = items
+  } catch {
+    /* 接口异常时菜单降级，不阻塞导航 */
+  }
+}
+
 // 底部功能区:icon + hover tooltip
 const footerItems = [
   { name: 'GitHub', icon: () => h(GithubOutlined), href: 'https://github.com/JiangBeta/gatebox' },
@@ -81,6 +117,7 @@ const activeKey = computed(() => route.path)
 const selectedKeys = computed<string[]>(() => {
   const comp = (route.query.component as string | undefined) || (route.meta.component as string | undefined)
   if (comp) return [`comp:${comp}`]
+  if (pluginItems.value.some((n) => n.key === `nav:${route.path}`)) return [`nav:${route.path}`]
   return [activeKey.value]
 })
 const title = computed(() => (route.meta.title as string) || 'GateBox')
@@ -95,6 +132,11 @@ function onMenu(info: { key: string }) {
     const path = toolRoute(id)
     if (path === '/services') router.push({ path, query: { component: id } })
     else router.push(path)
+    return
+  }
+  // 插件导航项：nav:<path> → 直接跳转其注册路由。
+  if (key.startsWith('nav:')) {
+    router.push(key.slice(4))
     return
   }
   router.push(key)
@@ -119,6 +161,7 @@ function getPopupContainer() {
 
 function onComponentsChanged() {
   void loadServices()
+  void loadPlugins()
 }
 
 function onTab(key: string) {
@@ -127,6 +170,7 @@ function onTab(key: string) {
 
 onMounted(() => {
   void loadServices()
+  void loadPlugins()
   window.addEventListener('gatebox:components-changed', onComponentsChanged)
 })
 onUnmounted(() => {

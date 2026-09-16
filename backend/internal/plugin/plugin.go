@@ -218,6 +218,17 @@ func (m *Manager) List() ([]View, error) {
 	return out, nil
 }
 
+// UIDir 返回插件 UI 制品目录；未安装 UI 时返回空串。
+//
+// UI 制品由内核静态托管于 /plugins/<id>/（ADR-039 §3），插件不自行对外暴露端口。
+func (m *Manager) UIDir(id string) string {
+	dir := filepath.Join(m.dataDir, "tools", id, "ui")
+	if st, err := os.Stat(dir); err == nil && st.IsDir() {
+		return dir
+	}
+	return ""
+}
+
 // Get 返回单个插件。
 func (m *Manager) Get(id string) (View, bool, error) {
 	list, err := m.List()

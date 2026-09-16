@@ -9,9 +9,7 @@ export const TOOL_ROUTE: Record<string, string> = {
   mosdns: '/services/mosdns',
   tailscale: '/services',
   flame: '/dashboard',
-  coraza: '/gateway',
-  geoip: '/gateway',
-  realip: '/gateway',
+  // 插件页路由由 manifest 的 ui.nav 动态注册，不再硬编码（ADR-039 §3）。
 }
 
 // toolRoute 返回组件/插件对应的工具页路由；无映射时回退扩展页。

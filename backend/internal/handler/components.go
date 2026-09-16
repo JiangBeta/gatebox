@@ -3,6 +3,9 @@ package handler
 import (
 	"errors"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/JiangBeta/gatebox/internal/catalog"
 	"github.com/JiangBeta/gatebox/internal/component"
@@ -16,6 +19,12 @@ func RegisterComponents(mux *http.ServeMux, reg *component.CoreRegistry, mgr *pl
 
 	mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	})
+
+	// 插件 UI 制品静态托管（L1 iframe 宿主，ADR-039 §3）：/plugins/<id>/*
+	mux.HandleFunc("GET /plugins/{id}/", servePluginUI(mgr))
+	mux.HandleFunc("GET /plugins/{id}", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, r.URL.Path+"/", http.StatusFound)
 	})
 
 	// 扩展能力注册表：消费者（前端/容器/网关）只查表，不认插件身份（ADR-036 I1）。
@@ -156,6 +165,29 @@ func RegisterComponents(mux *http.ServeMux, reg *component.CoreRegistry, mgr *pl
 		}
 		writeJSON(w, http.StatusOK, v)
 	})
+}
+
+// servePluginUI 静态托管插件的 UI 制品（$DATA_DIR/tools/<id>/ui）。
+//
+// 找不到具体文件时回退 index.html，支持插件前端自身的客户端路由；同时阻断路径穿越。
+func servePluginUI(mgr *plugin.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		dir := mgr.UIDir(id)
+		if dir == "" {
+			http.Error(w, "插件 UI 未安装", http.StatusNotFound)
+			return
+		}
+		rel := strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/plugins/"+id), "/")
+		if rel == "" {
+			rel = "index.html"
+		}
+		fp := filepath.Join(dir, filepath.Clean("/"+rel))
+		if st, err := os.Stat(fp); err != nil || st.IsDir() {
+			fp = filepath.Join(dir, "index.html")
+		}
+		http.ServeFile(w, r, fp)
+	}
 }
 
 // writeComponentErr 组件/商店操作的统一错误映射。

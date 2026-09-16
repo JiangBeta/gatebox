@@ -17,6 +17,7 @@ export interface PluginView {
     os?: string[]
     arch?: string[]
   }
+  artifacts?: { role: string; format?: string; url?: string; entry?: string }[]
   contributions?: {
     capabilities?: { point: string; data?: Record<string, any> }[]
     backend?: { point: string; for?: string; scope?: string }[]
