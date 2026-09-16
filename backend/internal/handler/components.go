@@ -103,6 +103,46 @@ func RegisterComponents(mux *http.ServeMux, reg *component.CoreRegistry, mgr *pl
 		writeJSON(w, http.StatusOK, info)
 	})
 
+	// 配方变体：查询当前变体键 + 触发按需构建（ADR-038 §4）。
+	mux.HandleFunc("GET /api/v1/components/{id}/variant", func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		info, ok := reg.Get(r.Context(), id)
+		if !ok {
+			writeErrCode(w, http.StatusNotFound, "NOT_FOUND", "组件不存在")
+			return
+		}
+		features := ext.ComponentFeatures(id)
+		writeJSON(w, http.StatusOK, variantInfo{
+			Component: id, Version: info.Current, Features: features,
+			Key: variantKey(id, info.Current, features), BuildURL: variantBuildURL(),
+			Runnable: variantBuild.token != "",
+		})
+	})
+	mux.HandleFunc("POST /api/v1/components/{id}/variant/build", func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		info, ok := reg.Get(r.Context(), id)
+		if !ok {
+			writeErrCode(w, http.StatusNotFound, "NOT_FOUND", "组件不存在")
+			return
+		}
+		if info.Current == "" {
+			writeErrCode(w, http.StatusBadRequest, "NO_VERSION", "组件版本未知，无法定位变体")
+			return
+		}
+		features := ext.ComponentFeatures(id)
+		if err := dispatchVariantBuild(r.Context(), info.Current, strings.Join(features, ",")); err != nil {
+			writeJSON(w, http.StatusAccepted, map[string]any{
+				"mode": "manual", "buildUrl": variantBuildURL(),
+				"message": err.Error() + "；请在构建页手动触发，完成后重新启用插件",
+			})
+			return
+		}
+		writeJSON(w, http.StatusAccepted, map[string]any{
+			"mode": "dispatch", "buildUrl": variantBuildURL(),
+			"message": "已触发构建；完成后重新启用插件即可应用新变体",
+		})
+	})
+
 	// 商店：可选组件 + 插件（AppStore 视图）。
 	mux.HandleFunc("GET /api/v1/store", func(w http.ResponseWriter, r *http.Request) {
 		items, err := cat.List(r.Context())

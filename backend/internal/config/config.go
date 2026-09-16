@@ -43,6 +43,11 @@ type Config struct {
 	CatalogURL string
 	// CatalogPubKey 发布者 Ed25519 公钥(base64)；非空时强制校验索引签名(ADR-037)。
 	CatalogPubKey string
+	// VariantRepo / VariantWorkflow 配方变体按需构建的目标仓库与 workflow(ADR-038 §4)。
+	VariantRepo     string
+	VariantWorkflow string
+	// GitHubToken 调用 GitHub API(如 workflow dispatch)的令牌;空则只返回手动链接。
+	GitHubToken string
 
 	ConfFile string // 实际加载的 conf 文件路径(定位用)
 }
@@ -83,6 +88,9 @@ func Load() Config {
 		AcmeBin:              sourceStr("GATEBOX_ACME_BIN", "acme_bin", "", vals),
 		CatalogURL:           sourceStr("GATEBOX_CATALOG_URL", "catalog_url", "https://jiangbeta.github.io/GateBoxStore/index.json", vals),
 		CatalogPubKey:        sourceStr("GATEBOX_CATALOG_PUBKEY", "catalog_pubkey", "", vals),
+		VariantRepo:          sourceStr("GATEBOX_VARIANT_REPO", "variant_repo", "JiangBeta/GateBoxStore", vals),
+		VariantWorkflow:      sourceStr("GATEBOX_VARIANT_WORKFLOW", "variant_workflow", "build-variant.yml", vals),
+		GitHubToken:          sourceStr("GATEBOX_GITHUB_TOKEN", "github_token", "", vals),
 		ConfFile:             confPath,
 	}
 }
@@ -93,6 +101,7 @@ var knownKeys = map[string]bool{
 	"caddy_http_port": true, "caddy_https_port": true, "caddy_https_extra_ports": true,
 	"static_root":   true,
 	"docker_socket": true, "docker_daemon_json": true, "acme_bin": true, "catalog_url": true, "catalog_pubkey": true,
+	"github_token": true, "variant_repo": true, "variant_workflow": true,
 }
 
 // readFile 解析 line `key = value` 的 conf 文件;不存在返回空,解析问题仅告警。
@@ -155,7 +164,10 @@ func writeDefaultConf(path, dataDir string) error {
 		"docker_daemon_json = /etc/docker/daemon.json\n" +
 		"acme_bin =\n" +
 		"catalog_url = https://jiangbeta.github.io/GateBoxStore/index.json\n" +
-		"catalog_pubkey =\n"
+		"catalog_pubkey =\n" +
+		"github_token =\n" +
+		"variant_repo = JiangBeta/GateBoxStore\n" +
+		"variant_workflow = build-variant.yml\n"
 	return os.WriteFile(path, []byte(content), 0o644)
 }
 

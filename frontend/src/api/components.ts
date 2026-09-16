@@ -59,3 +59,22 @@ export async function restartComponent(id: string): Promise<ComponentInfo> {
 export async function uninstallComponent(id: string): Promise<ComponentInfo> {
   return (await http.delete(`/components/${id}`)).data
 }
+
+/** 配方变体信息（ADR-038）：当前特征并集对应的变体键与构建入口。 */
+export interface VariantInfo {
+  component: string
+  version: string
+  features: string[]
+  key: string
+  buildUrl: string
+  runnable: boolean
+}
+
+export const getVariant = (id: string) =>
+  http.get<VariantInfo>(`/components/${id}/variant`).then((r) => r.data)
+
+/** 触发变体按需构建（无令牌时返回手动构建页链接）。 */
+export const buildVariant = (id: string) =>
+  http
+    .post<{ mode: string; buildUrl: string; message: string }>(`/components/${id}/variant/build`)
+    .then((r) => r.data)

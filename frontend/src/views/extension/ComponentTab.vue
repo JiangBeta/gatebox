@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Table, Button, Tag, message, Space, Tooltip } from 'ant-design-vue'
+import { Table, Button, Tag, message, Space, Tooltip, Modal, Descriptions, DescriptionsItem, Typography } from 'ant-design-vue'
 import {
-  ArrowUpOutlined, DeleteOutlined, EyeOutlined, PauseCircleOutlined,
+  ArrowUpOutlined, BuildOutlined, DeleteOutlined, EyeOutlined, PauseCircleOutlined,
   PlayCircleOutlined, ReloadOutlined,
 } from '@ant-design/icons-vue'
 import {
-  checkComponents, listComponents, restartComponent, startComponent,
-  stopComponent, uninstallComponent, upgradeComponent, type ComponentInfo,
+  buildVariant, checkComponents, getVariant, listComponents, restartComponent, startComponent,
+  stopComponent, uninstallComponent, upgradeComponent, type ComponentInfo, type VariantInfo,
 } from '../../api/components'
 import { toolRoute } from '../../utils/toolRoutes'
 
@@ -38,6 +38,38 @@ const KIND_LABEL: Record<string, string> = {
 
 // 组件页仅展示已安装项。
 const visibleRows = computed(() => rows.value.filter((r) => r.installed))
+
+// 配方变体：展示当前特征并集的变体键，并支持触发按需构建（ADR-038）。
+const variantModal = ref<{ open: boolean; info: VariantInfo | null }>({ open: false, info: null })
+const variantBusy = ref(false)
+
+async function openVariant(row: ComponentInfo) {
+  try {
+    const info = await getVariant(row.ID)
+    variantModal.value = { open: true, info }
+  } catch (e) {
+    // 组件的变体接口始终可用；出错多为网络问题。
+    messageApi.error((e as Error).message)
+  }
+}
+
+function openBuildPage() {
+  if (variantModal.value.info?.buildUrl) window.open(variantModal.value.info.buildUrl, '_blank')
+}
+
+async function doBuildVariant() {
+  if (!variantModal.value.info) return
+  variantBusy.value = true
+  try {
+    const r = await buildVariant(variantModal.value.info.component)
+    if (r.mode === 'dispatch') messageApi.success(r.message)
+    else messageApi.warning(r.message)
+  } catch (e) {
+    messageApi.error((e as Error).message)
+  } finally {
+    variantBusy.value = false
+  }
+}
 
 async function load() {
   loading.value = true
@@ -132,6 +164,11 @@ onMounted(load)
       </template>
       <template v-else-if="column.key === 'action'">
         <Space :size="4">
+          <Tooltip title="配方变体">
+            <Button type="text" size="small" @click="openVariant(record)">
+              <template #icon><BuildOutlined /></template>
+            </Button>
+          </Tooltip>
           <Tooltip title="升级">
             <Button
               type="text"
@@ -197,4 +234,30 @@ onMounted(load)
       </template>
     </template>
   </Table>
+
+  <Modal
+    :open="variantModal.open"
+    title="组件配方变体"
+    :footer="null"
+    @cancel="variantModal.open = false"
+  >
+    <template v-if="variantModal.info">
+      <Descriptions :column="1" size="small" bordered>
+        <DescriptionsItem label="组件">{{ variantModal.info.component }}</DescriptionsItem>
+        <DescriptionsItem label="版本">{{ variantModal.info.version || '—' }}</DescriptionsItem>
+        <DescriptionsItem label="特征并集">
+          {{ variantModal.info.features.length ? variantModal.info.features.join('、') : '（无）' }}
+        </DescriptionsItem>
+        <DescriptionsItem label="变体键">
+          <Typography.Text code>{{ variantModal.info.key }}</Typography.Text>
+        </DescriptionsItem>
+      </Descriptions>
+      <Space style="margin-top: 16px">
+        <Button type="primary" :loading="variantBusy" @click="doBuildVariant">
+          {{ variantModal.info.runnable ? '触发按需构建' : '触发构建（需配置令牌，否则给出手动链接）' }}
+        </Button>
+        <Button v-if="variantModal.info.buildUrl" @click="openBuildPage">打开发布仓库构建页</Button>
+      </Space>
+    </template>
+  </Modal>
 </template>
