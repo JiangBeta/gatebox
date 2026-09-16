@@ -72,6 +72,7 @@ func TestEnsureRetriesTransient(t *testing.T) {
 		HomeDir:     filepath.Join(dir, "acme"),
 		BinPath:     "acme.sh",
 		failCooldow: map[string]time.Time{},
+		fetchHook:   func(string) error { return nil },
 	}
 	restore := runCmd
 	defer func() { runCmd = restore }()
@@ -105,6 +106,7 @@ func TestEnsureNoRetryOnPermanent(t *testing.T) {
 		HomeDir:     filepath.Join(dir, "acme"),
 		BinPath:     "acme.sh",
 		failCooldow: map[string]time.Time{},
+		fetchHook:   func(string) error { return nil },
 	}
 	restore := runCmd
 	defer func() { runCmd = restore }()

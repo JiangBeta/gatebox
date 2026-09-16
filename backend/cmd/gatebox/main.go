@@ -87,7 +87,7 @@ func main() {
 
 	// 内网 DNS（mosdns）已迁为 kind:process 插件（GateBoxStore/plugins/mosdns）：
 	// 其管理逻辑由插件 sidecar 承载，mosdns 本体由 sidecar 代管（ADR-037 决策 (a)）。
-	handler := server.New(st, cm, dc, coll, caddyCli, health, cfg.DaemonJSONPath, cfg.DataDir, cfg.CaddyBin, cfg.StaticRoot, cfg.CaddyHTTPPort, cfg.CaddyHTTPSPort, cfg.CaddyHTTPSExtraPorts, ac, reg, mgr, ext)
+	handler := server.New(st, cm, dc, coll, caddyCli, health, cfg.DaemonJSONPath, cfg.DataDir, cfg.CaddyBin, cfg.StaticRoot, cfg.CatalogURL, cfg.CaddyHTTPPort, cfg.CaddyHTTPSPort, cfg.CaddyHTTPSExtraPorts, ac, reg, mgr, ext)
 
 	log.Printf("GateBox %s 启动: 监听 %s, 数据目录 %s", version, cfg.Addr, cfg.DataDir)
 	if err := http.ListenAndServe(cfg.Addr, handler); err != nil {

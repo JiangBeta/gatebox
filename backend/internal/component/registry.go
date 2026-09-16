@@ -59,6 +59,10 @@ type CoreRegistry struct {
 	dataDir string
 	src     *source.Client
 	cores   []core
+
+	// appliedVariant 记录各组件当前已应用的变体键，避免重复下载替换（ADR-038）。
+	appliedMu      sync.Mutex
+	appliedVariant map[string]string
 }
 
 // NewCoreRegistry 构造内置组件注册表。
@@ -117,7 +121,7 @@ func NewCoreRegistry(dataDir, caddyBin, caddyAdmin string, src *source.Client) *
 			check: "always",
 		},
 	}
-	return &CoreRegistry{dataDir: dataDir, src: src, cores: cores}
+	return &CoreRegistry{dataDir: dataDir, src: src, cores: cores, appliedVariant: map[string]string{}}
 }
 
 // Get 返回组件视图。

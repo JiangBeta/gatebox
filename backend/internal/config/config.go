@@ -39,6 +39,9 @@ type Config struct {
 	DaemonJSONPath string // dockerd 配置(镜像加速器白名单);NixOS/OpenWrt 等常不存在,只读展示
 	AcmeBin        string // acme.sh 可执行文件路径;空使用 PATH 中的 "acme.sh"
 
+	// CatalogURL 插件静态索引(catalog v1)地址：拉取插件目录与核心组件配方变体(ADR-037/038)。
+	CatalogURL string
+
 	ConfFile string // 实际加载的 conf 文件路径(定位用)
 }
 
@@ -76,6 +79,7 @@ func Load() Config {
 		DockerSocket:         sourceStr("GATEBOX_DOCKER_SOCKET", "docker_socket", "/var/run/docker.sock", vals),
 		DaemonJSONPath:       sourceStr("GATEBOX_DOCKER_DAEMON_JSON", "docker_daemon_json", "/etc/docker/daemon.json", vals),
 		AcmeBin:              sourceStr("GATEBOX_ACME_BIN", "acme_bin", "", vals),
+		CatalogURL:           sourceStr("GATEBOX_CATALOG_URL", "catalog_url", "https://jiangbeta.github.io/GateBoxStore/index.json", vals),
 		ConfFile:             confPath,
 	}
 }
@@ -85,7 +89,7 @@ var knownKeys = map[string]bool{
 	"data_dir": true, "addr": true, "caddy_admin": true, "caddy_bin": true,
 	"caddy_http_port": true, "caddy_https_port": true, "caddy_https_extra_ports": true,
 	"static_root":   true,
-	"docker_socket": true, "docker_daemon_json": true, "acme_bin": true,
+	"docker_socket": true, "docker_daemon_json": true, "acme_bin": true, "catalog_url": true,
 }
 
 // readFile 解析 line `key = value` 的 conf 文件;不存在返回空,解析问题仅告警。
@@ -146,7 +150,8 @@ func writeDefaultConf(path, dataDir string) error {
 		"static_root = " + filepath.Join(dataDir, "www") + "\n" +
 		"docker_socket = /var/run/docker.sock\n" +
 		"docker_daemon_json = /etc/docker/daemon.json\n" +
-		"acme_bin =\n"
+		"acme_bin =\n" +
+		"catalog_url = https://jiangbeta.github.io/GateBoxStore/index.json\n"
 	return os.WriteFile(path, []byte(content), 0o644)
 }
 

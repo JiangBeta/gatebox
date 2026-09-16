@@ -14,6 +14,8 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -54,6 +56,9 @@ type Issuer struct {
 	email        string // ACME 注册邮箱(全局,空=不指定)
 	accountReady bool   // 当前 email 是否已注册过账号(避免每次签发重复注册)
 	accountEmail string // accountReady 对应的邮箱
+
+	// fetchHook 下载缺失的 DNS API 钩子(测试注入);nil 时走内置 HTTP 下载。
+	fetchHook func(hook string) error
 
 	// providers 解析 DNS 凭证供应商（来自扩展注册表，核心不再硬编码供应商）。
 	providers func(id string) (extension.DNSProviderSpec, bool)
@@ -118,6 +123,62 @@ func (i *Issuer) issueArgs(params, fqdn string, force bool) []string {
 		args = append(args, "--force")
 	}
 	return args
+}
+
+// dnsAPIBase acme.sh DNS API 钩子官方源(raw)。GateBox 的 acme.sh 只安装单脚本、
+// 不含 dnsapi/ 目录,故在 HomeDir/dnsapi 缺失时按需下载对应钩子,避免
+// "Cannot find DNS API hook for: dns_tencent" 导致签发失败。
+const dnsAPIBase = "https://raw.githubusercontent.com/acmesh-official/acme.sh/master/dnsapi"
+
+// hookDir 返回 acme.sh 查找 DNS API 钩子的目录(<home>/dnsapi)。
+func (i *Issuer) hookDir() string {
+	base := i.HomeDir
+	if base == "" {
+		base = filepath.Dir(i.BinPath)
+	}
+	return filepath.Join(base, "dnsapi")
+}
+
+// ensureHook 确保 acme.sh 能解析到指定 DNS API 钩子(如 dns_tencent)。已存在则跳过,
+// 否则从官方源下载单个钩子脚本(自包含,无外部依赖)。
+func (i *Issuer) ensureHook(hook string) error {
+	hook = strings.TrimSpace(hook)
+	if hook == "" {
+		return nil
+	}
+	dir := i.hookDir()
+	path := filepath.Join(dir, hook+".sh")
+	if _, err := os.Stat(path); err == nil {
+		return nil
+	}
+	if i.fetchHook != nil {
+		return i.fetchHook(hook)
+	}
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, dnsAPIBase+"/"+hook+".sh", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("下载 acme.sh DNS 钩子 %s 失败: %w", hook, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("下载 acme.sh DNS 钩子 %s 失败: HTTP %d", hook, resp.StatusCode)
+	}
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return fmt.Errorf("读取 acme.sh DNS 钩子 %s 失败: %w", hook, err)
+	}
+	if err := os.WriteFile(path, b, 0o755); err != nil {
+		return fmt.Errorf("写入 acme.sh DNS 钩子 %s 失败: %w", hook, err)
+	}
+	return nil
 }
 
 // New 构造 Issuer。
@@ -301,6 +362,17 @@ func (i *Issuer) ensure(ctx context.Context, cred model.DNSCredential, fqdn stri
 		}
 		defer f.Close()
 		_, _ = f.Write([]byte(out))
+	}
+
+	// DNS API 钩子:HomeDir/dnsapi 缺失时按需下载(acme.sh 仅装单脚本时必需)。
+	if err := i.ensureHook(params); err != nil {
+		appendLog("GateBox: " + err.Error() + "\n")
+		if !force {
+			i.mu.Lock()
+			i.failCooldow[fqdn] = time.Now().Add(failCooldown)
+			i.mu.Unlock()
+		}
+		return logFile, err
 	}
 
 	// 账号注册:配置了邮箱时先确保账号已注册(幂等)。所有操作都在 HomeDir 内。

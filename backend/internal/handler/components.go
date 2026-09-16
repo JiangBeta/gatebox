@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"context"
 	"errors"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -14,7 +16,9 @@ import (
 )
 
 // RegisterComponents 注册组件、插件、扩展能力与商店相关路由。
-func RegisterComponents(mux *http.ServeMux, reg *component.CoreRegistry, mgr *plugin.Manager, ext *extension.Registry) {
+//
+// catalogURL 为插件静态索引地址，用于核心组件配方变体重算（ADR-038）；空则跳过。
+func RegisterComponents(mux *http.ServeMux, reg *component.CoreRegistry, mgr *plugin.Manager, ext *extension.Registry, catalogURL string) {
 	cat := catalog.New(reg, mgr)
 
 	mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, _ *http.Request) {
@@ -142,37 +146,45 @@ func RegisterComponents(mux *http.ServeMux, reg *component.CoreRegistry, mgr *pl
 		writeJSON(w, http.StatusOK, v)
 	})
 	mux.HandleFunc("POST /api/v1/plugins/{id}/enable", func(w http.ResponseWriter, r *http.Request) {
-		v, err := mgr.Enable(r.PathValue("id"))
+		id := r.PathValue("id")
+		v, err := mgr.Enable(id)
 		if err != nil {
 			writeErrCode(w, http.StatusBadRequest, pluginCode(err), err.Error())
 			return
 		}
+		applyVariantsFor(r.Context(), reg, ext, mgr, catalogURL, id)
 		writeJSON(w, http.StatusOK, v)
 	})
 	mux.HandleFunc("POST /api/v1/plugins/{id}/disable", func(w http.ResponseWriter, r *http.Request) {
-		v, err := mgr.Disable(r.PathValue("id"))
+		id := r.PathValue("id")
+		v, err := mgr.Disable(id)
 		if err != nil {
 			writeErrCode(w, http.StatusBadRequest, pluginCode(err), err.Error())
 			return
 		}
+		applyVariantsFor(r.Context(), reg, ext, mgr, catalogURL, id)
 		writeJSON(w, http.StatusOK, v)
 	})
 	mux.HandleFunc("DELETE /api/v1/plugins/{id}", func(w http.ResponseWriter, r *http.Request) {
-		v, err := mgr.Remove(r.PathValue("id"))
+		id := r.PathValue("id")
+		v, err := mgr.Remove(id)
 		if err != nil {
 			writeErrCode(w, http.StatusBadRequest, pluginCode(err), err.Error())
 			return
 		}
+		applyVariantsFor(r.Context(), reg, ext, mgr, catalogURL, id)
 		writeJSON(w, http.StatusOK, v)
 	})
 
 	// 彻底卸载（purge）：连同配置与密钥一并删除（ADR-037 §4）。
 	mux.HandleFunc("DELETE /api/v1/plugins/{id}/purge", func(w http.ResponseWriter, r *http.Request) {
-		v, err := mgr.Purge(r.PathValue("id"))
+		id := r.PathValue("id")
+		v, err := mgr.Purge(id)
 		if err != nil {
 			writeErrCode(w, http.StatusBadRequest, pluginCode(err), err.Error())
 			return
 		}
+		applyVariantsFor(r.Context(), reg, ext, mgr, catalogURL, id)
 		writeJSON(w, http.StatusOK, v)
 	})
 
@@ -187,6 +199,48 @@ func RegisterComponents(mux *http.ServeMux, reg *component.CoreRegistry, mgr *pl
 	})
 	// 插件后端 API 反代：/api/v1/plugins/<id>/* → sidecar（ADR-039 §1/§2）。
 	mux.HandleFunc("/api/v1/plugins/{id}/", mgr.Proxy)
+}
+
+// applyVariantsFor 在插件启停/卸载后重算受影响组件的配方变体（ADR-038）。
+//
+// 仅处理声明了 `component-variant` 贡献的插件；best-effort，失败仅告警不阻塞插件操作。
+func applyVariantsFor(ctx context.Context, reg *component.CoreRegistry, ext *extension.Registry, mgr *plugin.Manager, catalogURL, pluginID string) {
+	if catalogURL == "" {
+		return
+	}
+	v, ok, err := mgr.Get(pluginID)
+	if err != nil || !ok {
+		return
+	}
+	affected := map[string]bool{}
+	for _, c := range v.Contributions.Capabilities {
+		if c.Point != extension.PointComponentVar {
+			continue
+		}
+		if comp, _ := c.Data["component"].(string); comp != "" {
+			affected[comp] = true
+		}
+	}
+	for comp := range affected {
+		info, ok := reg.Get(ctx, comp)
+		if !ok {
+			continue
+		}
+		if info.Current == "" {
+			log.Printf("组件 %s 变体重算跳过：版本未知", comp)
+			continue
+		}
+		features := ext.ComponentFeatures(comp)
+		dest, err := reg.ApplyVariant(ctx, comp, info.Current, features, catalogURL)
+		if err != nil {
+			log.Printf("组件 %s 变体重算失败: %v", comp, err)
+			continue
+		}
+		log.Printf("组件 %s 已应用变体 features=%v → %s", comp, features, dest)
+		if _, err := reg.Restart(ctx, comp); err != nil {
+			log.Printf("组件 %s 应用变体后重启失败: %v", comp, err)
+		}
+	}
 }
 
 // servePluginUI 静态托管插件的 UI 制品（$DATA_DIR/tools/<id>/ui）。

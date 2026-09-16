@@ -23,7 +23,7 @@ import (
 )
 
 // New 构造完整 HTTP handler。
-func New(s *repository.Store, cm cert.CertManager, dc *client.Client, coll *stats.Collector, caddyCli *caddy.Client, health *gateway.HealthCollector, daemonJSON, dataDir, caddyBin, staticRoot string, httpPort, httpsPort int, extraHTTPSPorts []int, ac *acme.Issuer, reg *component.CoreRegistry, mgr *plugin.Manager, ext *extension.Registry) http.Handler {
+func New(s *repository.Store, cm cert.CertManager, dc *client.Client, coll *stats.Collector, caddyCli *caddy.Client, health *gateway.HealthCollector, daemonJSON, dataDir, caddyBin, staticRoot, catalogURL string, httpPort, httpsPort int, extraHTTPSPorts []int, ac *acme.Issuer, reg *component.CoreRegistry, mgr *plugin.Manager, ext *extension.Registry) http.Handler {
 	mux := http.NewServeMux()
 	apiH := handler.Register(mux, s, cm, ac, ext)
 	gw := handler.RegisterGateway(mux, s, dc, caddyCli, health, dataDir, caddyBin, staticRoot, httpPort, httpsPort, extraHTTPSPorts, ac, ext)
@@ -34,7 +34,7 @@ func New(s *repository.Store, cm cert.CertManager, dc *client.Client, coll *stat
 		handler.RegisterDocker(mux, dc, coll, s, daemonJSON, dataDir, gw.SyncDockerLabels)
 	}
 	// 组件运行时 + 插件 + 扩展平台（v3）。
-	handler.RegisterComponents(mux, reg, mgr, ext)
+	handler.RegisterComponents(mux, reg, mgr, ext, catalogURL)
 	// 插件投影 API（token 鉴权 + scope + 长轮询，ADR-039 §2）。
 	handler.RegisterProjection(mux, mgr, s, ext, gw.DerivedServices)
 

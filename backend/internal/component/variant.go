@@ -3,6 +3,8 @@ package component
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"runtime"
 
 	"github.com/JiangBeta/gatebox/internal/extension"
@@ -16,6 +18,18 @@ import (
 // 组件重启由调用方在成功后触发。
 func (r *CoreRegistry) ApplyVariant(ctx context.Context, id, version string, features []string, indexURL string) (string, error) {
 	key := extension.VariantKey(id, version, "linux", archOf(), features)
+
+	// 已应用同一变体且 active 二进制仍在 → 跳过（避免重复下载替换）。
+	active := filepath.Join(r.dataDir, "tools", id, id)
+	r.appliedMu.Lock()
+	same := r.appliedVariant[id] == key
+	r.appliedMu.Unlock()
+	if same {
+		if _, err := os.Stat(active); err == nil {
+			return active, nil
+		}
+	}
+
 	cat, err := r.src.FetchCatalog(ctx, indexURL)
 	if err != nil {
 		return "", fmt.Errorf("拉取索引失败: %w", err)
@@ -35,7 +49,17 @@ func (r *CoreRegistry) ApplyVariant(ctx context.Context, id, version string, fea
 	if err != nil {
 		return "", err
 	}
-	return source.InstallVersioned(r.dataDir, id, key, bin)
+	dest, err := source.InstallVersioned(r.dataDir, id, key, bin)
+	if err != nil {
+		return "", err
+	}
+	r.appliedMu.Lock()
+	if r.appliedVariant == nil {
+		r.appliedVariant = map[string]string{}
+	}
+	r.appliedVariant[id] = key
+	r.appliedMu.Unlock()
+	return dest, nil
 }
 
 func archOf() string {
