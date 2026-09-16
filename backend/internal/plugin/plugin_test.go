@@ -80,7 +80,8 @@ func TestBuiltinCatalogV2(t *testing.T) {
 			}
 		}
 	}
-	if !strings.Contains(caddyL4Template, "layer4 {") {
+	man, _ := findManifest("caddy-l4")
+	if !strings.Contains(man.Contributions.Backend[0].Impl["template"], "layer4 {") {
 		t.Error("caddy-l4 模板应含 layer4 指令")
 	}
 }

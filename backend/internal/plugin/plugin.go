@@ -6,16 +6,22 @@ package plugin
 
 import (
 	"context"
+	"embed"
+	"encoding/json"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/JiangBeta/gatebox/internal/extension"
 	"github.com/JiangBeta/gatebox/internal/model"
 	"github.com/JiangBeta/gatebox/internal/repository"
 	"github.com/JiangBeta/gatebox/internal/source"
+	"gopkg.in/yaml.v3"
 )
 
 // Publisher 发布者信息（appstore 签名预留）。
@@ -416,85 +422,53 @@ func arch() string {
 	return "amd64"
 }
 
-// caddyL4Template 是 Caddy-L4 插件随包携带的 renderer 模板（插件数据，非核心代码）。
-//
-// 核心只把中性 ProxyRule 交给注册表里的 renderer，对此模板内容一无所知。
-const caddyL4Template = `layer4 {
-{{- range .Rules }}
-{{- $r := . }}
-{{- range $r.Nets }}
-{{- $net := . }}
-{{- range $r.Ports }}
-	{{ $net }}/:{{ . }} {
-		route {
-			proxy {{ $net }}/{{ $r.Upstream }}
-		}
-	}
-{{- end }}
-{{- end }}
-{{- end }}
-}`
+//go:embed builtin/*.yaml
+var builtinFS embed.FS
 
+// builtinCatalog 加载随包内置的插件 manifest（磁盘 YAML，非 Go 硬编码）。
+//
+// ADR-037 §7：内置插件以 manifest 文件随包分发，运行时解析加载；在线插件从静态索引拉取，
+// 二者走同一解析与状态机。核心不再包含任何插件业务代码。
 func builtinCatalog() []Manifest {
-	return []Manifest{
-		{
-			APIVersion: "gatebox/v2", Kind: "caddy-module", ID: "coraza", Name: "Coraza WAF",
-			Version: "0.1.0", Channel: "official", Tags: []string{"Caddy插件"},
-			Summary:  "OWASP CRS 规则的 Web 应用防火墙（需含 coraza 模块的 Caddy 制品）",
-			Requires: Requires{Gatebox: ">=0.3.0", ExtensionAPI: ">=1", Components: []string{"caddy"}},
-			Contributions: Contributions{
-				UI: UIContributions{
-					Nav:  []NavItem{{Path: "/plugins/coraza", Label: "WAF", Icon: "shield"}},
-					Page: map[string]string{"type": "settings"},
-				},
-			},
-		},
-		{
-			APIVersion: "gatebox/v2", Kind: "caddy-module", ID: "geoip", Name: "GeoIP",
-			Version: "0.1.0", Channel: "official", Tags: []string{"Caddy插件"},
-			Summary:  "按国家/地区做访问控制与分流（需含 geoip 模块的 Caddy 制品）",
-			Requires: Requires{ExtensionAPI: ">=1", Components: []string{"caddy"}},
-			Contributions: Contributions{
-				UI: UIContributions{Page: map[string]string{"type": "settings"}},
-			},
-		},
-		{
-			APIVersion: "gatebox/v2", Kind: "caddy-module", ID: "caddy-l4", Name: "Caddy L4",
-			Version: "0.1.0", Channel: "official", Tags: []string{"Caddy插件", "TCP/UDP"},
-			Summary:  "为 Caddy 增加 TCP/UDP（L4）代理能力（Caddy 官方构建 API 动态构建，含 github.com/mholt/caddy-l4）",
-			Requires: Requires{Gatebox: ">=0.3.0", ExtensionAPI: ">=1", Components: []string{"caddy"}},
-			Artifacts: []Artifact{
-				{Role: RoleBinary, OS: "linux", Arch: "amd64", URL: "https://caddyserver.com/api/download?os=linux&arch=amd64&p=github.com/mholt/caddy-l4"},
-				{Role: RoleBinary, OS: "linux", Arch: "arm64", URL: "https://caddyserver.com/api/download?os=linux&arch=arm64&p=github.com/mholt/caddy-l4"},
-			},
-			Contributions: Contributions{
-				Capabilities: []Contribution{
-					{Point: extension.PointProxyProtocols, Data: map[string]any{
-						"class": extension.ClassNonHTTP, "label": "TCP/UDP",
-						"networks": []string{"tcp", "udp"}, "requiresPrimaryDomain": false,
-					}},
-				},
-				Backend: []BackendContribution{
-					{Point: extension.PointRenderer, For: extension.ClassNonHTTP, Scope: "global",
-						Impl: map[string]string{"type": "template", "template": caddyL4Template}},
-				},
-				UI: UIContributions{
-					Slots: []Slot{{Slot: "port-form.protocol-options", From: extension.PointProxyProtocols}},
-					Page:  map[string]string{"type": "settings"},
-				},
-			},
-			Permissions: []Permission{
-				{Filesystem: map[string][]string{"write": {"tools/caddy-l4"}}},
-			},
-		},
-		{
-			APIVersion: "gatebox/v2", Kind: "config-only", ID: "realip", Name: "Real IP",
-			Version: "0.1.0", Channel: "official", Tags: []string{"Caddy插件"},
-			Summary:  "在 Caddyfile 注入 real_ip 指令，还原客户端真实地址",
-			Requires: Requires{ExtensionAPI: ">=1", Components: []string{"caddy"}},
-			Contributions: Contributions{
-				UI: UIContributions{Page: map[string]string{"type": "settings"}},
-			},
-		},
+	entries, err := fs.ReadDir(builtinFS, "builtin")
+	if err != nil {
+		return nil
 	}
+	out := make([]Manifest, 0, len(entries))
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".yaml") {
+			continue
+		}
+		b, err := builtinFS.ReadFile("builtin/" + e.Name())
+		if err != nil {
+			continue
+		}
+		m, err := ParseManifestYAML(b)
+		if err != nil {
+			continue
+		}
+		out = append(out, m)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
+// ParseManifestYAML 解析 YAML manifest。
+//
+// 经 JSON 桥接复用 `json` 标签，保证 YAML 与 JSON 两种表示的语义完全一致；
+// GateBoxStore 的 manifest.yaml 与此同源。
+func ParseManifestYAML(b []byte) (Manifest, error) {
+	var raw any
+	if err := yaml.Unmarshal(b, &raw); err != nil {
+		return Manifest{}, err
+	}
+	jb, err := json.Marshal(raw)
+	if err != nil {
+		return Manifest{}, err
+	}
+	var m Manifest
+	if err := json.Unmarshal(jb, &m); err != nil {
+		return Manifest{}, err
+	}
+	return m, nil
 }
