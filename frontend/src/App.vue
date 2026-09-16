@@ -83,19 +83,26 @@ async function loadPlugins() {
     for (const p of plugins) {
       if (p.state !== 'enabled') continue
       const nav = p.contributions?.ui?.nav || []
-      const hasUI = (p.artifacts || []).some((a) => a.role === 'ui')
+      const ui = (p.artifacts || []).find((a) => a.role === 'ui')
+      // L2 远程 ESM 仅 official/verified 可用；其余（含无 UI 制品）不注册页面。
+      const trusted = p.channel === 'official' || p.channel === 'verified'
+      const isEsm = ui?.format === 'esm'
+      const isIframe = ui && ui.format !== 'esm'
+      if (!ui || (isEsm && !trusted)) continue
+      if (registeredPlugins.has(p.id)) continue
+      registeredPlugins.add(p.id)
+      const loader = isIframe
+        ? () => import('./components/PluginHost.vue')
+        : () => import('./components/PluginEsmHost.vue')
       for (const n of nav) {
         items.push({ key: `nav:${n.path}`, label: n.label })
-        if (hasUI && !registeredPlugins.has(p.id)) {
-          registeredPlugins.add(p.id)
-          router.addRoute({
-            path: n.path,
-            name: `plugin:${p.id}`,
-            component: () => import('./components/PluginHost.vue'),
-            props: { id: p.id, title: n.label },
-            meta: { title: n.label },
-          })
-        }
+        router.addRoute({
+          path: n.path,
+          name: `plugin:${p.id}`,
+          component: loader,
+          props: { id: p.id, title: n.label, entry: ui.entry },
+          meta: { title: n.label },
+        })
       }
     }
     pluginItems.value = items

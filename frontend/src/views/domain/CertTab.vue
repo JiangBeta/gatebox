@@ -278,7 +278,7 @@ function actionCell(record: SubdomainCert) {
   const renewTitle = record.hasCert ? '重新申请' : '申请证书'
   btns.push(
     h(Tooltip, { title: renewTitle }, { default: () => h(Popconfirm, { title: `${renewTitle} ${record.fqdn}？`, onConfirm: () => doRenew(record) }, { default: () => h(Button, { size: 'small', type: 'primary', ghost: true, loading: renewing.value[record.fqdn] }, { default: () => h(ReloadOutlined) }) }) }),
-    h(Tooltip, { title: '证书日志' }, { default: () => h(Button, { size: 'small', onClick: () => openLogs(record) }, { default: () => h(FileTextOutlined) }) }),
+    h(Tooltip, { title: `证书日志${record.hasCert ? '' : '（查看申请失败原因）'}` }, { default: () => h(Button, { size: 'small', onClick: () => openLogs(record) }, { default: () => h(FileTextOutlined) }) }),
   )
   if (record.hasCert) {
     btns.push(
