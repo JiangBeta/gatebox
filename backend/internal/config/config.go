@@ -43,6 +43,8 @@ type Config struct {
 	CatalogURL string
 	// CatalogPubKey 发布者 Ed25519 公钥(base64)；非空时强制校验索引签名(ADR-037)。
 	CatalogPubKey string
+	// AdminPasswordHash 单管理员口令的 sha256(十六进制)；空则不启用控制面鉴权(ADR-030 §3)。
+	AdminPasswordHash string
 	// VariantRepo / VariantWorkflow 配方变体按需构建的目标仓库与 workflow(ADR-038 §4)。
 	VariantRepo     string
 	VariantWorkflow string
@@ -88,6 +90,7 @@ func Load() Config {
 		AcmeBin:              sourceStr("GATEBOX_ACME_BIN", "acme_bin", "", vals),
 		CatalogURL:           sourceStr("GATEBOX_CATALOG_URL", "catalog_url", "https://jiangbeta.github.io/GateBoxStore/index.json", vals),
 		CatalogPubKey:        sourceStr("GATEBOX_CATALOG_PUBKEY", "catalog_pubkey", "", vals),
+		AdminPasswordHash:    sourceStr("GATEBOX_ADMIN_PASSWORD_SHA256", "admin_password_sha256", "", vals),
 		VariantRepo:          sourceStr("GATEBOX_VARIANT_REPO", "variant_repo", "JiangBeta/GateBoxStore", vals),
 		VariantWorkflow:      sourceStr("GATEBOX_VARIANT_WORKFLOW", "variant_workflow", "build-variant.yml", vals),
 		GitHubToken:          sourceStr("GATEBOX_GITHUB_TOKEN", "github_token", "", vals),
@@ -101,7 +104,7 @@ var knownKeys = map[string]bool{
 	"caddy_http_port": true, "caddy_https_port": true, "caddy_https_extra_ports": true,
 	"static_root":   true,
 	"docker_socket": true, "docker_daemon_json": true, "acme_bin": true, "catalog_url": true, "catalog_pubkey": true,
-	"github_token": true, "variant_repo": true, "variant_workflow": true,
+	"github_token": true, "variant_repo": true, "variant_workflow": true, "admin_password_sha256": true,
 }
 
 // readFile 解析 line `key = value` 的 conf 文件;不存在返回空,解析问题仅告警。
@@ -167,7 +170,9 @@ func writeDefaultConf(path, dataDir string) error {
 		"catalog_pubkey =\n" +
 		"github_token =\n" +
 		"variant_repo = JiangBeta/GateBoxStore\n" +
-		"variant_workflow = build-variant.yml\n"
+		"variant_workflow = build-variant.yml\n" +
+		"# 控制面鉴权口令的 sha256(十六进制)；留空则不启用。生成：printf %%s 你的口令 | sha256sum\n" +
+		"admin_password_sha256 =\n"
 	return os.WriteFile(path, []byte(content), 0o644)
 }
 

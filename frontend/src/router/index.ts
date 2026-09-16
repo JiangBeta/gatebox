@@ -2,6 +2,7 @@ import { createRouter, createWebHashHistory } from 'vue-router'
 
 const routes = [
   { path: '/', redirect: '/dashboard' },
+  { path: '/login', component: () => import('../views/LoginView.vue'), meta: { title: '登录' } },
   { path: '/dashboard', component: () => import('../views/DashboardView.vue'), meta: { title: '仪表盘' } },
   {
     path: '/gateway',

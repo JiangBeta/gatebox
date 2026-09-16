@@ -387,6 +387,8 @@ Vue 组件 PascalCase 且与文件名同名；composable 一律 `useXxx`。
 - 定义一张 `Capability` 常量表**预留**未来扩展，**不引入 Casbin/RBAC**。
 - 未来加能力只需在表里加项，不阻塞当前开发。
 
+> **实现（2026-09-16）**：单管理员口令（`admin_password_sha256`，留空则不启用）+ 无状态 HMAC 会话 Cookie（`/api/v1/auth/{login,logout,me}`）；中间件保护 `/api/v1/*`，放行健康检查与插件投影（后者用 plugin token 自鉴权）。前端含登录页与会话失效跳转；未配置口令时维持开放（内网开发），无行为变化。
+
 ### 11.1 服务身份与 Docker 权限（ADR-034）
 
 - GateBox 本体以专用低权用户 `gatebox` 运行（systemd `User=gatebox`），托管进程同权限。

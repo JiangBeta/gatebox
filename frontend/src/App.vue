@@ -13,6 +13,7 @@ import {
 import theme from './theme'
 import { listComponents } from './api/components'
 import { listPlugins } from './api/plugins'
+import { me, logout } from './api/auth'
 import { toolRoute } from './utils/toolRoutes'
 import TaskCenter from './components/TaskCenter.vue'
 
@@ -33,6 +34,24 @@ const router = useRouter()
 
 const collapsed = ref(false)
 const openKeys = ref<string[]>(['/services'])
+
+// 控制面鉴权（可选启用）：登录页不套用主布局。
+const isLogin = computed(() => route.path === '/login')
+async function checkAuth() {
+  try {
+    const s = await me()
+    if (s.enabled && !s.authed && !isLogin.value) router.replace('/login')
+  } catch {
+    /* 探测失败不阻塞（未启用鉴权时接口也可能异常） */
+  }
+}
+async function onLogout() {
+  try {
+    await logout()
+  } finally {
+    router.replace('/login')
+  }
+}
 
 // 「服务」子菜单 = 剩余独立进程类组件（tailscale）+ 插件 ui.nav 贡献。
 const serviceItems = ref<MenuNode[]>([])
@@ -176,6 +195,7 @@ function onTab(key: string) {
 }
 
 onMounted(() => {
+  void checkAuth()
   void loadServices()
   void loadPlugins()
   window.addEventListener('gatebox:components-changed', onComponentsChanged)
@@ -187,7 +207,8 @@ onUnmounted(() => {
 
 <template>
   <ConfigProvider :theme="theme">
-    <Layout style="min-height: 100vh">
+    <router-view v-if="isLogin" />
+    <Layout v-else style="min-height: 100vh">
       <Layout.Sider
         class="app-sider"
         :width="220"
@@ -277,6 +298,7 @@ onUnmounted(() => {
 
         <!-- 退出按钮:最底部,居下,18px 粗体 -->
         <div
+          @click="onLogout"
           :style="{
             borderTop: '1px solid #f0f0f0',
             padding: collapsed ? '14px 0' : '16px 0',

@@ -23,8 +23,9 @@ import (
 )
 
 // New 构造完整 HTTP handler。
-func New(s *repository.Store, cm cert.CertManager, dc *client.Client, coll *stats.Collector, caddyCli *caddy.Client, health *gateway.HealthCollector, daemonJSON, dataDir, caddyBin, staticRoot, catalogURL string, httpPort, httpsPort int, extraHTTPSPorts []int, ac *acme.Issuer, reg *component.CoreRegistry, mgr *plugin.Manager, ext *extension.Registry) http.Handler {
+func New(s *repository.Store, cm cert.CertManager, dc *client.Client, coll *stats.Collector, caddyCli *caddy.Client, health *gateway.HealthCollector, daemonJSON, dataDir, caddyBin, staticRoot, catalogURL string, httpPort, httpsPort int, extraHTTPSPorts []int, ac *acme.Issuer, reg *component.CoreRegistry, mgr *plugin.Manager, ext *extension.Registry, auth *handler.Auth) http.Handler {
 	mux := http.NewServeMux()
+	auth.Register(mux)
 	apiH := handler.Register(mux, s, cm, ac, ext)
 	gw := handler.RegisterGateway(mux, s, dc, caddyCli, health, dataDir, caddyBin, staticRoot, httpPort, httpsPort, extraHTTPSPorts, ac, ext)
 	// 域名页二级域名统计需含 docker 派生(编排)服务。
@@ -43,7 +44,7 @@ func New(s *repository.Store, cm cert.CertManager, dc *client.Client, coll *stat
 		mux.Handle("/", http.FileServer(http.FS(distFS)))
 	}
 
-	return withAccessLog(withCORS(mux))
+	return withAccessLog(withCORS(auth.Middleware(mux)))
 }
 
 // withAccessLog 请求访问日志(受 GATEBOX_ACCESS_LOG=1 门控;WS 经 CORS 内层先走,
