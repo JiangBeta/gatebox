@@ -84,6 +84,16 @@ func main() {
 	if _, port, err := net.SplitHostPort(cfg.Addr); err == nil {
 		mgr.SetCoreURL("http://127.0.0.1:" + port)
 	}
+	// 在线插件目录（ADR-037 §7）：best-effort 合并，失败仅用内置目录。
+	mgr.SetCatalogURL(cfg.CatalogURL)
+	mgr.SetGateboxVersion(version)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		if err := mgr.RefreshOnline(ctx); err != nil {
+			log.Printf("拉取在线插件索引失败(仅用内置目录): %v", err)
+		}
+	}()
 
 	// 内网 DNS（mosdns）已迁为 kind:process 插件（GateBoxStore/plugins/mosdns）：
 	// 其管理逻辑由插件 sidecar 承载，mosdns 本体由 sidecar 代管（ADR-037 决策 (a)）。

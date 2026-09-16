@@ -21,10 +21,41 @@ type Variant struct {
 	Size      int64    `json:"size"`
 }
 
-// Catalog 静态索引（catalog v1）中与变体相关的部分。
+// CatalogPluginVersion 索引中某插件的一个版本（manifest 内嵌）。
+type CatalogPluginVersion struct {
+	Version      string          `json:"version"`
+	Channel      string          `json:"channel"`
+	PublishedAt  string          `json:"publishedAt"`
+	ExtensionAPI int             `json:"extensionApi"`
+	Manifest     json.RawMessage `json:"manifest"`
+}
+
+// CatalogPlugin 索引中的一个插件（多版本）。
+type CatalogPlugin struct {
+	ID       string                 `json:"id"`
+	Versions []CatalogPluginVersion `json:"versions"`
+}
+
+// Catalog 静态索引（catalog v1）：在线插件目录 + 配方变体。
 type Catalog struct {
-	Schema   string    `json:"schema"`
-	Variants []Variant `json:"variants"`
+	Schema       string          `json:"schema"`
+	ExtensionAPI int             `json:"extensionApi"`
+	Plugins      []CatalogPlugin `json:"plugins"`
+	Variants     []Variant       `json:"variants"`
+}
+
+// Latest 返回版本号最大的版本（无版本时 ok=false）。
+func (p CatalogPlugin) Latest() (CatalogPluginVersion, bool) {
+	if len(p.Versions) == 0 {
+		return CatalogPluginVersion{}, false
+	}
+	best := p.Versions[0]
+	for _, v := range p.Versions[1:] {
+		if CompareVersions(v.Version, best.Version) > 0 {
+			best = v
+		}
+	}
+	return best, true
 }
 
 // FetchCatalog 拉取并解析静态索引（catalog v1）。

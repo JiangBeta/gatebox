@@ -129,6 +129,20 @@ func RegisterComponents(mux *http.ServeMux, reg *component.CoreRegistry, mgr *pl
 		writeJSON(w, http.StatusOK, it)
 	})
 
+	// 刷新在线插件目录（内置 + 在线索引合并，ADR-037 §7）。
+	mux.HandleFunc("POST /api/v1/plugins/refresh", func(w http.ResponseWriter, r *http.Request) {
+		if err := mgr.RefreshOnline(r.Context()); err != nil {
+			writeErrCode(w, http.StatusBadGateway, "REFRESH_FAILED", err.Error())
+			return
+		}
+		list, err := mgr.List()
+		if err != nil {
+			writeErrCode(w, http.StatusInternalServerError, "LIST_FAILED", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, list)
+	})
+
 	mux.HandleFunc("GET /api/v1/plugins", func(w http.ResponseWriter, r *http.Request) {
 		list, err := mgr.List()
 		if err != nil {

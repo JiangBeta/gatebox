@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -157,17 +158,119 @@ type Manager struct {
 	src     *source.Client
 	dataDir string
 	ext     *extension.Registry
+	// builtin 随包内置的插件目录（在线目录合并时的基底）。
+	builtin []Manifest
+	// catalog 当前生效目录：builtin + 在线索引合并。
 	catalog []Manifest
 	// coreURL 控制面自身地址（注入 sidecar，供其调用投影 API）。
 	coreURL string
+	// catalogURL 在线静态索引地址（拉取在线插件目录，ADR-037 §7）。
+	catalogURL string
+	// gateboxVersion 宿主版本，用于 requires.gatebox 兼容过滤。
+	gateboxVersion string
 }
 
 // SetCoreURL 注入控制面基址（如 http://127.0.0.1:8099）。
 func (m *Manager) SetCoreURL(u string) { m.coreURL = u }
 
+// SetCatalogURL 注入在线静态索引地址。
+func (m *Manager) SetCatalogURL(u string) { m.catalogURL = u }
+
+// SetGateboxVersion 注入宿主版本（requires.gatebox 校验用）。
+func (m *Manager) SetGateboxVersion(v string) { m.gateboxVersion = v }
+
+// RefreshOnline 拉取在线索引并把其中的插件目录合并进 catalog（内置优先）。
+//
+// 仅接受满足 requires（gatebox/extensionApi）的插件；失败时保持现有目录不变。
+func (m *Manager) RefreshOnline(ctx context.Context) error {
+	if m.catalogURL == "" || m.src == nil {
+		return nil
+	}
+	cat, err := m.src.FetchCatalog(ctx, m.catalogURL)
+	if err != nil {
+		return err
+	}
+	merged := make([]Manifest, 0, len(m.builtin)+len(cat.Plugins))
+	merged = append(merged, m.builtin...)
+	seen := map[string]bool{}
+	for _, b := range m.builtin {
+		seen[b.ID] = true
+	}
+	for _, p := range cat.Plugins {
+		if p.ID == "" || seen[p.ID] {
+			continue
+		}
+		ver, ok := p.Latest()
+		if !ok || len(ver.Manifest) == 0 {
+			continue
+		}
+		var man Manifest
+		if err := json.Unmarshal(ver.Manifest, &man); err != nil {
+			continue
+		}
+		if man.ID == "" {
+			man.ID = p.ID
+		}
+		if man.Version == "" {
+			man.Version = ver.Version
+		}
+		if !m.compatible(man) {
+			continue
+		}
+		seen[man.ID] = true
+		merged = append(merged, man)
+	}
+	sort.Slice(merged, func(i, j int) bool { return merged[i].ID < merged[j].ID })
+	m.catalog = merged
+	m.Refresh()
+	return nil
+}
+
+// compatible 校验 requires.gatebox / requires.extensionApi。
+func (m *Manager) compatible(man Manifest) bool {
+	if !apiSatisfies(man.Requires.ExtensionAPI, ExtensionAPIVersion) {
+		return false
+	}
+	if !minSatisfies(man.Requires.Gatebox, m.gateboxVersion) {
+		return false
+	}
+	return true
+}
+
+// ExtensionAPIVersion 当前扩展 API 版本（ADR-037 §5）。
+const ExtensionAPIVersion = 1
+
+// apiSatisfies 解析 `>=N` 形式的 extensionApi 约束。
+func apiSatisfies(req string, cur int) bool {
+	req = strings.TrimSpace(req)
+	if req == "" {
+		return true
+	}
+	req = strings.TrimSpace(strings.TrimPrefix(req, ">="))
+	n, err := strconv.Atoi(req)
+	if err != nil {
+		return true // 无法解析的约束不阻塞
+	}
+	return cur >= n
+}
+
+// minSatisfies 解析 `>=x` 形式的 gatebox 版本约束（ver 为空时放行）。
+func minSatisfies(req, ver string) bool {
+	req = strings.TrimSpace(req)
+	if req == "" || ver == "" {
+		return true
+	}
+	req = strings.TrimSpace(strings.TrimPrefix(req, ">="))
+	if req == "" {
+		return true
+	}
+	return source.CompareVersions(ver, req) >= 0
+}
+
 // NewManager 构造插件管理器，并把已启用插件的贡献注册进扩展注册表。
 func NewManager(repo *repository.Store, src *source.Client, dataDir string, ext *extension.Registry) *Manager {
-	m := &Manager{repo: repo, src: src, dataDir: dataDir, ext: ext, catalog: builtinCatalog()}
+	builtin := builtinCatalog()
+	m := &Manager{repo: repo, src: src, dataDir: dataDir, ext: ext, builtin: builtin, catalog: builtin}
 	m.Refresh()
 	return m
 }
