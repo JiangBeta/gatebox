@@ -166,6 +166,16 @@ func RegisterComponents(mux *http.ServeMux, reg *component.CoreRegistry, mgr *pl
 		writeJSON(w, http.StatusOK, v)
 	})
 
+	// 彻底卸载（purge）：连同配置与密钥一并删除（ADR-037 §4）。
+	mux.HandleFunc("DELETE /api/v1/plugins/{id}/purge", func(w http.ResponseWriter, r *http.Request) {
+		v, err := mgr.Purge(r.PathValue("id"))
+		if err != nil {
+			writeErrCode(w, http.StatusBadRequest, pluginCode(err), err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, v)
+	})
+
 	// 插件后端（sidecar）凭据：供前端 iframe 初始化时注入（同源，ADR-039 §3）。
 	mux.HandleFunc("GET /api/v1/plugins/{id}/token", func(w http.ResponseWriter, r *http.Request) {
 		tok, ok := mgr.Token(r.PathValue("id"))

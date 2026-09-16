@@ -319,6 +319,19 @@ func (m *Manager) Remove(id string) (View, error) {
 	return m.view(man, model.PluginState{State: "available"}), nil
 }
 
+// Purge 彻底删除插件：删制品 + 删配置与密钥，不可恢复（ADR-037 §4）。
+func (m *Manager) Purge(id string) (View, error) {
+	man, ok := m.find(id)
+	if !ok {
+		return View{}, ErrNotFound
+	}
+	_ = m.StopSidecar(id)
+	_ = os.RemoveAll(filepath.Join(m.dataDir, "tools", id))
+	_ = m.repo.DeletePluginState(id)
+	m.Refresh()
+	return m.view(man, model.PluginState{State: "available"}), nil
+}
+
 func (m *Manager) transition(id, state, msg string) (View, error) {
 	man, ok := m.find(id)
 	if !ok {
