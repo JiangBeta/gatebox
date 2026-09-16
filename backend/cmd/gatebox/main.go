@@ -3,11 +3,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/JiangBeta/gatebox/internal/adapter/acme"
@@ -91,20 +94,35 @@ func main() {
 	mgr.SetGateboxVersion(version)
 	handler.SetVariantBuild(cfg.VariantRepo, cfg.VariantWorkflow, cfg.GitHubToken)
 	auth := handler.NewAuth(cfg.AdminPasswordHash)
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-		defer cancel()
-		if err := mgr.RefreshOnline(ctx); err != nil {
-			log.Printf("拉取在线插件索引失败(仅用内置目录): %v", err)
-		}
-	}()
+	// 同步拉取在线插件目录（启动阶段，10s 超时）：确保插件可见并供 sidecar 恢复。
+	refreshCtx, refreshCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	if err := mgr.RefreshOnline(refreshCtx); err != nil {
+		log.Printf("拉取在线插件索引失败(仅用内置目录): %v", err)
+	}
+	refreshCancel()
 
 	// 内网 DNS（mosdns）已迁为 kind:process 插件（GateBoxStore/plugins/mosdns）：
 	// 其管理逻辑由插件 sidecar 承载，mosdns 本体由 sidecar 代管（ADR-037 决策 (a)）。
 	h := server.New(st, cm, dc, coll, caddyCli, health, cfg.DaemonJSONPath, cfg.DataDir, cfg.CaddyBin, cfg.StaticRoot, cfg.CatalogURL, cfg.CaddyHTTPPort, cfg.CaddyHTTPSPort, cfg.CaddyHTTPSExtraPorts, ac, reg, mgr, ext, auth)
 
 	log.Printf("GateBox %s 启动: 监听 %s, 数据目录 %s", version, cfg.Addr, cfg.DataDir)
-	if err := http.ListenAndServe(cfg.Addr, h); err != nil {
-		log.Fatalf("服务启动失败: %v", err)
-	}
+	srv := &http.Server{Addr: cfg.Addr, Handler: h, ReadHeaderTimeout: 15 * time.Second}
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("服务启动失败: %v", err)
+		}
+	}()
+
+	// 恢复已启用插件的 sidecar（同时清理重启前的残留实例）。
+	mgr.ResumeSidecars()
+
+	// 优雅退出：先停插件 sidecar，再关 HTTP，避免留下孤儿进程。
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	<-sigCh
+	log.Printf("正在退出：停止插件后端…")
+	mgr.StopAllSidecars()
+	shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = srv.Shutdown(shutCtx)
 }

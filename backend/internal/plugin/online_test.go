@@ -68,3 +68,16 @@ func TestRefreshOnlineMerge(t *testing.T) {
 		t.Error("与内置同 id 时应以内置为准")
 	}
 }
+
+// TestMinSatisfiesDev 开发构建版本（不可解析）不应被 requires.gatebox 阻塞。
+func TestMinSatisfiesDev(t *testing.T) {
+	if !minSatisfies(">=0.4.0", "dev") {
+		t.Error("dev 版本应放行")
+	}
+	if minSatisfies(">=0.4.0", "0.3.0") {
+		t.Error("0.3.0 < 0.4.0 应被拒绝")
+	}
+	if !minSatisfies(">=0.4.0", "0.4.0") {
+		t.Error("0.4.0 应满足 >=0.4.0")
+	}
+}

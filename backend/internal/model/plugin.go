@@ -13,6 +13,8 @@ type PluginState struct {
 	Message     string            `json:"message,omitempty"`
 	InstalledAt time.Time         `json:"installedAt"`
 	UpdatedAt   time.Time         `json:"updatedAt"`
+	// Kind 插件形态（caddy-module|process|config-only），持久化以便重启后无需在线目录即可恢复。
+	Kind string `json:"kind,omitempty"`
 	// Token plugin token：绑定 permissions.api scope（ADR-039 §2）。
 	// 持久化于 BoltDB；对外 View 不包含（避免经 API 泄露）。
 	Token string `json:"token,omitempty"`

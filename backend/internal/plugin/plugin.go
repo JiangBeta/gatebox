@@ -269,6 +269,10 @@ func minSatisfies(req, ver string) bool {
 	if req == "" {
 		return true
 	}
+	// 版本不可解析（如开发构建 "dev"）时放行：未知不应阻塞加载。
+	if source.ParseVersion(ver) == "" || source.ParseVersion(req) == "" {
+		return true
+	}
 	return source.CompareVersions(ver, req) >= 0
 }
 
@@ -377,6 +381,7 @@ func (m *Manager) Install(ctx context.Context, id string) (View, error) {
 		msg = "制品已安装"
 	}
 	st.State = "installed"
+	st.Kind = man.Kind
 	st.Version = man.Version
 	st.Channel = man.Channel
 	st.Message = msg

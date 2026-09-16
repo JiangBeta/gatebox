@@ -51,34 +51,47 @@ func (m *Manager) Token(id string) (string, bool) {
 	return st.Token, st.Token != ""
 }
 
+// 注意：sidecar 的 pid/日志与「插件提供的组件本体」区分命名（<id>-sidecar.*），
+// 否则会与插件自身管理的组件进程（如 mosdns.pid）互相覆盖。
 func (m *Manager) sidecarDir(id string) string { return filepath.Join(m.dataDir, "tools", id) }
 func (m *Manager) sidecarBin(id string) string {
 	return filepath.Join(m.sidecarDir(id), id+"-sidecar")
 }
-func (m *Manager) sidecarPid(id string) string { return filepath.Join(m.sidecarDir(id), id+".pid") }
-func (m *Manager) sidecarLog(id string) string { return filepath.Join(m.sidecarDir(id), id+".log") }
+func (m *Manager) sidecarPid(id string) string {
+	return filepath.Join(m.sidecarDir(id), id+"-sidecar.pid")
+}
+func (m *Manager) sidecarLog(id string) string {
+	return filepath.Join(m.sidecarDir(id), id+"-sidecar.log")
+}
 
 // StartSidecar 启动 kind:process 的后端进程（后台运行 + pid 文件 + 日志重定向）。
 func (m *Manager) StartSidecar(id string) error {
-	man, ok := m.find(id)
-	if !ok {
-		return ErrNotFound
-	}
-	if man.Kind != "process" {
-		return nil
-	}
 	st, err := m.state(id)
 	if err != nil {
 		return err
+	}
+	if !m.isProcess(id, st) {
+		return nil
 	}
 	bin := m.sidecarBin(id)
 	if _, err := os.Stat(bin); err != nil {
 		return fmt.Errorf("插件后端未安装: %s", bin)
 	}
-	if pid := readPidFile(m.sidecarPid(id)); pid > 0 && processAlive(pid) {
-		return nil
-	}
+
+	// 清理可能残留的旧实例：sidecar 以 setsid 运行，GateBox 重启后会存活为孤儿，
+	// 且旧端口仍被占用（否则新实例 bind 失败）。
+	stopByPidFile(m.sidecarPid(id))
 	_ = os.Remove(m.sidecarPid(id))
+
+	// 每次启动重新分配回环端口，避免沿用持久化的旧端口（可能被孤儿占用）。
+	if p, err := freePort(); err == nil {
+		st.Port = p
+	}
+	m.ensureTokenPort(st, true)
+	if err := m.repo.SavePluginState(st); err != nil {
+		return err
+	}
+
 	logFile, _ := os.OpenFile(m.sidecarLog(id), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	cmd := exec.Command(bin)
 	cmd.Dir = m.sidecarDir(id)
@@ -92,6 +105,8 @@ func (m *Manager) StartSidecar(id string) error {
 		return err
 	}
 	pid := cmd.Process.Pid
+	// 回收子进程，避免其退出后成为僵尸（defunct）。
+	go func() { _ = cmd.Wait() }()
 	_ = os.WriteFile(m.sidecarPid(id), []byte(strconv.Itoa(pid)), 0o644)
 	time.Sleep(300 * time.Millisecond)
 	if !processAlive(pid) {
@@ -100,11 +115,71 @@ func (m *Manager) StartSidecar(id string) error {
 	return nil
 }
 
+// isProcess 判断插件是否为 process 形态：优先用持久化的 Kind，
+// 回退到目录查找（离线时目录可能尚未加载在线插件）。
+func (m *Manager) isProcess(id string, st *model.PluginState) bool {
+	if st != nil && st.Kind != "" {
+		return st.Kind == "process"
+	}
+	if man, ok := m.find(id); ok {
+		return man.Kind == "process"
+	}
+	return false
+}
+
+// ResumeSidecars 启动时为已启用的 process 插件恢复后端（顺带清理残留实例）。
+func (m *Manager) ResumeSidecars() {
+	states, err := m.repo.ListPluginStates()
+	if err != nil {
+		return
+	}
+	for _, st := range states {
+		if st.State != "enabled" || !m.isProcess(st.ID, &st) {
+			continue
+		}
+		if err := m.StartSidecar(st.ID); err != nil {
+			m.SetMessage(st.ID, "启动插件后端失败: "+err.Error())
+		}
+	}
+}
+
+// StopAllSidecars 停止全部已启用插件的 sidecar（进程退出前调用，避免孤儿）。
+func (m *Manager) StopAllSidecars() {
+	states, err := m.repo.ListPluginStates()
+	if err != nil {
+		return
+	}
+	for _, st := range states {
+		if !m.isProcess(st.ID, &st) {
+			continue
+		}
+		_ = m.StopSidecar(st.ID)
+	}
+}
+
+// SetMessage 更新插件消息（不改变状态）。
+func (m *Manager) SetMessage(id, msg string) {
+	st, err := m.state(id)
+	if err != nil {
+		return
+	}
+	st.Message = msg
+	st.UpdatedAt = time.Now()
+	_ = m.repo.SavePluginState(st)
+}
+
 // StopSidecar 停止后端进程（SIGTERM → 超时 SIGKILL）。
 func (m *Manager) StopSidecar(id string) error {
-	pid := readPidFile(m.sidecarPid(id))
+	stopByPidFile(m.sidecarPid(id))
+	_ = os.Remove(m.sidecarPid(id))
+	return nil
+}
+
+// stopByPidFile 终止 pid 文件记录的进程（SIGTERM → 超时 SIGKILL）；不删除 pid 文件。
+func stopByPidFile(path string) {
+	pid := readPidFile(path)
 	if pid <= 0 {
-		return nil
+		return
 	}
 	_ = syscall.Kill(pid, syscall.SIGTERM)
 	for i := 0; i < 30; i++ {
@@ -116,8 +191,6 @@ func (m *Manager) StopSidecar(id string) error {
 	if processAlive(pid) {
 		_ = syscall.Kill(pid, syscall.SIGKILL)
 	}
-	_ = os.Remove(m.sidecarPid(id))
-	return nil
 }
 
 // Proxy 把 /api/v1/plugins/<id>/* 反向代理到插件的 sidecar（仅本机回环 + token 校验）。
@@ -125,17 +198,16 @@ func (m *Manager) StopSidecar(id string) error {
 // 路由与鉴权由内核统一收口，插件后端不直接对外暴露（ADR-039 §1/§2）。
 func (m *Manager) Proxy(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	man, ok := m.find(id)
-	if !ok {
+	st, err := m.state(id)
+	if err != nil {
 		http.Error(w, "插件不存在", http.StatusNotFound)
 		return
 	}
-	if man.Kind != "process" {
+	if !m.isProcess(id, st) {
 		http.Error(w, "该插件无后端进程", http.StatusNotFound)
 		return
 	}
-	st, err := m.state(id)
-	if err != nil || st.Port == 0 {
+	if st.Port == 0 {
 		http.Error(w, "插件后端未就绪", http.StatusServiceUnavailable)
 		return
 	}
