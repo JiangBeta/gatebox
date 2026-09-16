@@ -84,6 +84,10 @@ func main() {
 
 	// 内网 DNS（mosdns）配置管理：运行目录与组件运行时保持一致（$DATA_DIR/tools/mosdns）。
 	mos := mosdns.NewManager(filepath.Join(cfg.DataDir, "tools", "mosdns"))
+	// 预建配置引用的数据/规则文件：mosdns 引用文件缺失会拒绝启动。
+	if err := mos.EnsureLayout(); err != nil {
+		log.Printf("初始化 mosdns 数据目录失败(继续): %v", err)
+	}
 
 	handler := server.New(st, cm, dc, coll, caddyCli, health, cfg.DaemonJSONPath, cfg.DataDir, cfg.CaddyBin, cfg.StaticRoot, cfg.CaddyHTTPPort, cfg.CaddyHTTPSPort, cfg.CaddyHTTPSExtraPorts, ac, reg, mgr, ext, mos)
 

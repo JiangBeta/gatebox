@@ -818,6 +818,10 @@ func (m *Manager) ensureDir() error {
 	return os.MkdirAll(filepath.Join(m.dir, adlistDirName), 0o755)
 }
 
+// EnsureLayout 确保运行目录与配置引用的数据/规则文件存在(缺失建空文件)。
+// 供进程启动前调用:mosdns 会因引用的文件缺失而拒绝启动。
+func (m *Manager) EnsureLayout() error { return m.ensureDataFiles() }
+
 // ensureDataFiles 确保配置引用的数据/规则文件存在(缺失则建空文件,保证 mosdns 可启动)。
 func (m *Manager) ensureDataFiles() error {
 	if err := m.ensureDir(); err != nil {
