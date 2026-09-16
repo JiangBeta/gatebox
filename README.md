@@ -19,7 +19,7 @@
 | 代理 | 生成 Caddyfile → Caddy Admin API `/load`（先校验、失败回退、成功落盘） |
 | 证书 | acme.sh 全面接管（DNS-01，Caddy 文件证书加载） |
 | 容器 | Docker Engine API（自研轻量 HTTP 封装，ADR-014）+ `docker compose` CLI |
-| 扩展开关 | 组件运行时 + 数据驱动插件（`manifest + 静态索引`，无服务端） |
+| 扩展开关 | 组件运行时 + 数据驱动插件（`manifest + 静态索引`，无服务端）；拔插式插件与 GateBoxStore 见 ADR-037~039 |
 
 ## 核心 / 插件
 
@@ -29,7 +29,9 @@
 ## 文档导航
 
 - [架构设计（v3 总纲）](docs/architecture.md) ← **先读这个**
-- [PRD（产品需求）](docs/PRD.md) · [术语表](docs/glossary.md) · [ADR](docs/adr/)（ADR-001 ~ ADR-034）
+- [PRD（产品需求）](docs/PRD.md) · [术语表](docs/glossary.md) · [ADR](docs/adr/)（ADR-001 ~ ADR-039）
+- 插件拔插化：[ADR-037](docs/adr/ADR-037.md)（分离与 GateBoxStore） · [ADR-038](docs/adr/ADR-038.md)（配方变体） · [ADR-039](docs/adr/ADR-039.md)（运行时契约）
+- 插件作者文档（`plugin-authoring` / `catalog` / `extension-api` / `plugin-ui`）见 [**GateBoxStore**](https://github.com/JiangBeta/GateBoxStore)
 - 单位设计：`docs/{infra,docker,gateway,domain,network,home,deploy}.md`
 
 ## 当前状态
@@ -43,8 +45,8 @@ gatebox/
 ├── go.work                  # 仅纳入活跃模块 ./backend
 ├── backend/                 # 新后端（Go）
 ├── frontend/                # 新前端（Vue3）
-├── plugins/                 # 内置插件 manifest + schema + 文档
-├── registry/                # 索引模板/schema（索引本体托管独立仓库）
+├── plugins/schema/          # 扩展契约权威：manifest.v2 schema（插件源码见 GateBoxStore）
+├── registry/schema/         # 扩展契约权威：catalog.v1 schema（含 variants[]）
 ├── tools/                   # 内置制品存档（离线安装）：tools/<id>/<os>-<arch>/
 ├── old/                     # 重构前原始代码（独立 go.mod）
 ├── docs/ scripts/ configs/

@@ -2,7 +2,7 @@
 
 > 状态：**已定稿**（逐轮讨论 + 领域建模产出，编码前的唯一权威设计）
 > 日期：2026-09-14
-> 关联：`docs/PRD.md`、`docs/glossary.md`、`docs/adr/`（ADR-027 ~ ADR-036）
+> 关联：`docs/PRD.md`、`docs/glossary.md`、`docs/adr/`（ADR-027 ~ ADR-039）、`JiangBeta/GateBoxStore`
 > 旧版实现完整保留于 `./old/`（见 §13）。
 
 本文件是 v3 重构的**总纲**：定义系统本体、组件/插件模型、分层与命名标准、目录蓝图与推进分期。**编码中凡遇「放哪一层 / 用什么字号 / 怎么命名」，以本文件为准，不再逐次讨论。**
@@ -143,6 +143,8 @@ Status { State, Healthy bool, Message, Since, Metrics map[string]any }
 | `validator` | 校验器（`bin` 缺省 = 当前 active caddy 制品） |
 | `config-sync` | 从投影渲染插件配置并落盘 + reload（`projection`、`target`、`template`） |
 | `reconcile` | 核心通知侧车，侧车拉投影自行收敛（`entry`、`interval`） |
+| `component-variant` | 核心组件配方变体：插件声明中性**特征**（如 Go 模块路径），内核按特征并集解析变体制品（ADR-038） |
+| `dns-provider` | DNS 凭证供应商：字段 schema + acme hook 名 + env 映射，驱动动态表单（ADR-039 §5） |
 
 ### 4.4 中性规则与渲染分发
 
@@ -189,7 +191,7 @@ available ──install──▶ installed ──enable──▶ enabled
 ```
 
 - BoltDB bucket：`plugins`（安装状态 + 用户配置 + 制品清单 + 权限）、`component_state`（版本/来源缓存）。
-- 卸载 = 回到 `available`（删制品 + 注销贡献，能力从注册表消失）。
+- 卸载语义三档（ADR-037 §4）：`disable`（留制品配置）/ `uninstall`（删制品 + 注销贡献 + 配方重算 + 保留数据）/ `purge`（删数据，二次确认）。制品回滚经 `versions/`。
 
 ### 4.7 前端渲染三档
 
@@ -199,14 +201,14 @@ available ──install──▶ installed ──enable──▶ enabled
 | L1 iframe + postMessage 桥 | 强隔离 | 实现 |
 | L2 远程 ESM 组件 | 同源（等价 XSS） | 预留，按信任级门禁 |
 
-### 4.8 分发：静态索引 + 多源（无服务端）
+### 4.8 分发：GateBoxStore + 静态索引 + 多源（无服务端）
 
-- 索引 `index.json` + 签名（minisign/cosign），可托管于 GitHub Pages / 对象存储 / CDN。
-- 制品放 GitHub Releases（含用户自编译制品），可打包为单一签名 tar.gz。
-- 客户端：拉索引 → 按 `channel` 比较版本 → 校验签名 + sha256 → 安装/替换/回滚。
-- **协议抽象为接口**，未来引入动态注册表服务客户端无感；**本阶段不实现在线索引下载**。
+- 索引 `index.json`（`catalog.v1`）+ 签名（minisign/cosign），本体托管于独立公开仓库 **`JiangBeta/GateBoxStore`**（GitHub Pages），制品放 GitHub Releases。
+- 每个插件打包为单一签名 tar.gz（manifest + `binary`/`sidecar`/`ui`/`assets` 制品）。
+- 客户端：磁盘 manifest 加载（内置）→ 在线拉索引 → 按 `channel` 比较版本 → 校验 sha256 → 安装/替换/回滚（ADR-037 §7、ADR-039 §4）；**签名验签预留**。
+- **制品矩阵**：`index.json` 额外含 `variants[]`（核心组件配方变体，ADR-038）；未命中组合可按需触发 Store CI 构建或导入 `custom` 制品。
 
-**安全**：安装第三方制品 = 执行代码。必须签名 + 校验和 + 显式用户确认（与 `docker.sock` 提示同级）。
+**安全**：安装第三方制品 = 执行代码。必须签名 + 校验和 + 显式用户确认（与 `docker.sock` 提示同级）。插件权限经 **plugin token + scope** 强制（ADR-039 §2）。
 
 ---
 
@@ -425,14 +427,16 @@ gatebox/
 ├── go.work                  # 仅纳入活跃模块 ./backend（old 同 path 不能共存）
 ├── backend/                 # 新后端（§8）
 ├── frontend/                # 新前端（§9）
-├── plugins/                 # 内置插件 manifest + schema + 文档
-├── registry/                # 索引模板与 schema（索引本体托管于独立仓库）
+├── plugins/schema/          # 扩展契约权威：manifest.v2 schema（插件源码已迁出）
+├── registry/schema/         # 扩展契约权威：catalog.v1 schema（含 variants[]）
 ├── tools/                   # 内置制品存档（离线安装用）：tools/<id>/<os>-<arch>/<binary>
 ├── old/                     # 原代码全量（old/backend 带独立 go.mod）
 ├── docs/                    # PRD · architecture · glossary · adr/
 ├── scripts/                 # install.sh / build.sh
 └── configs/                 # systemd / openrc / procd 服务单元模板
 ```
+
+> **插件源码不在此仓库**：迁至独立公开仓库 `JiangBeta/GateBoxStore`（`plugins/<id>/{manifest.yaml,ui/,backend/,assets/}` + `schema/` + `cmd/gbx-store/` + `variants.yaml` + CI + `index.json`）。本仓库的 `plugins/`、`registry/` 仅保留 **schema 权威**，Store vendor 一份并在 CI 校验一致（ADR-037 §6）。迁移期 `plugins/` 先作暂存区，迁完清空。
 
 - `old/backend` 自带独立 `go.mod`，为**冻结快照**；因其与新 module 同 path（`github.com/JiangBeta/gatebox`），**不能同时纳入 `go.work`**——故 `go.work` 仅纳入 `./backend`。查阅/构建旧码：`cd old/backend && GOWORK=off go build ./...`。
 - `old/frontend` 不纳入新构建。
@@ -470,5 +474,7 @@ gatebox/
 
 ## 16. 文档导航
 
-- [PRD](PRD.md) · [术语表](glossary.md) · [ADR](adr/)（ADR-001 ~ ADR-036）
+- [PRD](PRD.md) · [术语表](glossary.md) · [ADR](adr/)（ADR-001 ~ ADR-039）
+- 插件拔插化：[ADR-037](adr/ADR-037.md)（分离与 GateBoxStore） · [ADR-038](adr/ADR-038.md)（配方变体） · [ADR-039](adr/ADR-039.md)（运行时契约）
+- 插件作者文档见 GateBoxStore 的 `docs/`（`plugin-authoring` / `catalog` / `extension-api` / `plugin-ui`）
 - 本文件为 v3 架构总纲；单位级设计见 `docs/{infra,docker,gateway,domain,network,home,deploy}.md`

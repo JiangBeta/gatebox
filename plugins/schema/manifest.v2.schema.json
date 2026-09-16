@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://gatebox.dev/schema/manifest.v2.json",
   "title": "GateBox Plugin Manifest v2",
-  "description": "插件声明（数据驱动 + 贡献注册）。设计见 docs/adr/ADR-036。",
+  "description": "插件声明（数据驱动 + 贡献注册）。设计见 docs/adr/ADR-036 ~ ADR-039。权威定义在 GateBox 主仓库；GateBoxStore vendor 一份并在 CI 校验一致。",
   "type": "object",
   "required": ["apiVersion", "kind", "id", "name", "version"],
   "additionalProperties": false,
@@ -72,7 +72,7 @@
             "required": ["point"],
             "additionalProperties": false,
             "properties": {
-              "point": { "enum": ["proxy-protocols", "validator"] },
+              "point": { "enum": ["proxy-protocols", "validator", "component-variant", "dns-provider"] },
               "data": { "type": "object" }
             }
           }

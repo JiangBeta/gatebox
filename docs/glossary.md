@@ -65,7 +65,7 @@
 | **升级策略** | `replace`（搬运替换 + 校验回退）/ `system`（仅提示，符合包管理器）/ `none`（不可升级） |
 | **core / optional** | 组件产品档：`core` 默认安装、不可卸载；`optional` 按需安装。与 `managed/attached` 正交 |
 | **Bundled** | 离线安装包是否附带该 `optional` 组件的制品（如 ddns-go / flame） |
-| **插件（Plugin）** | 数据驱动的可选扩展=manifest + 通用引擎，`kind ∈ {caddy-module, process, config-only}`（ADR-029） |
+| **插件（Plugin）** | 数据驱动的可选扩展=manifest + 通用引擎 + 贡献注册，`kind ∈ {caddy-module, process, config-only}`；ADR-037 起为**唯一可安装单元**（ADR-029 / ADR-037） |
 | **扩展平台（Extension Platform）** | 核心与插件解耦的机制：五个部件（Manifest v2 / 能力注册表 / 投影 API / 扩展契约 / 槽位注册表）+ 三个不变式（ADR-036） |
 | **扩展点（Extension Point）** | 核心定义的抽象接入点：`proxy-protocols` / `renderer` / `validator` / `config-sync` / `reconcile`（ADR-036） |
 | **能力注册表（Capability Registry）** | 核心与插件统一注册「能力」的表；网关/容器/前端只查表、不认插件身份（ADR-036） |
@@ -73,7 +73,7 @@
 | **投影（Projection）** | 核心状态的只读视图（domains/certs/ports/services），带 `revision`，经变更通知驱动插件自收敛（ADR-036） |
 | **扩展契约（Extension Contract）** | 核心调用插件逻辑的两种实现：`template`（声明式）/ `sidecar`（进程，JSON over stdin/HTTP）（ADR-036） |
 | **manifest** | 插件声明文件；v2 为强类型：`artifacts[](role)` + `contributions{capabilities,ui,backend,data}` + `permissions`（ADR-036） |
-| **静态索引** | 可静态托管的插件/制品索引 `index.json`（+ 签名），客户端据此在线安装/升级；**无常驻服务端**（ADR-029） |
+| **静态索引** | 可静态托管的插件/制品索引 `index.json`（+ 签名），客户端据此在线安装/升级；**无常驻服务端**。ADR-037 起本体托管于 `JiangBeta/GateBoxStore`（ADR-029 / ADR-037） |
 | **插件状态机** | `available → installed → enabled/disabled`，失败转 `error`；`disable` 保留制品、`remove` 删除（ADR-029） |
 | **设计 token** | 前端颜色/字号/间距/圆角的唯一来源（`frontend/src/design/`）；`.vue` 禁止样式字面量（ADR-032） |
 | **分层标准** | 后端 `handler/service/repository/component/source/model` + 前端 `design/lib/app/modules/shared` 的判层与依赖方向，由 lint 强制（ADR-031/032） |
@@ -96,3 +96,30 @@
 | **环境变量** | compose 服务级 `environment:` 的键值（服务级、随容器定义），与全局「变量」是两回事；UI 与文档一律用「环境变量」指代 |
 | **迁移冲突报告** | 两桶合并时，同名不同值或键名不合法的存量项不自动导入，列入报告由用户在设置页解决（ADR-035 §8） |
 | **插值时机** | 网关变量在 Caddyfile 生成时实时替换；容器变量在保存 compose 时破坏性替换写盘。**当前不统一**，为已知债务（ADR-035 §7） |
+
+## 插件拔插化新增术语（ADR-037 ~ ADR-039）
+
+> 详见 `docs/adr/ADR-037.md`（分离）、`ADR-038.md`（配方变体）、`ADR-039.md`（运行时契约）与 `JiangBeta/GateBoxStore` 的 `docs/`。
+
+| 术语 | 定义 |
+|---|---|
+| **拔插式（Hot-pluggable）** | 插件可独立安装/启用/停用/卸载/升级，且不要求重新编译主程序（ADR-037） |
+| **分离判据（主闭环）** | 是否属于「应用 → 域名 → Caddy 反代 → 自动 HTTPS」产品主闭环；闭环内留内核，闭环外迁为插件（ADR-037 §1） |
+| **可安装单元（Installable Unit）** | ADR-037 起 `plugin.Manager` 是唯一的安装面；`component` 注册表降级为核心组件目录，`extension` 只当贡献表（ADR-037 §2） |
+| **核心插件扩展** | 给核心组件补充能力、可能替换其配方的插件（如 caddy-l4）。形态 = 中性特征声明 + 配方变体 + 可选声明式贡献，**无独立逻辑进程**（ADR-037 §3、ADR-038） |
+| **独立进程插件** | 自带后端二进制与 UI 制品、经 sidecar 契约与 L0/L1 宿主接入的插件（如 mosdns）（ADR-037 §3、ADR-039） |
+| **特征（Feature）** | 插件声明给核心组件增加的**中性标识**（Go 模块路径或等价 ID），如 `github.com/mholt/caddy-l4`；核心只认特征、不认插件身份（ADR-038 §1） |
+| **配方变体（Recipe Variant）** | 一个核心组件的某次具体构建 = 组件版本 + 已启用特征并集 + 平台；由 Store 预构建或按需构建（ADR-038） |
+| **变体键（Variant Key）** | `hash(component, version, os/arch, sorted(features))`，用于解析与缓存变体制品（ADR-038 §2） |
+| **制品矩阵（Variant Matrix）** | `index.json` 中列出的已发布变体清单（`key/component/version/features/os/arch/url/sha256`）（ADR-038 §4） |
+| **配方重算（Recipe Reconcile）** | 启用集合变化时重算特征并集 → 解析新变体 → 替换组件二进制 → 重启 → 健康检查 → 失败回滚（ADR-038 §3） |
+| **互斥插件** | 提供整包组件二进制（而非可协商特征）的插件，与同组件其他变体插件不可同时启用，UI 须明示（ADR-038 §6） |
+| **按需构建（On-demand Build）** | 变体矩阵未命中时，触发 Store CI（`xcaddy`）异步构建该组合，或导入 `custom` 制品（ADR-038 §4） |
+| **生命周期三档** | `disable`（留制品配置）/ `uninstall`（删制品 + 注销贡献 + 配方重算 + 保留数据）/ `purge`（删数据，二次确认）（ADR-037 §4） |
+| **扩展 API 版本（extensionApi）** | 内核维护的整数契约版本；新增可选字段=minor、破坏性变更=major（须写 ADR）；manifest 与索引据此校验兼容（ADR-037 §5） |
+| **plugin token** | 安装时为插件生成的凭据，绑定 `permissions.api` scope；核心按 scope 校验，插件不共享管理员 session（ADR-039 §2） |
+| **插件 UI 宿主** | 内核统一托管 `/plugins/<id>/*`（UI 制品）与反代 `/api/v1/plugins/<id>/*`（sidecar），使 iframe 与 API 同源（ADR-039 §3） |
+| **postMessage 桥** | 插件 iframe 与内核的唯一宿主通道，只承载 `init/ready/resize/navigate/toast/setTitle`，**不传业务数据**（业务走 HTTP）（ADR-039 §3） |
+| **L0 / L1 / L2** | 插件 UI 三档渲染：L0 元数据驱动（内核渲染）/ L1 iframe + postMessage（强隔离）/ L2 远程 ESM（同源、等价 XSS，后置）（ADR-036 §7、ADR-039 §3） |
+| **dns-provider** | 让 DNS 凭证供应商可拔插的扩展点：插件声明字段 schema + acme hook 名 + env 映射；内核以 `GET /api/v1/credentials/providers` 聚合，前端按 schema 动态渲染（ADR-039 §5） |
+| **GateBoxStore** | 独立公开仓库 `JiangBeta/GateBoxStore`：插件源码（`plugins/<id>/`）、schema（vendor）、构建脚本、CI 与静态索引 `index.json`；契约权威仍在主仓库（ADR-037 §6） |

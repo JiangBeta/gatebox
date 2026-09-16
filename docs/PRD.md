@@ -2,7 +2,7 @@
 
 > 状态：规划阶段 v2（2026-09「缝合怪」重构版）；架构已升级至 **v3**（组件运行时 + 数据驱动插件 + 分层标准），总纲见 [`docs/architecture.md`](architecture.md)。
 > v2 变更背景：证书签发从 caddy 内置 ACME 改为 **acme.sh 全面接管**；新增 **flame（导航）/ mosdns（内网 DNS）/ Tailscale（组网）** 三个外部组件；目录架构重构；导航重构为 6 顶级入口。
-> v3 变更背景：确立「组件生命周期边界（配方归上游、运行态归 GateBox）」「组件运行时接口」「数据驱动插件 + 静态索引」「核心/插件分类」「后端/前端分层标准」；**扩展平台（能力注册表 + 投影 API + 扩展契约）见 ADR-036**。原代码保留于 `./old/`。见 ADR-027 ~ ADR-036。
+> v3 变更背景：确立「组件生命周期边界（配方归上游、运行态归 GateBox）」「组件运行时接口」「数据驱动插件 + 静态索引」「核心/插件分类」「后端/前端分层标准」；**扩展平台（能力注册表 + 投影 API + 扩展契约）见 ADR-036**。原代码保留于 `./old/`。插件拔插化（主程序与插件分离 + GateBoxStore）见 ADR-037 ~ ADR-039。见 ADR-027 ~ ADR-039。
 > 上一版存档于 `docs/PRD-v1.md`。
 > 参考项目：Charon、caddy-docker-proxy、ctop、lazydocker、flame、mosdns、acme.sh
 
@@ -242,7 +242,10 @@ docs/       # PRD + glossary + adr/
 | ADR-034 | 服务运行身份与 Docker 权限授予（低权用户 + polkit 最小授权 + 软/硬重启） | 新增（v3） |
 | ADR-035 | 网关与容器统一变量模型（`<%KEY%>` / `${KEY}` 共用存储） | 新增（v3） |
 | ADR-036 | 扩展平台（扩展点 + 能力注册表 + 投影契约 + appstore 数据模型） | 新增（v3） |
+| ADR-037 | 主程序与插件分离（拔插式插件 + 统一安装面 + 生命周期三档 + GateBoxStore） | 新增（v3） |
+| ADR-038 | 核心组件配方变体与制品矩阵（feature 并集 + xcaddy CI 构建 + 互斥兜底） | 新增（v3） |
+| ADR-039 | 插件运行时契约（sidecar + API 反代 + plugin token + L0/L1 UI 宿主 + dns-provider） | 新增（v3） |
 
 ## 16. ADR 索引
 
-见 `docs/adr/`：ADR-001 ~ ADR-036。v3 架构总纲见 [`docs/architecture.md`](architecture.md)。
+见 `docs/adr/`：ADR-001 ~ ADR-039。v3 架构总纲见 [`docs/architecture.md`](architecture.md)；插件拔插化（ADR-037~039）配套独立仓库 [`JiangBeta/GateBoxStore`](https://github.com/JiangBeta/GateBoxStore)。
