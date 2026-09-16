@@ -203,7 +203,7 @@ available ──install──▶ installed ──enable──▶ enabled
 
 ### 4.8 分发：GateBoxStore + 静态索引 + 多源（无服务端）
 
-- 索引 `index.json`（`catalog.v1`）+ 签名（minisign/cosign），本体托管于独立公开仓库 **`JiangBeta/GateBoxStore`**（GitHub Pages），制品放 GitHub Releases。
+- 索引 `index.json`（`catalog.v1`）+ Ed25519 签名（`index.json.sig`），本体托管于独立公开仓库 **`JiangBeta/GateBoxStore`**（经 raw 直链提供），制品放 GitHub Releases。
 - 每个插件打包为单一签名 tar.gz（manifest + `binary`/`sidecar`/`ui`/`assets` 制品）。
 - 客户端：磁盘 manifest 加载（内置）→ 在线拉索引 → 按 `channel` 比较版本 → 校验 sha256 → 安装/替换/回滚（ADR-037 §7、ADR-039 §4）；**签名验签预留**。
 - **制品矩阵**：`index.json` 额外含 `variants[]`（核心组件配方变体，ADR-038）；未命中组合可按需触发 Store CI 构建或导入 `custom` 制品。

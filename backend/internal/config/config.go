@@ -88,7 +88,7 @@ func Load() Config {
 		DockerSocket:         sourceStr("GATEBOX_DOCKER_SOCKET", "docker_socket", "/var/run/docker.sock", vals),
 		DaemonJSONPath:       sourceStr("GATEBOX_DOCKER_DAEMON_JSON", "docker_daemon_json", "/etc/docker/daemon.json", vals),
 		AcmeBin:              sourceStr("GATEBOX_ACME_BIN", "acme_bin", "", vals),
-		CatalogURL:           sourceStr("GATEBOX_CATALOG_URL", "catalog_url", "https://jiangbeta.github.io/GateBoxStore/index.json", vals),
+		CatalogURL:           sourceStr("GATEBOX_CATALOG_URL", "catalog_url", "https://raw.githubusercontent.com/JiangBeta/GateBoxStore/main/index.json", vals),
 		CatalogPubKey:        sourceStr("GATEBOX_CATALOG_PUBKEY", "catalog_pubkey", "", vals),
 		AdminPasswordHash:    sourceStr("GATEBOX_ADMIN_PASSWORD_SHA256", "admin_password_sha256", "", vals),
 		VariantRepo:          sourceStr("GATEBOX_VARIANT_REPO", "variant_repo", "JiangBeta/GateBoxStore", vals),
@@ -166,7 +166,7 @@ func writeDefaultConf(path, dataDir string) error {
 		"docker_socket = /var/run/docker.sock\n" +
 		"docker_daemon_json = /etc/docker/daemon.json\n" +
 		"acme_bin =\n" +
-		"catalog_url = https://jiangbeta.github.io/GateBoxStore/index.json\n" +
+		"catalog_url = https://raw.githubusercontent.com/JiangBeta/GateBoxStore/main/index.json\n" +
 		"catalog_pubkey =\n" +
 		"github_token =\n" +
 		"variant_repo = JiangBeta/GateBoxStore\n" +
