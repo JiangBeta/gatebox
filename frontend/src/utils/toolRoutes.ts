@@ -6,7 +6,6 @@ export const TOOL_ROUTE: Record<string, string> = {
   acme: '/domain',
   docker: '/docker',
   tailscale: '/services',
-  flame: '/dashboard',
   // 插件页路由由 manifest 的 ui.nav 动态注册，不再硬编码（ADR-039 §3）。
 }
 

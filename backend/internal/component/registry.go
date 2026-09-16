@@ -116,15 +116,6 @@ func NewCoreRegistry(dataDir, caddyBin, caddyAdmin string, src *source.Client) *
 			bin: "/usr/bin/tailscale", versionArgs: []string{"version"},
 			check: "always",
 		},
-		{
-			desc: Descriptor{ID: "flame", Name: "Flame", Summary: "应用导航面板",
-				Kind: KindProcess, Tier: "optional", Tags: []string{"独立进程"},
-				Provision: "managed", Runtime: "manage", Upgrade: "replace", Bundled: true, Removable: true,
-				Capabilities: caps("health", "upgradable", "logs", "runnable"),
-				Source:       Source{Channel: "official"}},
-			bin: tools("flame", "flame"), repo: "xiangsx/flame", assetHint: "flame",
-			check: "pid", workDir: tools("flame"),
-		},
 	}
 	return &CoreRegistry{dataDir: dataDir, src: src, cores: cores}
 }

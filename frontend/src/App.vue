@@ -34,7 +34,7 @@ const router = useRouter()
 const collapsed = ref(false)
 const openKeys = ref<string[]>(['/services'])
 
-// 「服务」子菜单 = 独立进程类组件（tailscale / flame）+ 插件 ui.nav 贡献。
+// 「服务」子菜单 = 剩余独立进程类组件（tailscale）+ 插件 ui.nav 贡献。
 const serviceItems = ref<MenuNode[]>([])
 const pluginItems = ref<MenuNode[]>([])
 
