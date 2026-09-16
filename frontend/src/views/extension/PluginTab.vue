@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Table, Button, Tag, message, Space, Tooltip, Radio } from 'ant-design-vue'
+import { Table, Button, Tag, message, Space, Tooltip, Radio, Modal, Alert, Typography } from 'ant-design-vue'
 import { DeleteOutlined, DownloadOutlined, EyeOutlined } from '@ant-design/icons-vue'
 import { installStore, listStore, removeStore, type StoreItem } from '../../api/store'
 import { toolRoute } from '../../utils/toolRoutes'
@@ -58,6 +58,37 @@ function onView(row: StoreItem) {
   router.push(toolRoute(row.id))
 }
 
+// 权限授予：安装前展示插件声明的权限并要求确认（ADR-039 §2）。
+const permModal = ref<{ open: boolean; row: StoreItem | null }>({ open: false, row: null })
+
+function permLines(row: StoreItem): string[] {
+  const out: string[] = []
+  for (const p of row.permissions || []) {
+    if (p.api?.length) out.push(`API 访问：${p.api.join(', ')}`)
+    if (p.filesystem) {
+      for (const [mode, paths] of Object.entries(p.filesystem)) {
+        out.push(`文件系统 ${mode}：${paths.join(', ')}`)
+      }
+    }
+    if (p.network?.length) out.push(`网络：${p.network.join(', ')}`)
+  }
+  return out
+}
+
+function onInstall(row: StoreItem) {
+  if (!row.permissions?.length) {
+    void act(row, installStore, '已安装')
+    return
+  }
+  permModal.value = { open: true, row }
+}
+
+function confirmInstall() {
+  const row = permModal.value.row
+  permModal.value.open = false
+  if (row) void act(row, installStore, '已安装')
+}
+
 onMounted(load)
 </script>
 
@@ -91,7 +122,7 @@ onMounted(load)
               type="text"
               size="small"
               :loading="busy === record.id"
-              @click="act(record, installStore, '已安装')"
+              @click="onInstall(record)"
             >
               <template #icon><DownloadOutlined /></template>
             </Button>
@@ -111,4 +142,25 @@ onMounted(load)
       </template>
     </template>
   </Table>
+
+  <Modal
+    :open="permModal.open"
+    :title="`安装「${permModal.row?.name || ''}」需要以下权限`"
+    ok-text="同意并安装"
+    cancel-text="取消"
+    @ok="confirmInstall"
+    @cancel="permModal.open = false"
+  >
+    <Alert
+      type="warning"
+      show-icon
+      message="插件制品在设备上执行代码，且后端以 GateBox 同权限运行"
+      style="margin-bottom: 12px"
+    />
+    <ul style="margin: 0; padding-left: 20px">
+      <li v-for="(line, i) in permModal.row ? permLines(permModal.row) : []" :key="i">
+        <Typography.Text code>{{ line }}</Typography.Text>
+      </li>
+    </ul>
+  </Modal>
 </template>

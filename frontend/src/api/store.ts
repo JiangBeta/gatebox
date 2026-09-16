@@ -11,6 +11,12 @@ export interface StoreItem {
   installed: boolean
   status?: string
   upgradeable: boolean
+  // 插件权限声明（安装前授予确认，ADR-039 §2）。
+  permissions?: {
+    filesystem?: Record<string, string[]>
+    network?: string[]
+    api?: string[]
+  }[]
 }
 
 export async function listStore(): Promise<StoreItem[]> {

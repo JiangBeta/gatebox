@@ -267,15 +267,25 @@ function sourceCell(record: SubdomainCert) {
   )
 }
 
-/** 操作列:仅有证书时可用。 */
+/** 操作列:无证书时仍可「申请证书」「查看日志」;有证书时另含查看/删除。 */
 function actionCell(record: SubdomainCert) {
-  if (!record.hasCert) return '-'
-  return h('div', { style: 'display:flex;gap:6px' }, [
-    h(Tooltip, { title: '查看（公钥/私钥）' }, { default: () => h(Button, { size: 'small', onClick: () => view(record) }, { default: () => h(EyeOutlined) }) }),
-    h(Tooltip, { title: '重新申请' }, { default: () => h(Popconfirm, { title: `重新申请 ${record.fqdn} 的证书？`, onConfirm: () => doRenew(record) }, { default: () => h(Button, { size: 'small', type: 'primary', ghost: true, loading: renewing.value[record.fqdn] }, { default: () => h(ReloadOutlined) }) }) }),
+  const btns = []
+  if (record.hasCert) {
+    btns.push(
+      h(Tooltip, { title: '查看（公钥/私钥）' }, { default: () => h(Button, { size: 'small', onClick: () => view(record) }, { default: () => h(EyeOutlined) }) }),
+    )
+  }
+  const renewTitle = record.hasCert ? '重新申请' : '申请证书'
+  btns.push(
+    h(Tooltip, { title: renewTitle }, { default: () => h(Popconfirm, { title: `${renewTitle} ${record.fqdn}？`, onConfirm: () => doRenew(record) }, { default: () => h(Button, { size: 'small', type: 'primary', ghost: true, loading: renewing.value[record.fqdn] }, { default: () => h(ReloadOutlined) }) }) }),
     h(Tooltip, { title: '证书日志' }, { default: () => h(Button, { size: 'small', onClick: () => openLogs(record) }, { default: () => h(FileTextOutlined) }) }),
-    h(Tooltip, { title: '删除' }, { default: () => h(Popconfirm, { title: `删除 ${record.fqdn} 的证书？`, okText: '删除', okButtonProps: { danger: true }, onConfirm: () => doDelete(record) }, { default: () => h(Button, { size: 'small', danger: true }, { default: () => h(DeleteOutlined) }) }) }),
-  ])
+  )
+  if (record.hasCert) {
+    btns.push(
+      h(Tooltip, { title: '删除' }, { default: () => h(Popconfirm, { title: `删除 ${record.fqdn} 的证书？`, okText: '删除', okButtonProps: { danger: true }, onConfirm: () => doDelete(record) }, { default: () => h(Button, { size: 'small', danger: true }, { default: () => h(DeleteOutlined) }) }) }),
+    )
+  }
+  return h('div', { style: 'display:flex;gap:6px' }, btns)
 }
 
 const columns = [

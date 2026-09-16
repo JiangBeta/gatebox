@@ -28,6 +28,8 @@ type Item struct {
 	Installed   bool     `json:"installed"`
 	Status      string   `json:"status,omitempty"`
 	Upgradeable bool     `json:"upgradeable"`
+	// Permissions 插件的权限声明（安装前授予确认用，ADR-039 §2）。
+	Permissions []plugin.Permission `json:"permissions,omitempty"`
 }
 
 // Catalog 商店聚合器。
@@ -121,5 +123,6 @@ func PluginItem(v plugin.View) Item {
 		Installed:   v.State != "available",
 		Status:      v.State,
 		Upgradeable: false,
+		Permissions: v.Manifest.Permissions,
 	}
 }
