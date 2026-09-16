@@ -26,24 +26,39 @@ func NewManager(configPath string) *Manager {
 // ConfigPath 返回配置落盘路径。
 func (m *Manager) ConfigPath() string { return m.configPath }
 
-// credentialIDSecret 按 provider 提取 ddns-go 所需的 ID/Secret。
+// resolveProvider 解析 DNS 供应商元数据。
+//
+// 默认取核心内置供应商；main 启动时经 SetProviderResolver 注入扩展注册表，
+// 以纳入经 dns-provider 插件贡献的供应商（核心不硬编码供应商，ADR-039 §5）。
+var resolveProvider = coreDNSProvider
+
+// coreDNSProvider 核心内置供应商的兜底解析（与扩展注册表的 _core provider 同源）。
+func coreDNSProvider(id string) (extension.DNSProviderSpec, bool) {
+	reg := extension.NewRegistry()
+	reg.Register(extension.CoreProvider())
+	return reg.DNSProvider(id)
+}
+
+// SetProviderResolver 注入扩展注册表的供应商解析器（main 调用）。
+func SetProviderResolver(fn func(id string) (extension.DNSProviderSpec, bool)) {
+	if fn != nil {
+		resolveProvider = fn
+	}
+}
+
+// credentialIDSecret 按供应商的 ddns 映射提取 ddns-go 所需的 ID/Secret。
 // cloudflare 仅使用 Secret(Bearer Token),ID 置空——见 ddns-go dns/cloudflare.go。
 func credentialIDSecret(c model.DNSCredential) (id, secret string, ok bool) {
-	switch c.Provider {
-	case model.ProviderCloudflare:
-		tok := c.Fields["token"]
-		return "", tok, tok != ""
-	case model.ProviderDNSPod:
-		id := c.Fields["id"]
-		sec := c.Fields["token"]
-		return id, sec, id != "" && sec != ""
-	case model.ProviderAliyun:
-		id := c.Fields["accessKeyId"]
-		sec := c.Fields["accessKeySecret"]
-		return id, sec, id != "" && sec != ""
-	default:
+	spec, found := resolveProvider(c.Provider)
+	if !found || spec.DDNS == nil {
 		return "", "", false
 	}
+	id = c.Fields[spec.DDNS.IDField]
+	secret = c.Fields[spec.DDNS.SecretField]
+	if spec.DDNS.IDField != "" && id == "" {
+		return "", "", false
+	}
+	return id, secret, secret != ""
 }
 
 // BuildEntries 从落库服务聚合 ddns-go 上报条目(纯函数,便于单测)。

@@ -71,6 +71,34 @@ func (r *Registry) CapabilitiesByPoint(point string) []Capability {
 	return out
 }
 
+// DNSProviders 返回注册表中全部 DNS 凭证供应商（按 id 去重、稳定排序）。
+//
+// 消费者（证书页/凭证校验/acme/ddns）只查表，不认插件身份（ADR-036 I1）。
+func (r *Registry) DNSProviders() []DNSProviderSpec {
+	seen := map[string]bool{}
+	out := make([]DNSProviderSpec, 0)
+	for _, c := range r.CapabilitiesByPoint(PointDNSProvider) {
+		spec := ParseDNSProvider(c.Meta)
+		if spec.ID == "" || seen[spec.ID] {
+			continue
+		}
+		seen[spec.ID] = true
+		out = append(out, spec)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
+// DNSProvider 按 id 查 DNS 凭证供应商。
+func (r *Registry) DNSProvider(id string) (DNSProviderSpec, bool) {
+	for _, s := range r.DNSProviders() {
+		if s.ID == id {
+			return s, true
+		}
+	}
+	return DNSProviderSpec{}, false
+}
+
 // ClassOf 返回协议所属类别；无提供者支持时返回空串（不可代理）。
 // 精确协议匹配优先，其次通配（class 声明但未列 protocols）能力。
 func (r *Registry) ClassOf(protocol string) string {
@@ -175,6 +203,40 @@ func CoreProvider() Provider {
 					"requiresPrimaryDomain": true,
 				},
 			},
+			// 内置 DNS 凭证供应商（adr-039 §5）。数据在此声明，消费方只查表；
+			// 新增供应商改为经 dns-provider 插件贡献，核心不再改代码。
+			dnsProviderCap("cloudflare", "Cloudflare", "dns_cf",
+				[]any{field("token", "API Token", "password", true, true)},
+				map[string]any{"token": "CF_Token"},
+				map[string]any{"provider": "cloudflare", "secretField": "token"}),
+			dnsProviderCap("dnspod", "DNSPod（腾讯云）", "dns_tencent",
+				[]any{
+					field("id", "SecretId", "text", true, false),
+					field("token", "SecretKey", "password", true, true),
+				},
+				map[string]any{"id": "Tencent_SecretId", "token": "Tencent_SecretKey"},
+				map[string]any{"provider": "dnspod", "idField": "id", "secretField": "token"}),
+			dnsProviderCap("aliyun", "阿里云（Aliyun）", "dns_ali",
+				[]any{
+					field("accessKeyId", "AccessKey ID", "text", true, false),
+					field("accessKeySecret", "AccessKey Secret", "password", true, true),
+				},
+				map[string]any{"accessKeyId": "ALI_KEY", "accessKeySecret": "ALI_SECRET"},
+				map[string]any{"provider": "alidns", "idField": "accessKeyId", "secretField": "accessKeySecret"}),
 		},
 	}
+}
+
+func dnsProviderCap(id, label, hook string, fields []any, envMap, ddns map[string]any) Capability {
+	return Capability{
+		ID: "core.dns." + id, Point: PointDNSProvider, Provider: CoreProviderID,
+		Meta: map[string]any{
+			"id": id, "label": label, "acmeHook": hook,
+			"fields": fields, "envMap": envMap, "ddns": ddns,
+		},
+	}
+}
+
+func field(name, label, typ string, required, secret bool) map[string]any {
+	return map[string]any{"name": name, "label": label, "type": typ, "required": required, "secret": secret}
 }

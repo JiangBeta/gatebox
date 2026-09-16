@@ -18,6 +18,7 @@ import (
 
 	"github.com/JiangBeta/gatebox/internal/adapter/acme"
 	"github.com/JiangBeta/gatebox/internal/adapter/cert"
+	"github.com/JiangBeta/gatebox/internal/extension"
 	"github.com/JiangBeta/gatebox/internal/model"
 	"github.com/JiangBeta/gatebox/internal/repository"
 )
@@ -26,9 +27,10 @@ import (
 const expiringSoonDays = 10
 
 type api struct {
-	s  *repository.Store
-	cm cert.CertManager
-	ac *acme.Issuer // 证书签发/删除(nil 时证书管理只读)
+	s   *repository.Store
+	cm  cert.CertManager
+	ac  *acme.Issuer        // 证书签发/删除(nil 时证书管理只读)
+	ext *extension.Registry // DNS 凭证供应商等扩展（ADR-039）
 	// extraServices 可选:返回未落库的额外服务(如 docker 派生),供「域名」页
 	// 统计二级域名时与落库 manual 服务一并聚合。由 server 在网关注册后注入。
 	extraServices func(ctx context.Context) []model.Service
@@ -38,8 +40,8 @@ type api struct {
 func (a *api) SetExtraServices(fn func(ctx context.Context) []model.Service) { a.extraServices = fn }
 
 // Register 将 API 路由注册到 mux。返回 *api 供调用方注入额外服务来源。
-func Register(mux *http.ServeMux, s *repository.Store, cm cert.CertManager, ac *acme.Issuer) *api {
-	a := &api{s: s, cm: cm, ac: ac}
+func Register(mux *http.ServeMux, s *repository.Store, cm cert.CertManager, ac *acme.Issuer, ext *extension.Registry) *api {
+	a := &api{s: s, cm: cm, ac: ac, ext: ext}
 
 	mux.HandleFunc("GET /api/v1/domains", a.listDomains)
 	mux.HandleFunc("POST /api/v1/domains", a.createDomain)
@@ -49,6 +51,8 @@ func Register(mux *http.ServeMux, s *repository.Store, cm cert.CertManager, ac *
 	mux.HandleFunc("DELETE /api/v1/domains/{id}", a.deleteDomain)
 
 	mux.HandleFunc("GET /api/v1/credentials", a.listCredentials)
+	// DNS 凭证供应商（由扩展注册表聚合，供应商可经 dns-provider 插件扩展）。
+	mux.HandleFunc("GET /api/v1/credentials/providers", a.listProviders)
 	mux.HandleFunc("POST /api/v1/credentials", a.createCredential)
 	mux.HandleFunc("POST /api/v1/credentials/verify", a.verifyCredential)
 	mux.HandleFunc("PUT /api/v1/credentials/{id}", a.updateCredential)
@@ -313,7 +317,7 @@ func (a *api) createCredential(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "请求体解析失败")
 		return
 	}
-	if ok, msg := validateCredentialFields(&in); !ok {
+	if ok, msg := a.validateCredentialFields(&in); !ok {
 		writeErr(w, http.StatusBadRequest, msg)
 		return
 	}
@@ -344,7 +348,7 @@ func (a *api) updateCredential(w http.ResponseWriter, r *http.Request) {
 	c.Name = in.Name
 	c.Provider = in.Provider
 	c.Fields = in.Fields
-	if ok, msg := validateCredentialFields(c); !ok {
+	if ok, msg := a.validateCredentialFields(c); !ok {
 		writeErr(w, http.StatusBadRequest, msg)
 		return
 	}
@@ -370,7 +374,7 @@ func (a *api) verifyCredential(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "请求体解析失败")
 		return
 	}
-	ok, msg := validateCredentialFields(&in)
+	ok, msg := a.validateCredentialFields(&in)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": ok, "message": msg})
 }
 
@@ -781,22 +785,32 @@ func newID() string {
 }
 
 // validateCredentialFields 按供应商校验必要字段非空。
-func validateCredentialFields(c *model.DNSCredential) (bool, string) {
-	switch c.Provider {
-	case model.ProviderCloudflare:
-		if strings.TrimSpace(c.Fields["token"]) == "" {
-			return false, "缺少 token"
-		}
-	case model.ProviderDNSPod:
-		if strings.TrimSpace(c.Fields["id"]) == "" || strings.TrimSpace(c.Fields["token"]) == "" {
-			return false, "缺少 id 或 token"
-		}
-	case model.ProviderAliyun:
-		if strings.TrimSpace(c.Fields["accessKeyId"]) == "" || strings.TrimSpace(c.Fields["accessKeySecret"]) == "" {
-			return false, "缺少 AccessKey ID 或 Secret"
-		}
-	default:
+// listProviders 返回全部 DNS 凭证供应商（驱动前端动态表单）。
+func (a *api) listProviders(w http.ResponseWriter, _ *http.Request) {
+	if a.ext == nil {
+		writeJSON(w, http.StatusOK, []extension.DNSProviderSpec{})
+		return
+	}
+	writeJSON(w, http.StatusOK, a.ext.DNSProviders())
+}
+
+// validateCredentialFields 按供应商声明的字段 schema 校验（核心不硬编码供应商）。
+func (a *api) validateCredentialFields(c *model.DNSCredential) (bool, string) {
+	if a.ext == nil {
+		return false, "扩展注册表不可用"
+	}
+	spec, ok := a.ext.DNSProvider(c.Provider)
+	if !ok {
 		return false, "未知供应商: " + c.Provider
+	}
+	for _, f := range spec.Fields {
+		if f.Required && strings.TrimSpace(c.Fields[f.Name]) == "" {
+			label := f.Label
+			if label == "" {
+				label = f.Name
+			}
+			return false, "缺少 " + label
+		}
 	}
 	return true, "结构校验通过"
 }

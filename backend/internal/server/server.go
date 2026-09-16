@@ -26,7 +26,7 @@ import (
 // New 构造完整 HTTP handler。
 func New(s *repository.Store, cm cert.CertManager, dc *client.Client, coll *stats.Collector, caddyCli *caddy.Client, health *gateway.HealthCollector, daemonJSON, dataDir, caddyBin, staticRoot string, httpPort, httpsPort int, extraHTTPSPorts []int, ac *acme.Issuer, reg *component.CoreRegistry, mgr *plugin.Manager, ext *extension.Registry, mos *mosdns.Manager) http.Handler {
 	mux := http.NewServeMux()
-	apiH := handler.Register(mux, s, cm, ac)
+	apiH := handler.Register(mux, s, cm, ac, ext)
 	gw := handler.RegisterGateway(mux, s, dc, caddyCli, health, dataDir, caddyBin, staticRoot, httpPort, httpsPort, extraHTTPSPorts, ac, ext)
 	// 域名页二级域名统计需含 docker 派生(编排)服务。
 	apiH.SetExtraServices(gw.DerivedServices)

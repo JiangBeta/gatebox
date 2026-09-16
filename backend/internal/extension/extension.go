@@ -15,11 +15,13 @@ import (
 
 // 扩展点（point）。
 const (
-	PointProxyProtocols = "proxy-protocols" // 可代理的协议类别
-	PointRenderer       = "renderer"        // 中性规则 → Caddyfile 片段
-	PointValidator      = "validator"       // 校验器
-	PointConfigSync     = "config-sync"     // 从投影渲染插件配置并落盘
-	PointReconcile      = "reconcile"       // 通知侧车自行收敛
+	PointProxyProtocols = "proxy-protocols"   // 可代理的协议类别
+	PointRenderer       = "renderer"          // 中性规则 → Caddyfile 片段
+	PointValidator      = "validator"         // 校验器
+	PointConfigSync     = "config-sync"       // 从投影渲染插件配置并落盘
+	PointReconcile      = "reconcile"         // 通知侧车自行收敛
+	PointDNSProvider    = "dns-provider"      // DNS 凭证供应商（ADR-039 §5）
+	PointComponentVar   = "component-variant" // 核心组件配方特征（ADR-038）
 )
 
 // CoreProviderID 核心内置提供者的伪插件 ID（与插件同构注册）。
@@ -87,6 +89,88 @@ type ProjectionInput struct {
 // ConfigSync 扩展契约：从投影渲染插件配置并落盘（如 ddns-go）。
 type ConfigSync interface {
 	SyncProjection(in ProjectionInput) error
+}
+
+// ProviderField DNS 凭证字段描述（驱动前端动态表单与后端校验）。
+type ProviderField struct {
+	Name     string `json:"name"`
+	Label    string `json:"label,omitempty"`
+	Type     string `json:"type,omitempty"` // text | password
+	Required bool   `json:"required,omitempty"`
+	Secret   bool   `json:"secret,omitempty"`
+}
+
+// DDNSMapping 供应商到 ddns-go 的字段映射。
+type DDNSMapping struct {
+	Provider    string `json:"provider"`          // ddns-go 供应商名（如 alidns）
+	IDField     string `json:"idField,omitempty"` // 取 ID 的字段名
+	SecretField string `json:"secretField"`       // 取 Secret 的字段名
+}
+
+// DNSProviderSpec dns-provider 能力的解析结果（纯数据，供应商无关）。
+type DNSProviderSpec struct {
+	ID       string            `json:"id"`
+	Label    string            `json:"label,omitempty"`
+	ACMEHook string            `json:"acmeHook,omitempty"` // acme.sh dnsapi hook 名（如 dns_cf）
+	Fields   []ProviderField   `json:"fields,omitempty"`
+	EnvMap   map[string]string `json:"envMap,omitempty"` // 凭证字段 → acme.sh 环境变量
+	DDNS     *DDNSMapping      `json:"ddns,omitempty"`   // ddns-go 映射（可选）
+}
+
+// ParseDNSProvider 从能力 meta 解析 DNS 供应商描述（纯函数）。
+func ParseDNSProvider(meta map[string]any) DNSProviderSpec {
+	spec := DNSProviderSpec{}
+	if meta == nil {
+		return spec
+	}
+	spec.ID = stringField(meta, "id")
+	spec.Label = stringField(meta, "label")
+	spec.ACMEHook = stringField(meta, "acmeHook")
+	if fs, ok := meta["fields"].([]any); ok {
+		for _, f := range fs {
+			fm, ok := f.(map[string]any)
+			if !ok {
+				continue
+			}
+			spec.Fields = append(spec.Fields, ProviderField{
+				Name:     stringField(fm, "name"),
+				Label:    stringField(fm, "label"),
+				Type:     stringField(fm, "type"),
+				Required: boolField(fm, "required"),
+				Secret:   boolField(fm, "secret"),
+			})
+		}
+	}
+	if em, ok := meta["envMap"].(map[string]any); ok {
+		spec.EnvMap = make(map[string]string, len(em))
+		for k, v := range em {
+			if s, ok := v.(string); ok {
+				spec.EnvMap[k] = s
+			}
+		}
+	}
+	if dm, ok := meta["ddns"].(map[string]any); ok {
+		spec.DDNS = &DDNSMapping{
+			Provider:    stringField(dm, "provider"),
+			IDField:     stringField(dm, "idField"),
+			SecretField: stringField(dm, "secretField"),
+		}
+	}
+	return spec
+}
+
+func stringField(m map[string]any, key string) string {
+	if v, ok := m[key].(string); ok {
+		return v
+	}
+	return ""
+}
+
+func boolField(m map[string]any, key string) bool {
+	if v, ok := m[key].(bool); ok {
+		return v
+	}
+	return false
 }
 
 // Renderer 扩展契约：中性规则 → Caddyfile 全局块片段。

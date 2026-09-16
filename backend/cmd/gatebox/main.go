@@ -80,6 +80,11 @@ func main() {
 		ID:          "ddns-go",
 		ConfigSyncs: []extension.ConfigSync{ddns.NewManager(filepath.Join(cfg.DataDir, "tools", "ddnsgo", ".ddns_go_config.yaml"))},
 	})
+
+	// DNS 凭证供应商改为查扩展注册表（核心不硬编码，ADR-039 §5）：
+	// acme 签发与 ddns-go 上报共用同一份供应商元数据。
+	ac.SetProviders(ext.DNSProvider)
+	ddns.SetProviderResolver(ext.DNSProvider)
 	mgr := plugin.NewManager(st, src, cfg.DataDir, ext)
 
 	// 内网 DNS（mosdns）配置管理：运行目录与组件运行时保持一致（$DATA_DIR/tools/mosdns）。

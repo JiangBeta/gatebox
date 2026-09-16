@@ -1,22 +1,24 @@
 <script setup lang="ts">
 import { ref, onMounted, h } from 'vue'
 import { Button, Popconfirm, Table, message } from 'ant-design-vue'
-import { listCredentials, deleteCredential, type DNSCredential } from '../../api/credentials'
+import {
+  listCredentials,
+  listProviders,
+  deleteCredential,
+  type DNSCredential,
+  type DNSProviderSpec,
+} from '../../api/credentials'
 import CredentialFormModal from '../../components/CredentialFormModal.vue'
 
 const [messageApi, contextHolder] = message.useMessage()
 const credentials = ref<DNSCredential[]>([])
+const providers = ref<DNSProviderSpec[]>([])
 const showModal = ref(false)
 const editing = ref<DNSCredential | null>(null)
 
-const providerOptions = [
-  { label: 'Cloudflare', value: 'cloudflare' },
-  { label: 'DNSPod（dnspod.cn）', value: 'dnspod' },
-  { label: 'Aliyun', value: 'aliyun' },
-]
-
+// 供应商标签来自后端注册表（不再前端硬编码，ADR-039 §5）。
 function providerLabel(p: string) {
-  return providerOptions.find((o) => o.value === p)?.label || p
+  return providers.value.find((o) => o.id === p)?.label || p
 }
 
 function formatTime(s: string) {
@@ -72,7 +74,9 @@ async function doDelete(id: string) {
 }
 
 async function load() {
-  credentials.value = await listCredentials()
+  const [creds, provs] = await Promise.all([listCredentials(), listProviders()])
+  credentials.value = creds
+  providers.value = provs
 }
 onMounted(load)
 </script>

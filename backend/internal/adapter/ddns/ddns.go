@@ -13,14 +13,12 @@ type Entry struct {
 	Domains  []string // IPv4 待上报的二级域名
 }
 
-// providerName 将 GateBox 供应商名映射为 ddns-go 的供应商名。
+// providerName 将 GateBox 供应商名映射为 ddns-go 的供应商名（经供应商元数据）。
 func providerName(p string) string {
-	switch p {
-	case "aliyun":
-		return "alidns"
-	default:
-		return p
+	if spec, ok := resolveProvider(p); ok && spec.DDNS != nil && spec.DDNS.Provider != "" {
+		return spec.DDNS.Provider
 	}
+	return p
 }
 
 // BuildConfig 生成 ddns-go 的 .ddns_go_config.yaml 内容。

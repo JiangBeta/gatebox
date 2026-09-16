@@ -1,7 +1,14 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { Drawer, Form, FormItem, Input, Select, Button, Space, message } from 'ant-design-vue'
-import { createCredential, updateCredential, verifyCredential, type DNSCredential } from '../api/credentials'
+import {
+  createCredential,
+  updateCredential,
+  verifyCredential,
+  listProviders,
+  type DNSCredential,
+  type DNSProviderSpec,
+} from '../api/credentials'
 
 const props = defineProps<{
   show: boolean
@@ -16,36 +23,29 @@ const emit = defineEmits<{
 const [messageApi, contextHolder] = message.useMessage()
 const verifyResult = ref('')
 
-const providerOptions = [
-  { label: 'Cloudflare', value: 'cloudflare' },
-  { label: 'DNSPod（dnspod.cn）', value: 'dnspod' },
-  { label: 'Aliyun', value: 'aliyun' },
-]
+// 供应商与字段 schema 全部来自后端注册表（不再前端硬编码，ADR-039 §5）。
+const providers = ref<DNSProviderSpec[]>([])
+const providerOptions = computed(() => providers.value.map((p) => ({ label: p.label || p.id, value: p.id })))
+const fields = computed(() => providers.value.find((p) => p.id === form.value.provider)?.fields || [])
 
-const providerFields: Record<string, { key: string; label: string }[]> = {
-  cloudflare: [{ key: 'token', label: 'API Token' }],
-  dnspod: [
-    { key: 'id', label: 'SecretId' },
-    { key: 'token', label: 'SecretKey' },
-  ],
-  aliyun: [
-    { key: 'accessKeyId', label: 'AccessKey ID' },
-    { key: 'accessKeySecret', label: 'AccessKey Secret' },
-  ],
-}
-
-const form = ref({ provider: 'cloudflare', name: '', fields: {} as Record<string, string> })
-const fields = computed(() => providerFields[form.value.provider] || [])
+const form = ref({ provider: '', name: '', fields: {} as Record<string, string> })
 
 watch(
   () => props.show,
-  (s) => {
-    if (s) {
-      form.value = props.editing
-        ? { provider: props.editing.provider, name: props.editing.name, fields: { ...props.editing.fields } }
-        : { provider: 'cloudflare', name: '', fields: {} }
-      verifyResult.value = ''
+  async (s) => {
+    if (!s) return
+    if (!providers.value.length) {
+      try {
+        providers.value = await listProviders()
+      } catch (e: any) {
+        messageApi.error(`加载供应商失败：${e.message}`)
+      }
     }
+    const first = providers.value[0]?.id || ''
+    form.value = props.editing
+      ? { provider: props.editing.provider, name: props.editing.name, fields: { ...props.editing.fields } }
+      : { provider: first, name: '', fields: {} }
+    verifyResult.value = ''
   },
 )
 
@@ -96,8 +96,12 @@ async function save() {
       <FormItem label="凭证名称">
         <Input v-model:value="form.name" placeholder="一般为域名" />
       </FormItem>
-      <FormItem v-for="f in fields" :key="f.key" :label="f.label">
-        <Input v-model:value="form.fields[f.key]" type="password" placeholder="请输入" />
+      <FormItem v-for="f in fields" :key="f.name" :label="f.label || f.name" :required="f.required">
+        <Input
+          v-model:value="form.fields[f.name]"
+          :type="f.secret || f.type === 'password' ? 'password' : 'text'"
+          placeholder="请输入"
+        />
       </FormItem>
       <div v-if="verifyResult" :style="{ color: verifyResult.startsWith('通过') ? '#52c41a' : '#ff4d4f' }">
         {{ verifyResult }}

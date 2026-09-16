@@ -4,8 +4,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/JiangBeta/gatebox/internal/extension"
 	"github.com/JiangBeta/gatebox/internal/model"
 )
+
+// testExt 核心内置供应商注册表（校验测试用）。
+func testExt() *extension.Registry {
+	reg := extension.NewRegistry()
+	reg.Register(extension.CoreProvider())
+	return reg
+}
 
 func TestValidateCredentialFields(t *testing.T) {
 	cases := []struct {
@@ -20,8 +28,9 @@ func TestValidateCredentialFields(t *testing.T) {
 		{"aliyun ok", &model.DNSCredential{Provider: "aliyun", Fields: map[string]string{"accessKeyId": "k", "accessKeySecret": "s"}}, true},
 		{"unknown", &model.DNSCredential{Provider: "foo"}, false},
 	}
+	a := &api{ext: testExt()}
 	for _, tc := range cases {
-		ok, _ := validateCredentialFields(tc.c)
+		ok, _ := a.validateCredentialFields(tc.c)
 		if ok != tc.ok {
 			t.Errorf("%s: ok=%v want %v", tc.name, ok, tc.ok)
 		}

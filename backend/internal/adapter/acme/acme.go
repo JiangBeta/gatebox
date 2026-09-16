@@ -17,11 +17,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/JiangBeta/gatebox/internal/extension"
 	"github.com/JiangBeta/gatebox/internal/model"
 )
 
@@ -52,6 +54,29 @@ type Issuer struct {
 	email        string // ACME 注册邮箱(全局,空=不指定)
 	accountReady bool   // 当前 email 是否已注册过账号(避免每次签发重复注册)
 	accountEmail string // accountReady 对应的邮箱
+
+	// providers 解析 DNS 凭证供应商（来自扩展注册表，核心不再硬编码供应商）。
+	providers func(id string) (extension.DNSProviderSpec, bool)
+}
+
+// SetProviders 注入 DNS 供应商解析器（扩展注册表）。
+func (i *Issuer) SetProviders(fn func(id string) (extension.DNSProviderSpec, bool)) {
+	i.providers = fn
+}
+
+// defaultProviders 未注入注册表时的兜底：核心内置供应商（测试与降级路径）。
+var defaultProviders = func() func(string) (extension.DNSProviderSpec, bool) {
+	reg := extension.NewRegistry()
+	reg.Register(extension.CoreProvider())
+	return reg.DNSProvider
+}()
+
+// resolveProvider 优先用注入的注册表，否则回退核心内置供应商。
+func (i *Issuer) resolveProvider(id string) (extension.DNSProviderSpec, bool) {
+	if i.providers != nil {
+		return i.providers(id)
+	}
+	return defaultProviders(id)
 }
 
 // 签发失败冷却期:避免每次 reloadCaddy 都反复调用 acme.sh 打同一坏域名
@@ -251,7 +276,7 @@ func (i *Issuer) ensure(ctx context.Context, cred model.DNSCredential, fqdn stri
 		}
 	}
 
-	params, env, err := providerEnv(cred)
+	params, env, err := i.providerEnv(cred)
 	if err != nil {
 		return "", err
 	}
@@ -368,33 +393,26 @@ func trim(b []byte) string {
 }
 
 // providerEnv 返回 acme.sh 的 DNS provider 参数与该 provider 需要的环境变量。
-func providerEnv(cred model.DNSCredential) (string, []string, error) {
-	switch cred.Provider {
-	case model.ProviderDNSPod:
-		// 腾讯云 DNSPod:使用腾讯云 API 密钥(SecretId/SecretKey),走 acme.sh dns_tencent。
-		// 旧式 DNSPod Token 凭据与此不兼容(会 401)——2026-09-10 确认本环境为腾讯云密钥。
-		secretID := cred.Fields["id"]
-		secretKey := cred.Fields["token"]
-		if secretID == "" || secretKey == "" {
-			return "", nil, errors.New("dnspod 凭证缺少腾讯云 SecretId/SecretKey(存于 id/token 字段)")
-		}
-		return "dns_tencent", []string{"Tencent_SecretId=" + secretID, "Tencent_SecretKey=" + secretKey}, nil
-	case model.ProviderCloudflare:
-		token := cred.Fields["token"]
-		if token == "" {
-			return "", nil, errors.New("cloudflare 凭证缺少 token")
-		}
-		return "dns_cf", []string{"CF_Token=" + token}, nil
-	case model.ProviderAliyun:
-		key := cred.Fields["accessKeyId"]
-		secret := cred.Fields["accessKeySecret"]
-		if key == "" || secret == "" {
-			return "", nil, errors.New("aliyun 凭证缺少 accessKeyId/accessKeySecret")
-		}
-		return "dns_ali", []string{"ALI_KEY=" + key, "ALI_SECRET=" + secret}, nil
-	default:
+//
+// 供应商元数据（hook 名 + 字段→环境变量映射）来自扩展注册表，核心不硬编码（ADR-039 §5）。
+func (i *Issuer) providerEnv(cred model.DNSCredential) (string, []string, error) {
+	spec, ok := i.resolveProvider(cred.Provider)
+	if !ok || spec.ACMEHook == "" {
 		return "", nil, fmt.Errorf("不支持的证书 DNS 供应商: %s", cred.Provider)
 	}
+	if len(spec.EnvMap) == 0 {
+		return "", nil, fmt.Errorf("供应商 %s 未声明环境变量映射", cred.Provider)
+	}
+	env := make([]string, 0, len(spec.EnvMap))
+	for f, envName := range spec.EnvMap {
+		v := strings.TrimSpace(cred.Fields[f])
+		if v == "" {
+			return "", nil, fmt.Errorf("%s 凭证缺少字段 %s", cred.Provider, f)
+		}
+		env = append(env, envName+"="+v)
+	}
+	sort.Strings(env)
+	return spec.ACMEHook, env, nil
 }
 
 // envMap 处理同名环境变量覆盖(key 已含值,无需额外逻辑)。
