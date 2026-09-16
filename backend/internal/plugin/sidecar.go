@@ -52,7 +52,9 @@ func (m *Manager) Token(id string) (string, bool) {
 }
 
 func (m *Manager) sidecarDir(id string) string { return filepath.Join(m.dataDir, "tools", id) }
-func (m *Manager) sidecarBin(id string) string { return filepath.Join(m.sidecarDir(id), id) }
+func (m *Manager) sidecarBin(id string) string {
+	return filepath.Join(m.sidecarDir(id), id+"-sidecar")
+}
 func (m *Manager) sidecarPid(id string) string { return filepath.Join(m.sidecarDir(id), id+".pid") }
 func (m *Manager) sidecarLog(id string) string { return filepath.Join(m.sidecarDir(id), id+".log") }
 

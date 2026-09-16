@@ -48,6 +48,9 @@ func (m *Manager) artifactDest(man Manifest, a Artifact) string {
 		return filepath.Join(m.dataDir, "tools", man.ID, "ui")
 	case RoleAssets:
 		return filepath.Join(m.dataDir, "tools", man.ID, "assets")
+	case RoleSidecar:
+		// 侧车与「插件提供的组件二进制」区分命名，避免互相覆盖。
+		return filepath.Join(m.dataDir, "tools", man.ID, man.ID+"-sidecar")
 	default:
 		return filepath.Join(m.dataDir, "tools", man.ID, man.ID)
 	}

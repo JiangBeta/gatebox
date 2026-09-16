@@ -13,7 +13,6 @@ import (
 	"github.com/JiangBeta/gatebox/internal/adapter/cert"
 	"github.com/JiangBeta/gatebox/internal/adapter/docker/client"
 	"github.com/JiangBeta/gatebox/internal/adapter/docker/stats"
-	"github.com/JiangBeta/gatebox/internal/adapter/mosdns"
 	"github.com/JiangBeta/gatebox/internal/component"
 	"github.com/JiangBeta/gatebox/internal/extension"
 	"github.com/JiangBeta/gatebox/internal/gateway"
@@ -24,7 +23,7 @@ import (
 )
 
 // New 构造完整 HTTP handler。
-func New(s *repository.Store, cm cert.CertManager, dc *client.Client, coll *stats.Collector, caddyCli *caddy.Client, health *gateway.HealthCollector, daemonJSON, dataDir, caddyBin, staticRoot string, httpPort, httpsPort int, extraHTTPSPorts []int, ac *acme.Issuer, reg *component.CoreRegistry, mgr *plugin.Manager, ext *extension.Registry, mos *mosdns.Manager) http.Handler {
+func New(s *repository.Store, cm cert.CertManager, dc *client.Client, coll *stats.Collector, caddyCli *caddy.Client, health *gateway.HealthCollector, daemonJSON, dataDir, caddyBin, staticRoot string, httpPort, httpsPort int, extraHTTPSPorts []int, ac *acme.Issuer, reg *component.CoreRegistry, mgr *plugin.Manager, ext *extension.Registry) http.Handler {
 	mux := http.NewServeMux()
 	apiH := handler.Register(mux, s, cm, ac, ext)
 	gw := handler.RegisterGateway(mux, s, dc, caddyCli, health, dataDir, caddyBin, staticRoot, httpPort, httpsPort, extraHTTPSPorts, ac, ext)
@@ -36,8 +35,6 @@ func New(s *repository.Store, cm cert.CertManager, dc *client.Client, coll *stat
 	}
 	// 组件运行时 + 插件 + 扩展平台（v3）。
 	handler.RegisterComponents(mux, reg, mgr, ext)
-	// 内网 DNS（mosdns）管理页：配置读写 + 内网解析记录 + 日志。
-	handler.RegisterMosdns(mux, mos, reg)
 
 	// 内嵌前端(若已构建);缺失时仅提供 API。
 	if distFS, err := fs.Sub(web.Dist, "dist"); err == nil {

@@ -118,15 +118,6 @@ func NewCoreRegistry(dataDir, caddyBin, caddyAdmin string, src *source.Client) *
 			check: "pid", runArgs: []string{"-c", tools("ddnsgo", ".ddns_go_config.yaml")}, workDir: tools("ddnsgo"),
 		},
 		{
-			desc: Descriptor{ID: "mosdns", Name: "mosdns", Summary: "内网 DNS 解析与分流",
-				Kind: KindProcess, Tier: "optional", Tags: []string{"独立进程"},
-				Provision: "managed", Runtime: "manage", Upgrade: "replace", Removable: true,
-				Capabilities: caps("health", "config", "upgradable", "logs", "runnable"),
-				Source:       Source{Channel: "official"}},
-			bin: tools("mosdns", "mosdns"), versionArgs: []string{"version"}, repo: "IrineSistiana/mosdns", assetHint: "mosdns",
-			check: "pid", runArgs: []string{"start", "-d", tools("mosdns"), "-c", tools("mosdns", "config.yaml")}, workDir: tools("mosdns"),
-		},
-		{
 			desc: Descriptor{ID: "tailscale", Name: "Tailscale", Summary: "跨网组网，安全访问内网服务",
 				Kind: KindProcess, Tier: "optional", Tags: []string{"独立进程"},
 				Provision: "attached", Runtime: "observe", Upgrade: "system",
