@@ -35,6 +35,8 @@ func New(s *repository.Store, cm cert.CertManager, dc *client.Client, coll *stat
 	}
 	// 组件运行时 + 插件 + 扩展平台（v3）。
 	handler.RegisterComponents(mux, reg, mgr, ext)
+	// 插件投影 API（token 鉴权 + scope + 长轮询，ADR-039 §2）。
+	handler.RegisterProjection(mux, mgr, s, ext, gw.DerivedServices)
 
 	// 内嵌前端(若已构建);缺失时仅提供 API。
 	if distFS, err := fs.Sub(web.Dist, "dist"); err == nil {

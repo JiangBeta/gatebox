@@ -87,6 +87,7 @@ func (m *Manager) StartSidecar(id string) error {
 		"GATEBOX_PLUGIN_PORT="+strconv.Itoa(st.Port),
 		"GATEBOX_PLUGIN_TOKEN="+st.Token,
 		"GATEBOX_DATA_DIR="+m.dataDir,
+		"GATEBOX_CORE_URL="+m.coreURL,
 	)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if logFile != nil {

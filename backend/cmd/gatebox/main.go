@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -12,7 +13,6 @@ import (
 	"github.com/JiangBeta/gatebox/internal/adapter/acme"
 	"github.com/JiangBeta/gatebox/internal/adapter/caddy"
 	"github.com/JiangBeta/gatebox/internal/adapter/cert"
-	"github.com/JiangBeta/gatebox/internal/adapter/ddns"
 	dockerclient "github.com/JiangBeta/gatebox/internal/adapter/docker/client"
 	"github.com/JiangBeta/gatebox/internal/adapter/docker/stats"
 	"github.com/JiangBeta/gatebox/internal/component"
@@ -74,17 +74,16 @@ func main() {
 	// 扩展平台：核心能力与内置提供者注册为与插件同构的 provider（ADR-036）。
 	ext := extension.NewRegistry()
 	ext.Register(extension.CoreProvider())
-	// ddns-go 是核心内置可选组件，其驱动以 config-sync 提供者接入（核心只提供投影）。
-	ext.Register(extension.Provider{
-		ID:          "ddns-go",
-		ConfigSyncs: []extension.ConfigSync{ddns.NewManager(filepath.Join(cfg.DataDir, "tools", "ddnsgo", ".ddns_go_config.yaml"))},
-	})
+	// ddns-go 已迁为 GateBoxStore 的 kind:process 插件：经投影 API + reconcile 自收敛
+	// （ADR-036 I2 / ADR-039），核心不再内置其配置生成逻辑。
 
-	// DNS 凭证供应商改为查扩展注册表（核心不硬编码，ADR-039 §5）：
-	// acme 签发与 ddns-go 上报共用同一份供应商元数据。
+	// DNS 凭证供应商改为查扩展注册表（核心不硬编码，ADR-039 §5）。
 	ac.SetProviders(ext.DNSProvider)
-	ddns.SetProviderResolver(ext.DNSProvider)
 	mgr := plugin.NewManager(st, src, cfg.DataDir, ext)
+	// 注入控制面基址：sidecar 插件据此调用投影 API（回环地址）。
+	if _, port, err := net.SplitHostPort(cfg.Addr); err == nil {
+		mgr.SetCoreURL("http://127.0.0.1:" + port)
+	}
 
 	// 内网 DNS（mosdns）已迁为 kind:process 插件（GateBoxStore/plugins/mosdns）：
 	// 其管理逻辑由插件 sidecar 承载，mosdns 本体由 sidecar 代管（ADR-037 决策 (a)）。

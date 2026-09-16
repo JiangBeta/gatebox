@@ -109,15 +109,6 @@ func NewCoreRegistry(dataDir, caddyBin, caddyAdmin string, src *source.Client) *
 			repo: "moby/moby",
 		},
 		{
-			desc: Descriptor{ID: "ddns-go", Name: "ddns-go", Summary: "动态 DNS，把域名解析到本机公网 IP",
-				Kind: KindProcess, Tier: "optional", Tags: []string{"独立进程"},
-				Provision: "managed", Runtime: "manage", Upgrade: "replace", Bundled: true, Removable: true,
-				Capabilities: caps("health", "config", "upgradable", "logs", "runnable"),
-				Source:       Source{Channel: "official"}},
-			bin: tools("ddnsgo", "ddns-go"), versionArgs: []string{"-v"}, repo: "jeessy2/ddns-go", assetHint: "ddns-go",
-			check: "pid", runArgs: []string{"-c", tools("ddnsgo", ".ddns_go_config.yaml")}, workDir: tools("ddnsgo"),
-		},
-		{
 			desc: Descriptor{ID: "tailscale", Name: "Tailscale", Summary: "跨网组网，安全访问内网服务",
 				Kind: KindProcess, Tier: "optional", Tags: []string{"独立进程"},
 				Provision: "attached", Runtime: "observe", Upgrade: "system",

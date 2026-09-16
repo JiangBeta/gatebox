@@ -97,8 +97,6 @@ func RegisterGateway(mux *http.ServeMux, s *repository.Store, cli *dockerclient.
 	mux.HandleFunc("GET /api/v1/settings/gateway", a.getGatewaySettings)
 	mux.HandleFunc("PUT /api/v1/settings/gateway", a.putGatewaySettings)
 
-	// 扩展投影(只读,ADR-036 I2):供消费型插件(如 ddns-go)自行收敛。
-	mux.HandleFunc("GET /api/v1/extensions/me/projection/domains", a.getDomainsProjection)
 	return a
 }
 

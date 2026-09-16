@@ -34,7 +34,7 @@ const router = useRouter()
 const collapsed = ref(false)
 const openKeys = ref<string[]>(['/services'])
 
-// 「服务」子菜单 = 独立进程类组件（ddns-go / mosdns / tailscale / flame）+ 插件 ui.nav 贡献。
+// 「服务」子菜单 = 独立进程类组件（tailscale / flame）+ 插件 ui.nav 贡献。
 const serviceItems = ref<MenuNode[]>([])
 const pluginItems = ref<MenuNode[]>([])
 
@@ -62,7 +62,7 @@ const menuItems = computed<MenuNode[]>(() => {
 async function loadServices() {
   try {
     const all = await listComponents()
-    // 列出全部独立进程类组件（含未安装），保证 mosdns / ddns-go 等管理页入口稳定可达。
+    // 列出全部独立进程类组件（含未安装），保证管理页入口稳定可达。
     serviceItems.value = all
       .filter((c) => c.Kind === 'process')
       .map((c) => ({ key: `comp:${c.ID}`, label: c.Name }))

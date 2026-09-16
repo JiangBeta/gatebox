@@ -366,22 +366,3 @@ func TestSettingsSystemVariables(t *testing.T) {
 		}
 	}
 }
-
-// TestDomainsProjection:扩展只读投影端点返回 revision + domains 数组(ADR-036 I2)。
-func TestDomainsProjection(t *testing.T) {
-	ts := newGatewayTest(t)
-	var out struct {
-		Revision uint64 `json:"revision"`
-		Domains  []struct {
-			Host     string `json:"host"`
-			Protocol string `json:"protocol"`
-		} `json:"domains"`
-	}
-	resp := doJSON(t, http.MethodGet, ts.URL+"/api/v1/extensions/me/projection/domains", nil, &out)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("投影状态 = %d, want 200", resp.StatusCode)
-	}
-	if out.Domains == nil {
-		t.Error("domains 应为数组(非 null)")
-	}
-}

@@ -158,7 +158,12 @@ type Manager struct {
 	dataDir string
 	ext     *extension.Registry
 	catalog []Manifest
+	// coreURL 控制面自身地址（注入 sidecar，供其调用投影 API）。
+	coreURL string
 }
+
+// SetCoreURL 注入控制面基址（如 http://127.0.0.1:8099）。
+func (m *Manager) SetCoreURL(u string) { m.coreURL = u }
 
 // NewManager 构造插件管理器，并把已启用插件的贡献注册进扩展注册表。
 func NewManager(repo *repository.Store, src *source.Client, dataDir string, ext *extension.Registry) *Manager {
@@ -317,6 +322,29 @@ func (m *Manager) Remove(id string) (View, error) {
 	}
 	m.Refresh()
 	return m.view(man, model.PluginState{State: "available"}), nil
+}
+
+// PermissionsOfToken 按 plugin token 解析插件 id 与其 manifest 权限（ADR-039 §2）。
+//
+// 供投影 API 鉴权与 scope 校验；token 不复用管理员 session。
+func (m *Manager) PermissionsOfToken(token string) (string, []Permission, bool) {
+	if token == "" {
+		return "", nil, false
+	}
+	states, err := m.repo.ListPluginStates()
+	if err != nil {
+		return "", nil, false
+	}
+	for _, st := range states {
+		if st.Token == "" || st.Token != token {
+			continue
+		}
+		if man, ok := m.find(st.ID); ok {
+			return st.ID, man.Permissions, true
+		}
+		return st.ID, nil, true
+	}
+	return "", nil, false
 }
 
 // Purge 彻底删除插件：删制品 + 删配置与密钥，不可恢复（ADR-037 §4）。
