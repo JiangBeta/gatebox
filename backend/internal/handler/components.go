@@ -165,6 +165,18 @@ func RegisterComponents(mux *http.ServeMux, reg *component.CoreRegistry, mgr *pl
 		}
 		writeJSON(w, http.StatusOK, v)
 	})
+
+	// 插件后端（sidecar）凭据：供前端 iframe 初始化时注入（同源，ADR-039 §3）。
+	mux.HandleFunc("GET /api/v1/plugins/{id}/token", func(w http.ResponseWriter, r *http.Request) {
+		tok, ok := mgr.Token(r.PathValue("id"))
+		if !ok {
+			writeErrCode(w, http.StatusNotFound, "NOT_FOUND", "插件不存在或未安装")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"token": tok})
+	})
+	// 插件后端 API 反代：/api/v1/plugins/<id>/* → sidecar（ADR-039 §1/§2）。
+	mux.HandleFunc("/api/v1/plugins/{id}/", mgr.Proxy)
 }
 
 // servePluginUI 静态托管插件的 UI 制品（$DATA_DIR/tools/<id>/ui）。

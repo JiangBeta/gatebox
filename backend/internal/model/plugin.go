@@ -13,4 +13,9 @@ type PluginState struct {
 	Message     string            `json:"message,omitempty"`
 	InstalledAt time.Time         `json:"installedAt"`
 	UpdatedAt   time.Time         `json:"updatedAt"`
+	// Token plugin token：绑定 permissions.api scope（ADR-039 §2）。
+	// 持久化于 BoltDB；对外 View 不包含（避免经 API 泄露）。
+	Token string `json:"token,omitempty"`
+	// Port sidecar 后端监听端口（仅 kind:process 使用，绑定 127.0.0.1）。
+	Port int `json:"port,omitempty"`
 }

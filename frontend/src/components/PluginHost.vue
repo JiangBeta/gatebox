@@ -6,6 +6,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
+import http from '../api/http'
 
 const props = defineProps<{ id: string; title?: string }>()
 const router = useRouter()
@@ -19,10 +20,18 @@ function send(payload: Record<string, unknown>) {
   iframe.value?.contentWindow?.postMessage(payload, origin)
 }
 
-function sendInit() {
+async function sendInit() {
+  let token = ''
+  try {
+    // 仅 process 类插件有 sidecar token；其余返回 404，忽略。
+    token = (await http.get(`/plugins/${props.id}/token`)).data?.token || ''
+  } catch {
+    token = ''
+  }
   send({
     type: 'init',
     pluginId: props.id,
+    token,
     theme: 'light',
     locale: 'zh-CN',
     apiBase: `/api/v1/plugins/${props.id}`,

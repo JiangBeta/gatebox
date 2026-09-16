@@ -253,38 +253,15 @@ func (m *Manager) Install(ctx context.Context, id string) (View, error) {
 	if err != nil {
 		return View{}, err
 	}
-	msg := ""
-	if art, ok := pickBinary(man); ok {
-		data, err := m.src.Get(ctx, art.URL)
-		if err != nil {
-			return m.fail(id, "下载制品失败: "+err.Error())
-		}
-		if err := source.VerifySHA256(data, art.SHA256); err != nil {
-			return m.fail(id, err.Error())
-		}
-		bin, err := source.ExtractBinary(data, man.ID)
-		if err != nil {
-			return m.fail(id, err.Error())
-		}
-		dest := filepath.Join(m.dataDir, "tools", man.ID, man.ID)
-		if err := source.InstallAtomic(dest, bin); err != nil {
+	// 分配 plugin token（process 类另分配回环端口）。
+	m.ensureTokenPort(st, man.Kind == "process")
+
+	msg := "已登记（未配置制品源，未下载制品）"
+	if len(man.Artifacts) > 0 {
+		if err := m.installArtifacts(ctx, man); err != nil {
 			return m.fail(id, err.Error())
 		}
 		msg = "制品已安装"
-		// caddy-module:替换 active caddy 制品(备份原文件)——重启 Caddy 后生效。
-		// 这是通用 kind 语义，核心不认具体插件。
-		if man.Kind == "caddy-module" {
-			mainBin := filepath.Join(m.dataDir, "tools", "caddy", "caddy")
-			if _, statErr := os.Stat(mainBin); statErr == nil {
-				_ = os.Rename(mainBin, mainBin+".bak")
-			}
-			if err := source.InstallAtomic(mainBin, bin); err != nil {
-				return m.fail(id, "替换 caddy 二进制失败: "+err.Error())
-			}
-			msg = "制品已安装并替换主 caddy 二进制（请在「扩展 → 组件」重启 Caddy 后生效）"
-		}
-	} else {
-		msg = "已登记（未配置制品源，未下载制品）"
 	}
 	st.State = "installed"
 	st.Version = man.Version
@@ -301,23 +278,43 @@ func (m *Manager) Install(ctx context.Context, id string) (View, error) {
 	return m.view(man, *st), nil
 }
 
-// Enable 启用插件。
+// Enable 启用插件；process 类同时拉起 sidecar（ADR-039 §1）。
 func (m *Manager) Enable(id string) (View, error) {
-	return m.transition(id, "enabled", "已启用")
+	v, err := m.transition(id, "enabled", "已启用")
+	if err != nil {
+		return v, err
+	}
+	if err := m.StartSidecar(id); err != nil {
+		return m.fail(id, "启动插件后端失败: "+err.Error())
+	}
+	return v, nil
 }
 
-// Disable 停用插件（保留制品）。
+// Disable 停用插件（保留制品与配置，停止 sidecar）。
 func (m *Manager) Disable(id string) (View, error) {
+	_ = m.StopSidecar(id)
 	return m.transition(id, "disabled", "已停用（保留制品）")
 }
 
-// Remove 卸载插件（删制品 + 移除状态 + 注销贡献）。
+// Remove 卸载插件：删制品 + 注销贡献 + 停止 sidecar；配置与密钥保留（ADR-037 §4）。
 func (m *Manager) Remove(id string) (View, error) {
 	man, ok := m.find(id)
 	if !ok {
 		return View{}, ErrNotFound
 	}
-	_ = m.repo.DeletePluginState(id)
+	_ = m.StopSidecar(id)
+	// 删除制品目录（tools/<id>/）。
+	_ = os.RemoveAll(filepath.Join(m.dataDir, "tools", id))
+	// 保留用户配置与密钥：状态退回 available 而非删除。
+	if prev, err := m.repo.GetPluginState(id); err == nil {
+		prev.State = "available"
+		prev.Message = "已卸载（配置保留）"
+		prev.Port = 0
+		prev.UpdatedAt = time.Now()
+		_ = m.repo.SavePluginState(prev)
+	} else {
+		_ = m.repo.DeletePluginState(id)
+	}
 	m.Refresh()
 	return m.view(man, model.PluginState{State: "available"}), nil
 }
