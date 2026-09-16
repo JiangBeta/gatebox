@@ -86,6 +86,7 @@ func main() {
 	}
 	// 在线插件目录（ADR-037 §7）：best-effort 合并，失败仅用内置目录。
 	mgr.SetCatalogURL(cfg.CatalogURL)
+	mgr.SetCatalogPubKey(cfg.CatalogPubKey)
 	mgr.SetGateboxVersion(version)
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)

@@ -3,6 +3,7 @@ package acme
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -10,6 +11,31 @@ import (
 
 	"github.com/JiangBeta/gatebox/internal/model"
 )
+
+// TestEnsureHook 钩子缺失时经 fetchHook 拉取;已存在则跳过。
+func TestEnsureHook(t *testing.T) {
+	home := t.TempDir()
+	var calls []string
+	iss := &Issuer{HomeDir: home, fetchHook: func(hook string) error {
+		calls = append(calls, hook)
+		if err := os.MkdirAll(filepath.Join(home, "dnsapi"), 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(home, "dnsapi", hook+".sh"), []byte("#!/bin/sh\n"), 0o755)
+	}}
+	if err := iss.ensureHook("dns_tencent"); err != nil {
+		t.Fatalf("ensureHook: %v", err)
+	}
+	if len(calls) != 1 || calls[0] != "dns_tencent" {
+		t.Fatalf("首次应拉取 dns_tencent, got %v", calls)
+	}
+	if err := iss.ensureHook("dns_tencent"); err != nil {
+		t.Fatalf("ensureHook 二次: %v", err)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("已存在不应重复拉取, got %v", calls)
+	}
+}
 
 func hasArg(args []string, want string) bool {
 	for _, a := range args {

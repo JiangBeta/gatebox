@@ -166,6 +166,8 @@ type Manager struct {
 	coreURL string
 	// catalogURL 在线静态索引地址（拉取在线插件目录，ADR-037 §7）。
 	catalogURL string
+	// catalogPubKey 发布者 Ed25519 公钥（base64）；非空时强制校验索引签名。
+	catalogPubKey string
 	// gateboxVersion 宿主版本，用于 requires.gatebox 兼容过滤。
 	gateboxVersion string
 }
@@ -175,6 +177,9 @@ func (m *Manager) SetCoreURL(u string) { m.coreURL = u }
 
 // SetCatalogURL 注入在线静态索引地址。
 func (m *Manager) SetCatalogURL(u string) { m.catalogURL = u }
+
+// SetCatalogPubKey 注入发布者 Ed25519 公钥（base64）；非空时索引必须带有效签名。
+func (m *Manager) SetCatalogPubKey(k string) { m.catalogPubKey = k }
 
 // SetGateboxVersion 注入宿主版本（requires.gatebox 校验用）。
 func (m *Manager) SetGateboxVersion(v string) { m.gateboxVersion = v }
@@ -186,7 +191,7 @@ func (m *Manager) RefreshOnline(ctx context.Context) error {
 	if m.catalogURL == "" || m.src == nil {
 		return nil
 	}
-	cat, err := m.src.FetchCatalog(ctx, m.catalogURL)
+	cat, err := m.src.FetchCatalogSigned(ctx, m.catalogURL, m.catalogPubKey)
 	if err != nil {
 		return err
 	}
