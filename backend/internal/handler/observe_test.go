@@ -24,7 +24,7 @@ func newObserveMux(t *testing.T) (*http.ServeMux, *observe.Bus) {
 	reg := component.NewCoreRegistry(t.TempDir(), "/tmp/caddy", "http://127.0.0.1:2019", nil)
 	bus := observe.NewBus(16)
 	mux := http.NewServeMux()
-	RegisterObserve(mux, bus, reg, repo, reconcile.NewBoltRunStore(repo), nil)
+	RegisterObserve(mux, bus, reg, repo, reconcile.NewBoltRunStore(repo), nil, t.TempDir())
 	return mux, bus
 }
 

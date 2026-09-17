@@ -546,14 +546,25 @@ func providerFor(man Manifest) (extension.Provider, error) {
 		})
 	}
 	for _, b := range man.Contributions.Backend {
-		if b.Point == extension.PointRenderer && b.For != "" {
-			if b.Impl["type"] == "template" {
-				rd, err := extension.NewTemplateRenderer(man.ID+"."+b.For, b.Impl["template"])
-				if err != nil {
-					return extension.Provider{}, err
-				}
-				p.Renderers[b.For] = rd
+		switch b.Point {
+		case extension.PointRenderer:
+			if b.For == "" || b.Impl["type"] != "template" {
+				continue
 			}
+			rd, err := extension.NewTemplateRenderer(man.ID+"."+b.For, b.Impl["template"])
+			if err != nil {
+				return extension.Provider{}, err
+			}
+			p.Renderers[b.For] = rd
+		case extension.PointConfigSync:
+			if b.Impl["type"] != "template" {
+				continue
+			}
+			cs, err := extension.NewTemplateConfigSync(man.ID+".config-sync", b.Target, b.Impl["template"])
+			if err != nil {
+				return extension.Provider{}, err
+			}
+			p.ConfigSyncs = append(p.ConfigSyncs, cs)
 		}
 	}
 	return p, nil

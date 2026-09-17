@@ -177,9 +177,33 @@ func FactViews(facts []graph.Fact) []component.FactView {
 	return out
 }
 
+// kindInfo 意图类别 → 受影响的信息类型（含派生关系）。
+//
+// service 携带域名行，故变更服务也影响 domain（acme 需要重签）；
+// compose 产出 label→派生 service，故同样影响 service/domain。
+var kindInfo = map[string][]component.InfoType{
+	"service":    {component.InfoService, component.InfoDomain},
+	"domain":     {component.InfoDomain},
+	"credential": {component.InfoCredential},
+	"fragment":   {component.InfoFragment},
+	"variable":   {component.InfoVariable},
+	"port":       {component.InfoPortBinding},
+	"compose":    {component.InfoService, component.InfoDomain},
+}
+
 func affectedInfo(pending []Intent) map[component.InfoType]bool {
 	out := map[component.InfoType]bool{}
 	for _, i := range pending {
+		// 空 kind = 全量意图（网关写操作）：合并时按全量处理。
+		if i.Kind == "" {
+			return map[component.InfoType]bool{}
+		}
+		if infos, ok := kindInfo[i.Kind]; ok {
+			for _, info := range infos {
+				out[info] = true
+			}
+			continue
+		}
 		if info := graph.InfoOf(i.Kind); info != "" {
 			out[info] = true
 		}

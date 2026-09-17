@@ -13,7 +13,7 @@ const error = ref<string | null>(null)
 const selected = ref<GraphNode | null>(null)
 const activity = ref<ComponentActivity | null>(null)
 
-const { states } = useEvents()
+const { states, runSteps } = useEvents()
 
 const runs = ref<Run[]>([])
 const runsOpen = ref(false)
@@ -89,7 +89,13 @@ const stepColor = (s: string) =>
     </div>
     <div class="topology__body">
       <div class="topology__canvas">
-        <TopologyCanvas v-if="model" :model="model" :states="states" @select="onSelect" />
+        <TopologyCanvas
+          v-if="model"
+          :model="model"
+          :states="states"
+          :run-steps="runSteps"
+          @select="onSelect"
+        />
         <a-empty v-else description="暂无数据" />
       </div>
       <a-drawer

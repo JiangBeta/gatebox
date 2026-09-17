@@ -53,7 +53,14 @@
 - `src/shared/observe.ts`、`src/api/{observe,events}.ts`、`src/app/composables/useEvents.ts`（单一 SSE 订阅）
 - 功能地图：节点状态着色、活动展示、运行记录抽屉、立即调和
 
-> **L2/L3 实现偏差**：① `/components/{id}/logs` 暂返回空流（日志来源待接）；② 网关调和注册为单一 `caddy` 步骤（内部含 acme/generate/load/备份/扩展同步），后续再拆 acme 为独立步骤；③ Variable 写操作本就触发网关重载，未重复接入 trigger（compose 回填另议）。
+> **L2/L3 实现状态（第二批）**：
+> - ✅ acme / caddy 拆为**独立调和步骤**（`ReconcileAcme` → `ReconcileCaddy`），顺序由 `acme --cert--> caddy` 边给出；service 变更同时影响 domain（acme 重签）。
+> - ✅ 写操作收敛：`reloadCaddy` 在调和器装配时提交全量意图（异步收敛），未装配时同步回退（零回归）。
+> - ✅ manifest `config-sync`（template）已在 `providerFor` 编译（此前缺口）。
+> - ✅ `/components/{id}/logs` 接真实来源：caddy（`$DATA_DIR/logs/caddy/*.log` 最新）、acme（最近 CertLog.LogFile）；支持 `?tail=N`。
+> - ✅ 前端传播轨迹：Run/Step 事件驱动图上节点徽标 + 边高亮。
+>
+> **仍未完成**：① Variable → compose 回填（需先保留 compose 模板，ADR-035 已知债务，须先定设计）；② docker 部署/运行态动作未接入调和（仍走既有异步同步）；③ 周期全量调和默认 5min 已启用，可配置关闭（待补配置项）。
 
 依赖图：
 

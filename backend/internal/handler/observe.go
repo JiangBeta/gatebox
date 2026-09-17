@@ -3,8 +3,12 @@ package handler
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/JiangBeta/gatebox/internal/component"
@@ -14,7 +18,7 @@ import (
 )
 
 // RegisterObserve 注册 v4 观测与调和端点（ADR-041 §7/§8）。
-func RegisterObserve(mux *http.ServeMux, bus *observe.Bus, reg *component.CoreRegistry, store *repository.Store, runs reconcile.RunStore, rec *reconcile.Reconciler) {
+func RegisterObserve(mux *http.ServeMux, bus *observe.Bus, reg *component.CoreRegistry, store *repository.Store, runs reconcile.RunStore, rec *reconcile.Reconciler, dataDir string) {
 	// SSE：观测事件流（state/activity/run）。
 	mux.HandleFunc("GET /api/v1/events", func(w http.ResponseWriter, r *http.Request) {
 		serveEvents(w, r, bus)
@@ -33,9 +37,14 @@ func RegisterObserve(mux *http.ServeMux, bus *observe.Bus, reg *component.CoreRe
 		writeJSON(w, http.StatusOK, activityOf(r.Context(), store, r.PathValue("id")))
 	})
 	mux.HandleFunc("GET /api/v1/components/{id}/logs", func(w http.ResponseWriter, r *http.Request) {
-		// L2 占位：返回空文本流；后续接组件日志来源。
+		tail := 200
+		if v := r.URL.Query().Get("tail"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				tail = n
+			}
+		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = w.Write([]byte(""))
+		_, _ = w.Write([]byte(componentLogs(store, dataDir, r.PathValue("id"), tail)))
 	})
 
 	// 运行记录（只读）。
@@ -111,6 +120,82 @@ func activityOf(_ context.Context, store *repository.Store, id string) component
 		}
 	}
 	return component.Activity{Task: "idle"}
+}
+
+// componentLogs 返回组件最近日志（tail 行）。
+//
+// caddy：<dataDir>/logs/caddy/ 下最新的 .log；
+// acme：最近一条 CertLog 的 LogFile；其余组件暂无来源，返回空。
+func componentLogs(store *repository.Store, dataDir, id string, tail int) string {
+	switch id {
+	case "acme":
+		if store == nil {
+			return ""
+		}
+		logs, err := store.ListCertLogs(1)
+		if err != nil || len(logs) == 0 || logs[0].LogFile == "" {
+			return ""
+		}
+		return tailFile(logs[0].LogFile, tail)
+	case "caddy":
+		if dataDir == "" {
+			return ""
+		}
+		dir := filepath.Join(dataDir, "logs", "caddy")
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return ""
+		}
+		newest := ""
+		var newestMod int64
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".log") {
+				continue
+			}
+			info, err := e.Info()
+			if err != nil {
+				continue
+			}
+			if m := info.ModTime().UnixNano(); m > newestMod {
+				newestMod = m
+				newest = filepath.Join(dir, e.Name())
+			}
+		}
+		return tailFile(newest, tail)
+	default:
+		return ""
+	}
+}
+
+// tailFile 读取文件末尾最多 n 行（最多回读 128KiB，避免大文件）。
+func tailFile(path string, n int) string {
+	if path == "" || n <= 0 {
+		return ""
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return ""
+	}
+	const maxRead = 128 * 1024
+	size := info.Size()
+	readSize := size
+	if readSize > maxRead {
+		readSize = maxRead
+	}
+	buf := make([]byte, readSize)
+	if _, err := f.ReadAt(buf, size-readSize); err != nil && err != io.EOF {
+		return ""
+	}
+	lines := strings.Split(string(buf), "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, "\n")
 }
 
 // serveEvents 以 SSE 推送观测事件：先回放 Last-Event-ID 之后的事件，再持续推送。

@@ -7,6 +7,7 @@
 package extension
 
 import (
+	"os"
 	"strings"
 	"text/template"
 
@@ -89,6 +90,36 @@ type ProjectionInput struct {
 // ConfigSync 扩展契约：从投影渲染插件配置并落盘（如 ddns-go）。
 type ConfigSync interface {
 	SyncProjection(in ProjectionInput) error
+}
+
+// TemplateConfigSync 声明式 config-sync：用 text/template 渲染投影并写入 target。
+//
+// 模板数据为 ProjectionInput；target 为空时仅渲染不落盘（可用于校验/调试）。
+type TemplateConfigSync struct {
+	id     string
+	target string
+	t      *template.Template
+}
+
+// NewTemplateConfigSync 解析模板。
+func NewTemplateConfigSync(id, target, text string) (*TemplateConfigSync, error) {
+	t, err := template.New(id).Parse(text)
+	if err != nil {
+		return nil, err
+	}
+	return &TemplateConfigSync{id: id, target: target, t: t}, nil
+}
+
+// SyncProjection 渲染并落盘（0600，配置可能含敏感值）。
+func (s *TemplateConfigSync) SyncProjection(in ProjectionInput) error {
+	var b strings.Builder
+	if err := s.t.Execute(&b, in); err != nil {
+		return err
+	}
+	if s.target == "" {
+		return nil
+	}
+	return os.WriteFile(s.target, []byte(b.String()), 0o600)
 }
 
 // ProviderField DNS 凭证字段描述（驱动前端动态表单与后端校验）。

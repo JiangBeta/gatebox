@@ -1100,17 +1100,88 @@ func (a *gatewayAPI) SyncDockerLabels(ctx context.Context) error {
 }
 
 // reloadCaddy 重新生成 Caddyfile 并原子加载(manual 落库 + docker 派生 + 片段 + 变量)。
-// Reconcile 执行一次网关全量调和（v4 调和器首个闭环的入口）。
-func (a *gatewayAPI) Reconcile(ctx context.Context) error {
-	return a.reloadCaddy(ctx)
+//
+// v4（L3）：当调和器已装配（server 注入 reconcileTrigger）时，网关写操作只提交一次
+// 「全量意图」并由调和器异步收敛（HTTP 立即返回「已受理」，进度走 SSE/Run）；
+// 未装配时保持同步执行，行为与迁移前完全一致。
+func (a *gatewayAPI) reloadCaddy(ctx context.Context) error {
+	if reconcileTrigger != nil {
+		triggerReconcile("", "")
+		return nil
+	}
+	return a.Reconcile(ctx)
 }
 
-func (a *gatewayAPI) reloadCaddy(ctx context.Context) error {
-	services, err := a.s.ListServices()
+// Reconcile 执行一次网关全量调和（v4 首个闭环：先 acme 签发，再 caddy 加载）。
+// 保留为单入口，供同步调用方（SyncDockerLabels / 写 handler）与手工调和使用。
+func (a *gatewayAPI) Reconcile(ctx context.Context) error {
+	if err := a.ReconcileAcme(ctx); err != nil {
+		return err
+	}
+	return a.ReconcileCaddy(ctx)
+}
+
+// ReconcileAcme 为 HTTPS 域名签发/续期证书（幂等；失败仅告警，不中断）。
+// v4 调和器中作为独立步骤，先于 caddy 执行（acme --cert--> caddy）。
+func (a *gatewayAPI) ReconcileAcme(_ context.Context) error {
+	if a.acme == nil {
+		return nil
+	}
+	services, err := a.listAllServices(context.Background())
 	if err != nil {
 		return err
 	}
-	services = append(services, a.deriveDockerServices(ctx)...)
+	dns, err := a.buildDNSMap()
+	if err != nil {
+		return err
+	}
+	// 证书 DNS-01:由独立 acme.sh 签发(ADR-013 修订)。caddy 仅按 tls 文件加载。
+	// 签发较慢(DNS 验证),用独立超时 context,不随请求取消,并并行签发各域名。
+	// 签发失败仅告警并继续:证书缺失由 caddy load 时对具体域名失败,不阻塞其余操作。
+	acmeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	type job struct {
+		fqdn string
+		cred model.DNSCredential
+	}
+	var jobs []job
+	for _, svc := range services {
+		for _, d := range svc.Domains {
+			if d.Protocol != model.DomainProtoHTTPS {
+				continue
+			}
+			cred, ok := dns[d.RootDomain]
+			if !ok {
+				continue // 未登记凭证的 HTTPS:不签发(保持 caddy 行为,留空 tls 由管理员处理)
+			}
+			jobs = append(jobs, job{fqdn: d.Host(), cred: cred})
+		}
+	}
+	var wg sync.WaitGroup
+	for _, j := range jobs {
+		wg.Add(1)
+		go func(fqdn string, cred model.DNSCredential) {
+			defer wg.Done()
+			logFile, err := a.acme.Ensure(acmeCtx, cred, fqdn)
+			if err != nil {
+				log.Printf("证书签发失败(继续): %s: %v", fqdn, err)
+				a.logCert("ensure", fqdn, "fail", err.Error(), logFile)
+			} else {
+				a.logCert("ensure", fqdn, "success", "证书已签发/有效", logFile)
+			}
+		}(j.fqdn, j.cred)
+	}
+	wg.Wait()
+	return nil
+}
+
+// ReconcileCaddy 生成 Caddyfile → 校验 → /load → 备份 → 扩展配置同步。
+// v4 调和器中作为独立步骤，晚于 acme 执行（消费 cert）。
+func (a *gatewayAPI) ReconcileCaddy(ctx context.Context) error {
+	services, err := a.listAllServices(ctx)
+	if err != nil {
+		return err
+	}
 	apps, err := a.s.ListApps()
 	if err != nil {
 		return err
@@ -1126,46 +1197,6 @@ func (a *gatewayAPI) reloadCaddy(ctx context.Context) error {
 	dns, err := a.buildDNSMap()
 	if err != nil {
 		return err
-	}
-	// 证书 DNS-01:由独立 acme.sh 签发(ADR-013 修订)。caddy 仅按 tls 文件加载。
-	// 签发较慢(DNS 验证),用独立超时 context,不随请求取消,并并行签发各域名。
-	// 签发失败仅告警并继续:证书缺失由 caddy load 时对具体域名失败,不阻塞其余操作
-	// (如停/删其他服务)。失败进入 issuer 冷却,短时间内不重复。
-	if a.acme != nil {
-		acmeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
-		type job struct {
-			fqdn string
-			cred model.DNSCredential
-		}
-		var jobs []job
-		for _, svc := range services {
-			for _, d := range svc.Domains {
-				if d.Protocol != model.DomainProtoHTTPS {
-					continue
-				}
-				cred, ok := dns[d.RootDomain]
-				if !ok {
-					continue // 未登记凭证的 HTTPS:不签发(保持 caddy 行为,留空 tls 由管理员处理)
-				}
-				jobs = append(jobs, job{fqdn: d.Host(), cred: cred})
-			}
-		}
-		var wg sync.WaitGroup
-		for _, j := range jobs {
-			wg.Add(1)
-			go func(fqdn string, cred model.DNSCredential) {
-				defer wg.Done()
-				logFile, err := a.acme.Ensure(acmeCtx, cred, fqdn)
-				if err != nil {
-					log.Printf("证书签发失败(继续): %s: %v", fqdn, err)
-					a.logCert("ensure", fqdn, "fail", err.Error(), logFile)
-				} else {
-					a.logCert("ensure", fqdn, "success", "证书已签发/有效", logFile)
-				}
-			}(j.fqdn, j.cred)
-		}
-		wg.Wait()
 	}
 	opts, err := a.caddyPortOptions(services)
 	if err != nil {
@@ -1190,6 +1221,15 @@ func (a *gatewayAPI) reloadCaddy(ctx context.Context) error {
 	// 核心只提供投影,由 config-sync 提供者(如 ddns-go)自行渲染落盘(ADR-036 I2)。
 	a.syncExtensionConfigs()
 	return nil
+}
+
+// listAllServices 返回落库 manual 服务 + docker 派生服务。
+func (a *gatewayAPI) listAllServices(ctx context.Context) ([]model.Service, error) {
+	services, err := a.s.ListServices()
+	if err != nil {
+		return nil, err
+	}
+	return append(services, a.deriveDockerServices(ctx)...), nil
 }
 
 // validateCaddyfile 生成后前置校验(软失败策略)。

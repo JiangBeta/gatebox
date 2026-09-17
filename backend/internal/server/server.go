@@ -47,11 +47,12 @@ func New(s *repository.Store, cm cert.CertManager, dc *client.Client, coll *stat
 	bus := observe.NewBus(256)
 	runStore := reconcile.NewBoltRunStore(s)
 	rec := reconcile.New(handler.GraphSnapshotFunc(reg, mgr, s, gw.DerivedServices), runStore, bus)
-	// 首个闭环：网关全量调和（生成 Caddyfile → acme → /load → 备份 → 扩展同步）。
-	rec.Register("caddy", handler.NewGatewayReconciler(gw.Reconcile))
+	// 首个闭环：acme 签发（独立步骤，先于 caddy）+ caddy 加载（生成 → 校验 → /load → 备份 → 扩展同步）。
+	rec.Register("acme", handler.NewGatewayReconciler(gw.ReconcileAcme))
+	rec.Register("caddy", handler.NewGatewayReconciler(gw.ReconcileCaddy))
 	observe.NewCollector(bus, handler.ObserveProviders(reg, s), 5*time.Second).Start(context.Background())
 	rec.Start(context.Background())
-	handler.RegisterObserve(mux, bus, reg, s, runStore, rec)
+	handler.RegisterObserve(mux, bus, reg, s, runStore, rec, dataDir)
 	// 触发缺口修复：Domain/Credential/Port 变更后自动调和（此前不触发）。
 	handler.SetReconcileTrigger(func(kind, id string) {
 		rec.Trigger(reconcile.Intent{Op: "update", Kind: kind, ID: id})

@@ -4,6 +4,22 @@ import { Handle, Position, type NodeProps } from '@vue-flow/core'
 
 const props = defineProps<NodeProps>()
 
+const runState = computed(() => (props.data as { runState?: string }).runState)
+const runColor = computed(() => {
+  switch (runState.value) {
+    case 'success':
+      return '#52c41a'
+    case 'running':
+      return '#1677ff'
+    case 'error':
+      return '#ff4d4f'
+    case 'degraded':
+      return '#faad14'
+    default:
+      return '#d9d9d9'
+  }
+})
+
 const dotColor = computed(() => {
   const state = (props.data as { state?: string }).state
   switch (state) {
@@ -28,6 +44,9 @@ const dotColor = computed(() => {
       <span class="topo-node__dot" :style="{ background: dotColor }" />
       <span class="topo-node__title">{{ data.label }}</span>
       <a-tag v-if="data.tier" :bordered="false">{{ data.tier }}</a-tag>
+      <span v-if="runState" class="topo-node__run" :style="{ borderColor: runColor, color: runColor }">
+        {{ runState }}
+      </span>
     </div>
     <div v-if="data.functions?.length" class="topo-node__tags">
       <a-tag v-for="f in data.functions" :key="f" color="blue" :bordered="false">{{ f }}</a-tag>
@@ -60,6 +79,13 @@ const dotColor = computed(() => {
   height: 8px;
   border-radius: 50%;
   background: #1677ff;
+}
+.topo-node__run {
+  margin-left: auto;
+  padding: 0 6px;
+  font-size: 10px;
+  border: 1px solid currentColor;
+  border-radius: 8px;
 }
 .topo-node__tags {
   margin-top: 6px;

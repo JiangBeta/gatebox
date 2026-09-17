@@ -11,7 +11,11 @@ import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
 import '@vue-flow/controls/dist/style.css'
 
-const props = defineProps<{ model: GraphModel; states?: Record<string, string> }>()
+const props = defineProps<{
+  model: GraphModel
+  states?: Record<string, string>
+  runSteps?: Record<string, string>
+}>()
 const emit = defineEmits<{ (e: 'select', id: string): void }>()
 
 const nodes = computed<Node[]>(() => {
@@ -23,21 +27,24 @@ const nodes = computed<Node[]>(() => {
     id: n.id,
     type: n.kind === 'function' ? 'function' : 'component',
     position: pos[n.id] ?? { x: 0, y: 0 },
-    data: { ...n, state: props.states?.[n.id] },
+    data: { ...n, state: props.states?.[n.id], runState: props.runSteps?.[n.id] },
   }))
 })
 
 const edges = computed<Edge[]>(() =>
-  props.model.edges.map((e) => ({
-    id: `${e.from}->${e.to}:${e.info}`,
-    source: e.from,
-    target: e.to,
-    label: e.instances.length > 0 ? `${e.info} ×${e.instances.length}` : e.info,
-    markerEnd: MarkerType.ArrowClosed,
-    animated: e.cycle,
-    style: { stroke: e.cycle ? '#ef4444' : '#94a3b8' },
-    labelStyle: { fontSize: '11px', fill: '#64748b' },
-  })),
+  props.model.edges.map((e) => {
+    const active = !!props.runSteps?.[e.from] || !!props.runSteps?.[e.to]
+    return {
+      id: `${e.from}->${e.to}:${e.info}`,
+      source: e.from,
+      target: e.to,
+      label: e.instances.length > 0 ? `${e.info} ×${e.instances.length}` : e.info,
+      markerEnd: MarkerType.ArrowClosed,
+      animated: e.cycle || active,
+      style: { stroke: e.cycle ? '#ef4444' : active ? '#1677ff' : '#94a3b8' },
+      labelStyle: { fontSize: '11px', fill: '#64748b' },
+    }
+  }),
 )
 </script>
 

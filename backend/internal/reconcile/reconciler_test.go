@@ -67,6 +67,21 @@ func TestRunOrdersAndFiltersByIntent(t *testing.T) {
 	}
 }
 
+func TestServiceIntentAlsoAffectsAcme(t *testing.T) {
+	var calls []string
+	r := New(func(context.Context) graph.Snapshot { return testSnapshot() }, nil, observe.NewBus(16))
+	r.Register("acme", stub{id: "acme", calls: &calls})
+	r.Register("caddy", stub{id: "caddy", calls: &calls})
+	r.Register("docker", stub{id: "docker", calls: &calls})
+
+	// service 携带域名行 → 同时影响 domain → acme 需重签。
+	r.Trigger(Intent{Op: "add", Kind: "service", ID: "s1"})
+	_, _ = r.Run(context.Background(), "intent")
+	if len(calls) != 2 || calls[0] != "acme" || calls[1] != "caddy" {
+		t.Fatalf("service 变更应触发 acme→caddy，got %v", calls)
+	}
+}
+
 func TestRunFailureDegradedButContinues(t *testing.T) {
 	var calls []string
 	r := New(func(context.Context) graph.Snapshot { return testSnapshot() }, nil, observe.NewBus(16))
