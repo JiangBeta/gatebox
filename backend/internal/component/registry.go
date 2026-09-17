@@ -112,14 +112,6 @@ func NewCoreRegistry(dataDir, caddyBin, caddyAdmin string, src *source.Client) *
 			check: "stat", dockerSocket: "/var/run/docker.sock", processName: "dockerd",
 			repo: "moby/moby",
 		},
-		{
-			desc: Descriptor{ID: "tailscale", Name: "Tailscale", Summary: "跨网组网，安全访问内网服务",
-				Kind: KindProcess, Tier: "optional", Tags: []string{"独立进程"},
-				Provision: "attached", Runtime: "observe", Upgrade: "system",
-				Capabilities: caps("health", "operable"), Source: Source{Channel: "system"}},
-			bin: "/usr/bin/tailscale", versionArgs: []string{"version"},
-			check: "always",
-		},
 	}
 	return &CoreRegistry{dataDir: dataDir, src: src, cores: cores, appliedVariant: map[string]string{}}
 }

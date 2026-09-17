@@ -10,7 +10,7 @@ const items = ref<ComponentInfo[]>([])
 const loading = ref(false)
 const busy = ref('')
 
-// 服务页聚焦剩余独立进程类组件（tailscale）。
+// 服务页聚焦独立进程类组件。
 const focused = computed(() => route.query.component as string | undefined)
 
 async function load() {

@@ -53,7 +53,7 @@ async function onLogout() {
   }
 }
 
-// 「服务」子菜单 = 剩余独立进程类组件（tailscale）+ 插件 ui.nav 贡献。
+// 「服务」子菜单 = 插件 ui.nav 贡献（组件类入口由插件提供）。
 const serviceItems = ref<MenuNode[]>([])
 const pluginItems = ref<MenuNode[]>([])
 
