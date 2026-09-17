@@ -48,6 +48,11 @@ const routes = [
     meta: { title: '服务' },
   },
   {
+    path: '/topology',
+    component: () => import('../modules/topology/views/Index.vue'),
+    meta: { title: '功能地图' },
+  },
+  {
     path: '/extensions',
     component: () => import('../views/ExtensionView.vue'),
     meta: {

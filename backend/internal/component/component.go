@@ -40,6 +40,15 @@ type Descriptor struct {
 	DefaultEnabled bool
 	Removable      bool
 	Bundled        bool
+
+	// v4：功能 + 四契约（ADR-040 / ADR-041 §3）。
+	// 这些字段不加 json tag，故 /api/v1/components 输出保持原样（零回归）；
+	// 新端点 /api/v1/descriptors 用独立 DTO 以 camelCase 输出。
+	Functions  []Function
+	Config     []ConfigField
+	Consumes   []InfoPort
+	Produces   []InfoPort
+	Observable Observability
 }
 
 // Status 运行态快照。

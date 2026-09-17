@@ -1,0 +1,22 @@
+/**
+ * 设计 token 的 CSS 变量形态（`tokens.ts` 的镜像）。
+ *
+ * module 层 `.vue` 的样式禁止字面量（ADR-032 / docs/architecture.md §9.3），
+ * 一律引用这里的变量。数值与 tokens.ts 保持一致。
+ */
+:root {
+  --gb-space-xs: 4px;
+  --gb-space-sm: 8px;
+  --gb-space-md: 16px;
+  --gb-space-lg: 24px;
+  --gb-space-xl: 32px;
+
+  --gb-font-xs: 12px;
+  --gb-font-sm: 14px;
+  --gb-font-lg: 16px;
+  --gb-font-xl: 20px;
+
+  --gb-radius-sm: 4px;
+  --gb-radius-base: 6px;
+  --gb-radius-lg: 8px;
+}

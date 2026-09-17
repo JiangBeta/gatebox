@@ -113,7 +113,17 @@ func NewCoreRegistry(dataDir, caddyBin, caddyAdmin string, src *source.Client) *
 			repo: "moby/moby",
 		},
 	}
+	applyCoreContracts(cores)
 	return &CoreRegistry{dataDir: dataDir, src: src, cores: cores, appliedVariant: map[string]string{}}
+}
+
+// Descriptors 返回全部内建组件的静态描述符（v4，不含运行态探测）。
+func (r *CoreRegistry) Descriptors() []Descriptor {
+	out := make([]Descriptor, 0, len(r.cores))
+	for _, c := range r.cores {
+		out = append(out, c.desc)
+	}
+	return out
 }
 
 // Get 返回组件视图。

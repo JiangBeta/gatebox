@@ -123,3 +123,52 @@
 | **L0 / L1 / L2** | 插件 UI 三档渲染：L0 元数据驱动（内核渲染）/ L1 iframe + postMessage（强隔离）/ L2 远程 ESM（同源、等价 XSS，后置）（ADR-036 §7、ADR-039 §3） |
 | **dns-provider** | 让 DNS 凭证供应商可拔插的扩展点：插件声明字段 schema + acme hook 名 + env 映射；内核以 `GET /api/v1/credentials/providers` 聚合，前端按 schema 动态渲染（ADR-039 §5） |
 | **GateBoxStore** | 独立公开仓库 `JiangBeta/GateBoxStore`：插件源码（`plugins/<id>/`）、schema（vendor）、构建脚本、CI 与静态索引 `index.json`；契约权威仍在主仓库（ADR-037 §6） |
+
+## 应用网关统一框架（ADR-040）
+
+> 详见 `docs/adr/ADR-040.md`。一份统一描述，支撑两条能力：读（可观测）、写（声明式调和）。
+
+| 术语 | 定义 |
+|---|---|
+| **统一描述** | 让异种组件以同一方式被描述、成为整体一部分的模型层；由「组件描述符」承载，是系统的唯一描述真相 |
+| **组件描述符（Component Descriptor）** | 用统一方式重新描述组件的一份契约 = 身份 + 功能清单 + 四契约（配置/信息/观测/生效）；核心与插件同构（ADR-040 §1.2） |
+| **四契约** | 描述符的四份契约：**配置契约**（编辑）/ **信息契约**（图与流转）/ **观测契约**（可观测）/ **生效契约**（调和）（ADR-040 §1.2） |
+| **信息契约（Info Contract）** | 组件声明 `consumes` / `produces` 的信息端口；是依赖图边与信息流的来源（ADR-040 §1.2） |
+| **观测契约（Observability Contract）** | 组件声明如何被观测：`state` / `activity` / `logs` / `metrics`（ADR-040 §2） |
+| **生效契约（Effect Contract）** | 组件声明「收到某类信息变更时做什么」（update-config / restart / hot-reload / reissue / deploy），含幂等与顺序约束；与 `actions`（用户主动操作）并列（ADR-040 §1.2 / §3.1） |
+| **功能（Function）** | 网关对外提供的一项能力（代理 / TLS / 解析 / DDNS 上报 …）；与组件**多对多**，是功能地图的语义主节点（ADR-040 §1.3） |
+| **事实（Fact）** | 可寻址、被持久化的期望态单元（`Service#id`、`Domain#id`…）；调和的输入（ADR-040 §1.4） |
+| **持久事实** | 落库、可寻址、可被调和写入的事实（Service(manual) / Domain / Credential / Fragment / Variable / PortBinding / ComposeInstance）（ADR-040 §1.4） |
+| **派生事实** | 有 ID、可作边端点、可展示，但**不落库**、由事实+运行态推导的事实（如 docker 从 label 派生的 Service）；**调和不能写它，只能改其源头**（ADR-040 §1.4） |
+| **信息（Info）** | 在组件间流转的类型化数据（label / domain / cert / port / variable / ip），是边的载荷；分类按角色不按值（ADR-040 §1.5） |
+| **功能地图（Function Map）** | 由 组件 + 功能 + 信息流 构成的全景图（ADR-040 §1.6） |
+| **双层投影** | 功能地图的两种视图：**组件视角**（节点=组件，含功能端口）/ **功能视角**（节点=功能，边=信息流）；状态挂组件、聚合到功能（ADR-040 §1.6） |
+| **意图（Intent）** | 对「某事实发生变化」的声明（what changed），不含如何传播；调和器的输入（ADR-040 §3.1） |
+| **期望态（Desired State）** | 全部事实的集合，即「系统应处的状态」（ADR-040 §3.1） |
+| **依赖图（Dependency Graph）** | 由信息契约端口 + 事实间引用**推导**出的消费关系图（算出来的，非手画）（ADR-040 §3.1） |
+| **声明式调和（Reconcile）** | 由「意图 + 依赖图 + 生效契约」推导操作的 level-triggered 机制：求消费闭包 → 生成动作 → 拓扑排序 → 执行 → 记录（ADR-040 §3） |
+| **调和器（Reconciler）** | 执行声明式调和的通用算法；幂等、可重放、周期兜底（ADR-040 §3.2） |
+| **消费闭包** | 变更事实沿依赖图反向传播（谁消费它）得到的受影响组件集合（ADR-040 §3.2） |
+| **运行记录（Run / Step / Event）** | 一次调和的执行轨迹三层：Run（整体）/ Step（组件动作，默认粒度）/ Event（步骤内细粒度事件）；Logs 独立关联（ADR-040 §3.3） |
+| **传播轨迹** | 一次意图引发的 Run/Step 序列，即功能地图上「整体动态」象限的内容（ADR-040 §2 / §3.3） |
+| **收敛（Convergence）** | 使现实逐步等于期望的机制：幂等重放 + 失败重试 + 漂移检测；不引入 DB 回滚，改以状态可见表达不一致（ADR-040 §3.4） |
+| **L1 / L2 / L3** | 框架分期：**L1** 静态自描述（描述符+功能地图+静态信息流图）/ **L2** 运行态观测（状态/活动/日志聚合到图）/ **L3** 执行可追踪（Run/Step/Event+调和器）（ADR-040 §6） |
+
+## 架构 V4 新增术语（ADR-041）
+
+> 详见 `docs/adr/ADR-041.md`。V4 取代 V3 成为唯一现任总纲（`docs/architecture.md`）；主叙事 = 统一描述 / 可观测 / 声明式调和，V3 的成熟部分作为**承载**保留。
+
+| 术语 | 定义 |
+|---|---|
+| **架构 V4** | 以 ADR-040 框架为组织原则的总纲版本；取代 V3（ADR-041） |
+| **承载（Carrier）** | V4 中不重造、被吸收沿用的 V3 资产：组件生命周期六层、制品源三通道、插件分发、分层门禁、设计 token、运行时目录 |
+| **事实注册表（Fact Registry）** | 声明「哪些 `model.*` 是事实」的中央清单（事实属于系统，不属于组件）；依赖图推导的输入（ADR-041 §4） |
+| **类型骨架 + 实例绑定** | 依赖图 = 组件的**信息类型端口**（类型骨架）+ 事实间**引用**给出的具体实例边（实例绑定）（ADR-041 §4） |
+| **`internal/graph`** | V4 新增包：事实注册表 + 引用解析 + 依赖图推导 |
+| **`internal/reconcile`** | V4 新增包：意图 + 调和器 + Run/Step 记录 |
+| **`internal/observe`** | V4 新增包：观测聚合（state/activity/logs/metrics）+ 事件总线 |
+| **Activity（活动接口）** | V4 新增可选接口，观测契约的 `activity` 实现面（当前任务/步骤）；不并入万能大接口（ADR-041 §7） |
+| **runs bucket** | V4 新增 BoltDB bucket：最近 N 条 Run/Step（JSON）；按条数+天数双限；Event 仅内存、Logs 不落库 |
+| **SSE 事件流** | 观测事件（Run/Step 推进、state/activity 变化）的单向推送通道（`GET /api/v1/events`）；WebSocket 保留给双向交互 |
+| **additive 契约字段** | v4 对 manifest v2 的可选扩展（`provides`/`consumes`/`produces`/`observability`/`effect`），属新增可选字段=minor（ADR-037 §5）；缺失则编译为最小描述符，向后兼容 |
+| **承载建设（P0–P5）** | V3 的分期实现（地基/组件运行时/插件/前端/网络首页设置/部署），在 V4 中并入不再与 L1–L3 并列 |

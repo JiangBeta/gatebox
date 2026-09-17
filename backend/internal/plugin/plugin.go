@@ -142,6 +142,13 @@ type Manifest struct {
 	Artifacts     []Artifact    `json:"artifacts,omitempty"`
 	Contributions Contributions `json:"contributions,omitempty"`
 	Permissions   []Permission  `json:"permissions,omitempty"`
+
+	// v4 addit 契约（可选，ADR-041 §9）。缺失时编译为最小描述符，向后兼容。
+	Provides      []string           `json:"provides,omitempty"`
+	Consumes      []string           `json:"consumes,omitempty"`
+	Produces      []string           `json:"produces,omitempty"`
+	Observability *ObservabilityDecl `json:"observability,omitempty"`
+	Effect        []EffectDecl       `json:"effect,omitempty"`
 }
 
 // View 插件对外视图 = manifest + 持久化状态。

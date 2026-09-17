@@ -8,7 +8,7 @@ import {
   DashboardOutlined, ApiOutlined, ContainerOutlined, GlobalOutlined,
   SettingOutlined, GithubOutlined, BookOutlined, TranslationOutlined,
   BulbOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined,
-  ClusterOutlined, AppstoreOutlined,
+  ClusterOutlined, AppstoreOutlined, ShareAltOutlined,
 } from '@ant-design/icons-vue'
 import theme from './theme'
 import { listComponents } from './api/components'
@@ -72,6 +72,7 @@ const menuItems = computed<MenuNode[]>(() => {
     ...(children.length ? { children } : {}),
   })
   items.push(
+    { key: '/topology', label: '功能地图', icon: () => h(ShareAltOutlined) },
     { key: '/extensions', label: '扩展', icon: () => h(AppstoreOutlined) },
     { key: '/settings', label: '设置', icon: () => h(SettingOutlined) },
   )

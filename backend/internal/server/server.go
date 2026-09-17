@@ -36,6 +36,9 @@ func New(s *repository.Store, cm cert.CertManager, dc *client.Client, coll *stat
 	}
 	// 组件运行时 + 插件 + 扩展平台（v3）。
 	handler.RegisterComponents(mux, reg, mgr, ext, catalogURL)
+	// v4：依赖图（功能地图）与事实配置契约。
+	handler.RegisterGraph(mux, reg, mgr, s, gw.DerivedServices)
+	handler.RegisterSchema(mux, ext)
 	// 插件投影 API（token 鉴权 + scope + 长轮询，ADR-039 §2）。
 	handler.RegisterProjection(mux, mgr, s, ext, gw.DerivedServices)
 

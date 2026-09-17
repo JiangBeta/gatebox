@@ -21,6 +21,9 @@ import (
 func RegisterComponents(mux *http.ServeMux, reg *component.CoreRegistry, mgr *plugin.Manager, ext *extension.Registry, catalogURL string) {
 	cat := catalog.New(reg, mgr)
 
+	// v4：组件描述符（功能 + 四契约），供前端派生引擎与功能地图消费。
+	RegisterDescriptors(mux, reg, mgr)
+
 	mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
