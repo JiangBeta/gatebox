@@ -10,6 +10,7 @@ import (
 	"github.com/JiangBeta/gatebox/internal/graph"
 	"github.com/JiangBeta/gatebox/internal/model"
 	"github.com/JiangBeta/gatebox/internal/plugin"
+	"github.com/JiangBeta/gatebox/internal/reconcile"
 	"github.com/JiangBeta/gatebox/internal/repository"
 )
 
@@ -27,6 +28,29 @@ func RegisterGraph(mux *http.ServeMux, core *component.CoreRegistry, mgr *plugin
 		}
 		writeJSON(w, http.StatusOK, graph.Build(snap, view))
 	})
+}
+
+// GraphSnapshotFunc 返回期望态快照函数（供调和器使用）。
+func GraphSnapshotFunc(core *component.CoreRegistry, mgr *plugin.Manager, store *repository.Store, derived func(context.Context) []model.Service) reconcile.SnapshotFunc {
+	return func(ctx context.Context) graph.Snapshot {
+		return graph.Snapshot{Desc: allDescriptors(core, mgr), Facts: snapshotFacts(ctx, store, derived)}
+	}
+}
+
+// NewGatewayReconciler 把「网关全量调和」适配为组件调和器（首个闭环，L3）。
+func NewGatewayReconciler(fn func(context.Context) error) component.Reconciler {
+	return gatewayReconciler{fn: fn}
+}
+
+type gatewayReconciler struct {
+	fn func(context.Context) error
+}
+
+func (g gatewayReconciler) Reconcile(ctx context.Context, _ component.ReconcileInput) (component.ReconcileResult, error) {
+	if err := g.fn(ctx); err != nil {
+		return component.ReconcileResult{State: "error", Detail: err.Error()}, err
+	}
+	return component.ReconcileResult{State: "success"}, nil
 }
 
 // snapshotFacts 从持久事实 + docker 派生服务装配事实快照。

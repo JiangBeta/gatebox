@@ -37,6 +37,8 @@ var (
 	bucketCertLogs           = []byte("cert_logs")
 	// bucketDerivedDisabled Docker 派生代理的本地「已停止」覆盖(id 稳定键)。
 	bucketDerivedDisabled = []byte("derived_disabled")
+	// bucketRuns 调和的 Run/Step 记录（ADR-041 §7，v4）。
+	bucketRuns = []byte("runs")
 )
 
 // ErrNotFound 记录不存在。
@@ -59,7 +61,7 @@ func Open(dataDir string) (*Store, error) {
 		return nil, err
 	}
 	if err := db.Update(func(tx *bolt.Tx) error {
-		for _, b := range [][]byte{bucketDomains, bucketCredentials, bucketRegistries, bucketCompose, bucketApps, bucketServices, bucketFragments, bucketVariables, bucketFragToggles, bucketMeta, bucketPlugins} {
+		for _, b := range [][]byte{bucketDomains, bucketCredentials, bucketRegistries, bucketCompose, bucketApps, bucketServices, bucketFragments, bucketVariables, bucketFragToggles, bucketMeta, bucketPlugins, bucketRuns} {
 			if _, err := tx.CreateBucketIfNotExists(b); err != nil {
 				return err
 			}

@@ -1,14 +1,31 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { Handle, Position, type NodeProps } from '@vue-flow/core'
 
-defineProps<NodeProps>()
+const props = defineProps<NodeProps>()
+
+const dotColor = computed(() => {
+  const state = (props.data as { state?: string }).state
+  switch (state) {
+    case 'running':
+      return '#52c41a'
+    case 'degraded':
+      return '#faad14'
+    case 'error':
+      return '#ff4d4f'
+    case 'stopped':
+      return '#8c8c8c'
+    default:
+      return '#1677ff'
+  }
+})
 </script>
 
 <template>
   <div class="topo-node">
     <Handle type="target" :position="Position.Left" />
     <div class="topo-node__head">
-      <span class="topo-node__dot" />
+      <span class="topo-node__dot" :style="{ background: dotColor }" />
       <span class="topo-node__title">{{ data.label }}</span>
       <a-tag v-if="data.tier" :bordered="false">{{ data.tier }}</a-tag>
     </div>

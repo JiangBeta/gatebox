@@ -8,8 +8,8 @@
 | 层 | 目标 | 状态 |
 |---|---|---|
 | **L1 静态自描述** | 唯一描述符 + 事实注册表 + 依赖图 + 配置契约下发 + 前端派生引擎 + 只读功能地图 | **已实现（测试全绿）** |
-| **L2 运行态观测** | 观测契约（`Activity`）+ `observe` 包 + `/components/{id}/{status,activity,logs}` + `/events`(SSE) + Run/Step 存储 | **设计完成** · [L2-01-observability.md](L2-01-observability.md) |
-| **L3 执行可追踪** | `reconcile` 包 + 意图 + 调和器 + 传播轨迹；首个闭环 = 网关域（替换 `reloadCaddy`） | **设计完成** · [L3-01-reconcile.md](L3-01-reconcile.md) |
+| **L2 运行态观测** | 观测契约（`Activity`）+ `observe` 包 + `/components/{id}/{status,activity,logs}` + `/events`(SSE) + Run/Step 存储 | **已实现** · [L2-01-observability.md](L2-01-observability.md) |
+| **L3 执行可追踪** | `reconcile` 包 + 意图 + 调和器 + 传播轨迹；首个闭环 = 网关域（替换 `reloadCaddy`） | **已实现（首个闭环）** · [L3-01-reconcile.md](L3-01-reconcile.md) |
 
 顺序：先内建组件（caddy/acme/docker/ddns），后插件；首个验证域 = 网关。
 
@@ -37,6 +37,23 @@
 - `src/modules/topology/views/Index.vue`、`src/api/{schema,graph}.ts`、`src/design/tokens.css`
 
 > **实现偏差**：① 功能地图入口实现为**一级路由 `/topology` + 侧栏「功能地图」**（而非组件页第三视图），零回归且更贴合 V4 一级 surface，见 L1-05；② `pnpm typecheck` 用 `tsconfig.v4.json` **限定 V4 分层**（lib/app/modules/api/shared/design），存量 `src/views` 的类型债务留待 P3 迁移，见 L1-04。
+
+## L2/L3 实现落点
+
+**后端**
+- `internal/component/observe.go`：`Activity`/`ActivityProvider`/`FactView`/`ReconcileInput`/`ReconcileResult`/`Reconciler`
+- `internal/observe/{events,bus,collector}.go`：事件总线（环形回放）+ 采集器（变化才发布）
+- `internal/reconcile/{types,order,store,reconciler}.go`：意图去抖、拓扑排序、BoltDB `runs`（条数+天数双限）、调和器
+- `internal/repository/runs.go`：`runs` bucket 读写
+- `internal/handler/observe.go`：`/events`(SSE)、`/components/{id}/{status,activity,logs}`、`/runs`、`/runs/{id}`、`POST /reconcile`
+- `internal/handler/reconcile_trigger.go`：触发钩子；Domain/Credential/Port 写操作已接入（修复触发缺口）
+- 装配：`server.New` 建总线 + RunStore + 调和器（注册 `caddy` → 网关全量调和）+ 采集器
+
+**前端**
+- `src/shared/observe.ts`、`src/api/{observe,events}.ts`、`src/app/composables/useEvents.ts`（单一 SSE 订阅）
+- 功能地图：节点状态着色、活动展示、运行记录抽屉、立即调和
+
+> **L2/L3 实现偏差**：① `/components/{id}/logs` 暂返回空流（日志来源待接）；② 网关调和注册为单一 `caddy` 步骤（内部含 acme/generate/load/备份/扩展同步），后续再拆 acme 为独立步骤；③ Variable 写操作本就触发网关重载，未重复接入 trigger（compose 回填另议）。
 
 依赖图：
 

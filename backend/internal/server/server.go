@@ -2,6 +2,7 @@
 package server
 
 import (
+	"context"
 	"io/fs"
 	"log"
 	"net/http"
@@ -17,7 +18,9 @@ import (
 	"github.com/JiangBeta/gatebox/internal/extension"
 	"github.com/JiangBeta/gatebox/internal/gateway"
 	"github.com/JiangBeta/gatebox/internal/handler"
+	"github.com/JiangBeta/gatebox/internal/observe"
 	"github.com/JiangBeta/gatebox/internal/plugin"
+	"github.com/JiangBeta/gatebox/internal/reconcile"
 	"github.com/JiangBeta/gatebox/internal/repository"
 	"github.com/JiangBeta/gatebox/internal/web"
 )
@@ -39,6 +42,20 @@ func New(s *repository.Store, cm cert.CertManager, dc *client.Client, coll *stat
 	// v4：依赖图（功能地图）与事实配置契约。
 	handler.RegisterGraph(mux, reg, mgr, s, gw.DerivedServices)
 	handler.RegisterSchema(mux, ext)
+
+	// v4（L2/L3）：观测事件总线 + 采集器 + 声明式调和器。
+	bus := observe.NewBus(256)
+	runStore := reconcile.NewBoltRunStore(s)
+	rec := reconcile.New(handler.GraphSnapshotFunc(reg, mgr, s, gw.DerivedServices), runStore, bus)
+	// 首个闭环：网关全量调和（生成 Caddyfile → acme → /load → 备份 → 扩展同步）。
+	rec.Register("caddy", handler.NewGatewayReconciler(gw.Reconcile))
+	observe.NewCollector(bus, handler.ObserveProviders(reg, s), 5*time.Second).Start(context.Background())
+	rec.Start(context.Background())
+	handler.RegisterObserve(mux, bus, reg, s, runStore, rec)
+	// 触发缺口修复：Domain/Credential/Port 变更后自动调和（此前不触发）。
+	handler.SetReconcileTrigger(func(kind, id string) {
+		rec.Trigger(reconcile.Intent{Op: "update", Kind: kind, ID: id})
+	})
 	// 插件投影 API（token 鉴权 + scope + 长轮询，ADR-039 §2）。
 	handler.RegisterProjection(mux, mgr, s, ext, gw.DerivedServices)
 

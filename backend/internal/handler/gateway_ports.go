@@ -279,6 +279,7 @@ func (a *gatewayAPI) createGatewayPort(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	triggerReconcile("port", p.Protocol)
 	writeJSON(w, http.StatusCreated, p)
 }
 
@@ -322,6 +323,7 @@ func (a *gatewayAPI) updateGatewayPort(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	triggerReconcile("port", cur.Protocol)
 	writeJSON(w, http.StatusOK, cur)
 }
 
@@ -345,6 +347,7 @@ func (a *gatewayAPI) deleteGatewayPort(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	triggerReconcile("port", protocol)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 

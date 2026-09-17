@@ -117,6 +117,7 @@ func (a *api) createDomain(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	triggerReconcile("domain", d.ID)
 	writeJSON(w, http.StatusCreated, d)
 }
 
@@ -160,6 +161,7 @@ func (a *api) updateDomain(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	triggerReconcile("domain", d.ID)
 	writeJSON(w, http.StatusOK, d)
 }
 
@@ -188,6 +190,7 @@ func (a *api) deleteDomain(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	triggerReconcile("domain", id)
 	writeJSON(w, http.StatusNoContent, nil)
 }
 
@@ -327,6 +330,7 @@ func (a *api) createCredential(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	triggerReconcile("credential", in.ID)
 	writeJSON(w, http.StatusCreated, in)
 }
 
@@ -356,6 +360,7 @@ func (a *api) updateCredential(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	triggerReconcile("credential", c.ID)
 	writeJSON(w, http.StatusOK, c)
 }
 
@@ -364,6 +369,7 @@ func (a *api) deleteCredential(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	triggerReconcile("credential", r.PathValue("id"))
 	writeJSON(w, http.StatusNoContent, nil)
 }
 

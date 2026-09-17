@@ -1100,6 +1100,11 @@ func (a *gatewayAPI) SyncDockerLabels(ctx context.Context) error {
 }
 
 // reloadCaddy 重新生成 Caddyfile 并原子加载(manual 落库 + docker 派生 + 片段 + 变量)。
+// Reconcile 执行一次网关全量调和（v4 调和器首个闭环的入口）。
+func (a *gatewayAPI) Reconcile(ctx context.Context) error {
+	return a.reloadCaddy(ctx)
+}
+
 func (a *gatewayAPI) reloadCaddy(ctx context.Context) error {
 	services, err := a.s.ListServices()
 	if err != nil {

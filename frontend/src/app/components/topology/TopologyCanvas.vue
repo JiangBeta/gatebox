@@ -11,7 +11,7 @@ import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
 import '@vue-flow/controls/dist/style.css'
 
-const props = defineProps<{ model: GraphModel }>()
+const props = defineProps<{ model: GraphModel; states?: Record<string, string> }>()
 const emit = defineEmits<{ (e: 'select', id: string): void }>()
 
 const nodes = computed<Node[]>(() => {
@@ -23,7 +23,7 @@ const nodes = computed<Node[]>(() => {
     id: n.id,
     type: n.kind === 'function' ? 'function' : 'component',
     position: pos[n.id] ?? { x: 0, y: 0 },
-    data: { ...n },
+    data: { ...n, state: props.states?.[n.id] },
   }))
 })
 
