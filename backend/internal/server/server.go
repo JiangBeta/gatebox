@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/JiangBeta/gatebox/internal/adapter/acme"
@@ -51,12 +52,18 @@ func New(s *repository.Store, cm cert.CertManager, dc *client.Client, coll *stat
 	rec.Register("acme", handler.NewGatewayReconciler(gw.ReconcileAcme))
 	rec.Register("caddy", handler.NewGatewayReconciler(gw.ReconcileCaddy))
 	observe.NewCollector(bus, handler.ObserveProviders(reg, s), 5*time.Second).Start(context.Background())
-	rec.Start(context.Background())
 	handler.RegisterObserve(mux, bus, reg, s, runStore, rec, dataDir)
-	// 触发缺口修复：Domain/Credential/Port 变更后自动调和（此前不触发）。
-	handler.SetReconcileTrigger(func(kind, id string) {
-		rec.Trigger(reconcile.Intent{Op: "update", Kind: kind, ID: id})
-	})
+	// 声明式调和开关（默认开）：关闭时写操作回退为同步 reloadCaddy。
+	if reconcileEnabled() {
+		rec.SetPeriod(reconcilePeriod())
+		rec.Start(context.Background())
+		// 触发缺口修复：Domain/Credential/Port 变更后自动调和（此前不触发）。
+		handler.SetReconcileTrigger(func(kind, id string) {
+			rec.Trigger(reconcile.Intent{Op: "update", Kind: kind, ID: id})
+		})
+	} else {
+		log.Printf("声明式调和已关闭（GATEBOX_RECONCILE=0）：写操作走同步 reloadCaddy")
+	}
 	// 插件投影 API（token 鉴权 + scope + 长轮询，ADR-039 §2）。
 	handler.RegisterProjection(mux, mgr, s, ext, gw.DerivedServices)
 
@@ -66,6 +73,28 @@ func New(s *repository.Store, cm cert.CertManager, dc *client.Client, coll *stat
 	}
 
 	return withAccessLog(withCORS(auth.Middleware(mux)))
+}
+
+// reconcileEnabled 是否启用声明式调和（GATEBOX_RECONCILE=0/false 关闭）。
+func reconcileEnabled() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("GATEBOX_RECONCILE")))
+	return v != "0" && v != "false" && v != "off"
+}
+
+// reconcilePeriod 周期兜底间隔（GATEBOX_RECONCILE_PERIOD，默认 5m；0 关闭周期兜底）。
+func reconcilePeriod() time.Duration {
+	v := strings.TrimSpace(os.Getenv("GATEBOX_RECONCILE_PERIOD"))
+	if v == "" {
+		return 5 * time.Minute
+	}
+	if v == "0" {
+		return 0
+	}
+	if d, err := time.ParseDuration(v); err == nil && d > 0 {
+		return d
+	}
+	log.Printf("GATEBOX_RECONCILE_PERIOD=%q 无法解析，使用默认 5m", v)
+	return 5 * time.Minute
 }
 
 // withAccessLog 请求访问日志(受 GATEBOX_ACCESS_LOG=1 门控;WS 经 CORS 内层先走,

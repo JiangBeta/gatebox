@@ -60,7 +60,9 @@
 > - ✅ `/components/{id}/logs` 接真实来源：caddy（`$DATA_DIR/logs/caddy/*.log` 最新）、acme（最近 CertLog.LogFile）；支持 `?tail=N`。
 > - ✅ 前端传播轨迹：Run/Step 事件驱动图上节点徽标 + 边高亮。
 >
-> **仍未完成**：① Variable → compose 回填（需先保留 compose 模板，ADR-035 已知债务，须先定设计）；② docker 部署/运行态动作未接入调和（仍走既有异步同步）；③ 周期全量调和默认 5min 已启用，可配置关闭（待补配置项）。
+> **调和开关**：`GATEBOX_RECONCILE`（默认开；`0/false/off` 关闭 → 写操作回退同步 `reloadCaddy`）；`GATEBOX_RECONCILE_PERIOD`（默认 `5m`，`0` 关闭周期兜底）。
+>
+> **仍未完成（需先定设计）**：① Variable → compose 回填——`interpolateContainerVars` 为**破坏性替换**，写盘后 `${KEY}` 占位符已丢失，必须先保留 compose 模板（存储/schema 变更，ADR-035 §7 已知债务）；② docker 部署/运行态动作未接入调和（仍走既有异步同步）；③ 存量 `src/views` 类型债务（56 处）留待 P3 迁移，`typecheck` 暂限定 V4 分层。
 
 依赖图：
 

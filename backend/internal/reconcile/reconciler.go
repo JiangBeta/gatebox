@@ -46,6 +46,22 @@ func New(snapFn SnapshotFunc, store RunStore, bus *observe.Bus) *Reconciler {
 	}
 }
 
+// SetPeriod 设置周期兜底间隔（<=0 表示关闭周期兜底）。
+func (r *Reconciler) SetPeriod(d time.Duration) {
+	r.mu.Lock()
+	r.period = d
+	r.mu.Unlock()
+}
+
+// SetDebounce 设置意图去抖窗口。
+func (r *Reconciler) SetDebounce(d time.Duration) {
+	r.mu.Lock()
+	if d > 0 {
+		r.debounce = d
+	}
+	r.mu.Unlock()
+}
+
 // Register 注册一个组件的调和函数。
 func (r *Reconciler) Register(id string, c component.Reconciler) {
 	r.mu.Lock()
@@ -66,12 +82,14 @@ func (r *Reconciler) Trigger(i Intent) {
 
 // Start 启动去抖触发循环与周期兜底，直到 ctx 结束。
 func (r *Reconciler) Start(ctx context.Context) {
-	if r.period <= 0 {
-		r.period = 5 * time.Minute
-	}
-	ticker := time.NewTicker(r.period)
 	go func() {
-		defer ticker.Stop()
+		var ticker *time.Ticker
+		var ticks <-chan time.Time
+		if r.period > 0 {
+			ticker = time.NewTicker(r.period)
+			ticks = ticker.C
+			defer ticker.Stop()
+		}
 		for {
 			select {
 			case <-ctx.Done():
@@ -85,7 +103,7 @@ func (r *Reconciler) Start(ctx context.Context) {
 				case <-timer.C:
 				}
 				_, _ = r.Run(ctx, "intent")
-			case <-ticker.C:
+			case <-ticks:
 				_, _ = r.Run(ctx, "periodic")
 			}
 		}
