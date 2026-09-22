@@ -1,0 +1,85 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# 对象：入口点 EntryPoint（协议 → 端口，一对多）
+# 归属：设置 → 端口。HTTP / HTTPS 为系统内置项，其端口驱动 caddy 监听。
+# 来源：协议来自「类型目录」（组件自述的 entrypoint_protocols），未安装组件置灰 + [安装]。
+# 参考：ADR-042 §4.1 / §13 · model.PortBinding · glossary §入口点
+# ─────────────────────────────────────────────────────────────────────────────
+
+kind: entrypoint                      # 对象类型标识（factKind）
+title: 入口点                          # 显示名
+group: 设置                            # 归属一级页面
+list: true                            # 多实例
+
+schema:                               # 字段契约（只含可编辑字段）
+  - key: protocol                     # 字段键：协议名（主键）
+    label: 协议                        # 显示标签
+    type: select                      # 控件：下拉（选项来自类型目录）
+    required: true                    # 必填
+    dynamic: true                     # 选项动态：类型目录的 entrypoint_protocols
+    description: 选项来自类型目录；未装来源组件（如 caddy-l4）的协议置灰并提示安装
+  - key: ports                        # 字段键：端口列表
+    label: 端口                        # 显示标签
+    type: array                       # 控件：数组
+    item:                             # 数组元素契约
+      type: number                    # 元素类型：数字
+    required: true                    # 必填
+    placeholder: 443, 9443            # 输入提示
+    description: 首个为主端口           # 说明
+  - key: network                      # 字段键：传输网络
+    label: 传输网络                    # 显示标签
+    type: select                      # 控件：下拉
+    default: tcp                      # 默认 tcp
+    options:                          # 下拉选项
+      - { label: TCP, value: tcp }           # 仅 TCP
+      - { label: UDP, value: udp }           # 仅 UDP
+      - { label: TCP + UDP, value: both }    # 两者
+  - key: enabled                      # 字段键：启用
+    label: 启用                        # 显示标签
+    type: switch                      # 控件：开关
+    default: true                     # 默认启用
+  - key: description                  # 字段键：说明
+    label: 说明                        # 显示标签
+    type: textarea                    # 控件：多行文本（备注统一多行）
+    advanced: true                    # 高级字段
+
+# 自动记录 status：由系统 / 类型目录给出，作为 status 的子节点（只读，YAML 中默认折叠）
+status:
+  - key: builtin                      # 是否系统内置
+    label: 内置
+    note: HTTP / HTTPS 由 caddy 提供，不可删除、不可改协议（端口可改）
+  - key: source                       # 提供该协议的组件
+    label: 来源
+    note: caddy（内置）/ caddy-l4、caddy-ssh（插件）/ 能力型扩展；来自类型目录
+  - key: installed                    # 来源组件是否已安装
+    label: 已安装
+    note: 未安装则该协议置灰，列表标「依赖缺失」并提供 [安装]
+
+example:                              # 模拟数据基础（源字段平铺 + status 自动记录）
+  - protocol: http                    # 系统内置：HTTP
+    ports: [80]                       # 监听 80
+    network: tcp                      # http 恒 tcp
+    enabled: true                     # 启用
+    description: 系统默认              # 说明（多行）
+    status:                           # 自动记录（只读，默认折叠）
+      builtin: true                   # 内置项
+      source: caddy                   # 来源组件
+      installed: true                 # 来源已安装
+  - protocol: https                   # 系统内置：HTTPS
+    ports: [443, 9443]                # 主端口 443，额外 9443
+    network: tcp                      # https 恒 tcp
+    enabled: true                     # 启用
+    description: 系统默认              # 说明（多行）
+    status:
+      builtin: true
+      source: caddy
+      installed: true
+  - protocol: mysql                   # 自定义协议：MySQL
+    ports: [3306]                     # 监听 3306
+    network: tcp                      # tcp
+    enabled: false                    # 暂未启用
+    description: 数据库转发（需 caddy-l4）   # 说明（多行）
+    status:
+      builtin: false
+      source: caddy-l4                # 来源：caddy-l4（未安装）
+      installed: false
+

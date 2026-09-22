@@ -1,0 +1,63 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# 对象：类型目录 Catalog（所有组件自述的并集，只读）
+# 界面据此自适应：类型全部列出，未安装的置灰 + 一键安装。模型里没有写死的类型清单。
+# 归属：组件 → 类型目录。参考：ADR-042 §4.1
+# ─────────────────────────────────────────────────────────────────────────────
+
+kind: catalog                         # 对象类型标识（factKind）
+title: 类型目录                        # 显示名
+group: 组件                            # 归属一级页面
+readonly: true                        # 只读：由组件自述求并集，界面不可编辑
+singleton: true                       # 单例：全局仅一份目录
+
+schema:                               # 结构说明（非表单字段，此处描述四张表）
+  - key: service_types                # 服务类型表
+    label: 服务类型
+    note: 由各组件 provides.service_types 求并集；未装组件提供的类型置灰
+  - key: middleware_types             # 中间件类型表
+    label: 中间件类型
+    note: 由各组件 provides.middleware_types 求并集
+  - key: entrypoint_protocols         # 入口协议表
+    label: 入口协议
+    note: 由各组件 provides.entrypoint_protocols 求并集；驱动入口点「新增」
+  - key: abilities                    # 能力表
+    label: 能力
+    note: 由各组件 abilities 求并集；见能力字典
+
+# 每条都带来源组件（from）与安装状态（installed），界面据此置灰 / 提示安装
+example:
+  service_types:                      # 服务类型（对象：类型 → 来源 + 状态）
+    - { id: reverse_proxy, label: 反向代理, from: caddy,       installed: true }
+    - { id: file_server,   label: 静态文件, from: caddy,       installed: true }
+    - { id: redirect,      label: 重定向,   from: caddy,       installed: true }
+    - { id: respond,       label: 固定响应, from: caddy,       installed: true }
+    - { id: tcp_proxy,     label: TCP 转发, from: caddy-l4,    installed: false }
+    - { id: udp_proxy,     label: UDP 转发, from: caddy-l4,    installed: false }
+    - { id: php,           label: PHP 应用, from: frankenphp,  installed: false }
+  middleware_types:                   # 中间件类型
+    - { id: encode,        label: 压缩,     from: caddy, installed: true }
+    - { id: basic_auth,    label: 基础认证, from: caddy, installed: true }
+    - { id: headers,       label: 响应头,   from: caddy, installed: true }
+    - { id: websocket,     label: WebSocket, from: caddy, installed: true }
+    - { id: rewrite,       label: 重写,     from: caddy, installed: true }
+    - { id: code,          label: 自由片段, from: caddy, installed: true }
+  entrypoint_protocols:               # 入口协议（与 mock/catalog 一致）
+    - { id: http,      label: HTTP,      from: caddy,     installed: true,  builtin: true }
+    - { id: https,     label: HTTPS,     from: caddy,     installed: true,  builtin: true }
+    - { id: grpc,      label: gRPC,      from: caddy,     installed: true,  builtin: true }
+    - { id: websocket, label: WebSocket, from: caddy,     installed: true,  builtin: true }
+    - { id: php,       label: PHP,       from: caddy,     installed: true,  builtin: true }
+    - { id: tcp,       label: TCP,       from: caddy-l4,  installed: false }
+    - { id: udp,       label: UDP,       from: caddy-l4,  installed: false }
+    - { id: mysql,     label: MySQL,     from: caddy-l4,  installed: false }
+    - { id: ssh,       label: SSH,       from: caddy-ssh, installed: false }
+  abilities:                          # 能力（见 model/ability.yaml）
+    - { id: config.write,    from: [caddy, docker, ddns-go, acme.sh, 核心] }
+    - { id: config.reload,   from: [caddy, ddns-go] }
+    - { id: process.start,   from: [docker] }
+    - { id: task.trigger,    from: [acme.sh, ddns-go] }
+    - { id: state.read,      from: [caddy, docker] }
+    - { id: logs.read,       from: [caddy, docker, acme.sh, ddns-go] }
+    - { id: config.compile,  from: [核心] }
+    - { id: object.derive,   from: [核心] }
+    - { id: state.diff,      from: [核心] }

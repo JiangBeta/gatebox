@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GateBox · 网关</title>
+<style>
+  :root{--bg:#f5f6f8;--panel:#fff;--line:#e3e6eb;--text:#1f2329;--sub:#6b7280;
+    --primary:#1677ff;--ok:#22c55e;--warn:#f59e0b;--err:#ef4444;--radius:8px;
+    --shadow:0 1px 3px rgba(0,0,0,.08)}
+  *{box-sizing:border-box}
+  body{margin:0;font:14px -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans',sans-serif;
+    background:var(--bg);color:var(--text)}
+  /* ===== 顶栏（OxiDNS 式） ===== */
+  .hdr{height:48px;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:stretch;
+    position:sticky;top:0;z-index:10}
+  .hdr .logo-zone{width:190px;flex:0 0 190px;display:flex;align-items:center;gap:8px;
+    padding:0 16px;border-right:1px solid var(--line)}
+  .hdr .logo-zone .logo{width:22px;height:22px;border-radius:6px;background:var(--primary);color:#fff;
+    display:grid;place-items:center;font-size:13px;flex:none}
+  .hdr .logo-zone b{font-weight:700;font-size:15px}
+  .hdr .logo-zone .app{color:var(--sub);font-weight:400;font-size:12px}
+  .hdr .hdr-right{flex:1;display:flex;align-items:center;gap:10px;padding:0 14px;min-width:0}
+  .hdr .sp{flex:1}
+  .crumbs{font-size:13px;color:var(--sub);white-space:nowrap}
+  .crumbs .cur{color:var(--text);font-weight:600}
+  .crumbs .sep{margin:0 6px;color:#c4c9d1}
+  .iconbtn{width:30px;height:30px;border:0;background:transparent;border-radius:6px;cursor:pointer;
+    color:#475569;display:inline-grid;place-items:center}
+  .iconbtn:hover{background:#f0f2f5}
+  .iconbtn svg{width:16px;height:16px}
+  /* ===== 布局：左导航 + 右主区 ===== */
+  .shell{display:flex;min-height:calc(100vh - 48px)}
+  .side{width:190px;background:#fff;border-right:1px solid var(--line);padding:10px 0;flex:0 0 190px}
+  .side a{display:block;padding:9px 18px;color:#334155;text-decoration:none;font-size:13px;border-right:2px solid transparent}
+  .side a:hover{background:#f5f7fa}
+  .side a.on{color:var(--primary);background:#eaf2ff;border-right-color:var(--primary);font-weight:600}
+  .main{flex:1;min-width:0;display:flex;flex-direction:column}
+  .toolbar{background:#fff;border-bottom:1px solid var(--line);padding:10px 18px;display:flex;align-items:center;gap:10px}
+  .toolbar .title{font-size:15px;font-weight:600}
+  .toolbar .sp{flex:1}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+  .seg button{border:0;background:#fff;padding:5px 14px;cursor:pointer;font-size:13px;color:var(--sub)}
+  .seg button.on{background:var(--primary);color:#fff}
+  .btn{border:1px solid var(--line);background:#fff;border-radius:6px;padding:5px 12px;cursor:pointer;font-size:13px}
+  .btn:hover{border-color:var(--primary);color:var(--primary)}
+  .btn.p{background:var(--primary);border-color:var(--primary);color:#fff}
+  .body{padding:16px 18px;overflow:auto}
+  .search{flex:0 0 280px;border:1px solid var(--line);border-radius:6px;padding:6px 10px;font:inherit}
+  .muted{color:#9aa4b2}
+  /* 列设置 */
+  .colwrap{position:relative}
+  .colpanel{position:absolute;right:0;top:34px;z-index:9;background:#fff;border:1px solid var(--line);
+    border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.12);padding:8px;width:210px;display:none}
+  .colpanel.on{display:block}
+  .colrow{display:flex;align-items:center;gap:6px;padding:4px 6px;border-radius:5px}
+  .colrow:hover{background:#f5f7fa}
+  .colrow span{flex:1;font-size:13px}
+  .colrow button{border:0;background:#eef1f4;border-radius:4px;width:22px;height:22px;cursor:pointer;color:#475569}
+  .colrow input{accent-color:var(--primary)}
+  /* 表：行内上下居中、两行等高 */
+  table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--line);border-radius:var(--radius)}
+  th,td{text-align:left;padding:0 12px;border-bottom:1px solid var(--line);font-size:13px;vertical-align:middle}
+  th{background:#fafbfc;color:var(--sub);font-weight:500;height:40px;white-space:nowrap}
+  td{height:52px}
+  tr:last-child td{border-bottom:0}
+  tr.clk:hover{background:#f7f9ff;cursor:pointer}
+  .c{display:flex;flex-direction:column;justify-content:center;min-width:0;min-height:34px}
+  .c .m{line-height:18px;white-space:nowrap}
+  .c .s{line-height:15px;height:15px;font-size:11.5px;color:#9aa4b2;white-space:nowrap}
+  .owner{display:inline-flex;align-items:center;gap:4px;max-width:100%}
+  .brand{display:inline-flex;flex:none}
+  .chip{display:inline-block;border:1px solid var(--line);border-radius:4px;padding:0 6px;margin:0 4px 2px 0;
+    font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:#334155;background:#fbfcfd}
+  .dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:middle}
+  .dot.ok{background:var(--ok)}.dot.warn{background:var(--warn)}.dot.err{background:var(--err)}.dot.off{background:#c4c9d1}
+  .ic{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;vertical-align:middle}
+  .ic svg{width:16px;height:16px;display:block}
+  .ic.dim{opacity:.28}
+  .ports .chip{border-color:#d7e3ff;background:#f2f6ff;color:#1d4ed8}
+  .more{display:inline-block;background:#eef1f4;border-radius:4px;font-size:11px;padding:0 5px;color:#475569;cursor:default}
+  code.cbe{background:#f6f7f9;border-radius:3px;padding:1px 6px;font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#334155}
+  /* 操作：统一 icon-only */
+  .ops{display:flex;align-items:center;justify-content:flex-start;gap:2px;white-space:nowrap}
+  .actbtn{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:4px;cursor:pointer}
+  .actbtn:hover{background:#f0f2f5}
+  .actbtn svg{width:15px;height:15px}
+  [data-tip]{position:relative}
+  [data-tip]:hover::after{content:attr(data-tip);position:absolute;z-index:12;
+    left:50%;transform:translateX(-50%);top:130%;background:#1f2329;color:#fff;font-size:12px;
+    padding:5px 9px;border-radius:6px;white-space:pre;box-shadow:0 4px 12px rgba(0,0,0,.2);pointer-events:none}
+  .ops [data-tip]:hover::after{left:0;transform:none}
+  /* 卡片 */
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:12px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;
+    box-shadow:var(--shadow);cursor:pointer}.card:hover{border-color:var(--primary)}
+  .card .h{font-size:16px;font-weight:700;display:flex;align-items:center;gap:8px}
+  .card .warn{margin-top:4px;color:var(--warn);font-size:12.5px}
+  .card .err{margin-top:4px;color:var(--err);font-size:12.5px}
+  .card .l{margin-top:8px;font-size:12.5px;color:var(--sub);line-height:1.85}
+  .card .l b{color:#334155;font-weight:600}
+  /* 抽屉 */
+  .mask{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;z-index:20}.mask.on{display:block}
+  .drawer{position:fixed;top:0;right:0;bottom:0;width:600px;max-width:94vw;background:#fff;
+    box-shadow:-4px 0 20px rgba(0,0,0,.12);transform:translateX(100%);transition:.2s;z-index:21;
+    display:flex;flex-direction:column}
+  .drawer.wide{width:1040px}
+  .drawer.on{transform:none}
+  /* 表单 / YAML / 并排 */
+  .split{display:flex;align-items:stretch}
+  .split .pane{flex:1;min-width:0;display:flex;flex-direction:column}
+  .split .pane+.pane{border-left:1px solid var(--line);padding-left:18px;margin-left:18px}
+  .split .pane .pane-h{font-size:12px;color:var(--sub);margin-bottom:6px}
+  /* 编辑器观感（对齐 GateBox CodeEditor：深色 + 等宽 + 工具条） */
+  .editor{border:1px solid var(--line);border-radius:6px;overflow:hidden;background:#1e1e1e}
+  .editor .ed-bar{display:flex;align-items:center;gap:2px;padding:4px 8px;background:#252526;border-bottom:1px solid #333}
+  .editor .ed-bar .t{color:#9aa4b2;font-size:11.5px;margin-right:auto;font-family:ui-monospace,monospace}
+  .editor .ed-bar button{border:0;background:transparent;color:#b9c0c9;cursor:pointer;padding:2px 7px;border-radius:4px;font-size:12px}
+  .editor .ed-bar button:hover{background:#333;color:#fff}
+  .editor textarea{width:100%;border:0;outline:none;background:#1e1e1e;color:#d4d4d4;display:block;
+    font-family:ui-monospace,'Maple Mono',Menlo,monospace;font-size:12.5px;line-height:1.65;
+    padding:10px 12px;resize:none;min-height:440px}
+  .hd-input{border:1px solid var(--line);border-radius:6px;padding:4px 8px;font:inherit;font-size:13px}
+  .hd-input.nm{width:180px;font-weight:600}
+  .hd-input.sv{width:150px;color:var(--sub)}
+  .dr-hd{padding:13px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
+  .tabs{display:flex;gap:6px;padding:10px 18px 0;flex-wrap:wrap}
+  .tabs button{border:0;background:transparent;padding:6px 12px;border-radius:6px;cursor:pointer;color:var(--sub);font-size:13px}
+  .tabs button.on{background:#eaf2ff;color:var(--primary)}
+  .dr-body{padding:15px 18px;overflow:auto;flex:1}
+  .field{margin-bottom:12px}.field label{display:block;font-size:12px;color:var(--sub);margin-bottom:4px}
+  .field input,.field select{width:100%;border:1px solid var(--line);border-radius:6px;padding:7px 10px;font:inherit}
+  textarea.code{width:100%;font-family:ui-monospace,Menlo,monospace;font-size:12.5px;line-height:1.6;
+    border:1px solid var(--line);border-radius:6px;padding:10px;min-height:200px}
+  .dr-ft{padding:11px 18px;border-top:1px solid var(--line);display:flex;align-items:center;gap:10px}
+  .ok{color:var(--ok);font-size:12px}
+  /* ===== 新建 / 编辑 弹窗 ===== */
+  .modal{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;place-items:center;z-index:30}
+  .modal.on{display:grid}
+  .dialog{width:760px;max-width:94vw;max-height:90vh;background:#fff;border-radius:10px;
+    display:flex;flex-direction:column;box-shadow:0 12px 40px rgba(0,0,0,.22)}
+  .dlg-hd{padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px}
+  .dlg-hd b{font-size:15px}
+  .dlg-body{padding:16px 18px;overflow:auto}
+  .dlg-ft{padding:12px 18px;border-top:1px solid var(--line);display:flex;align-items:center;gap:10px}
+  .sec{margin-bottom:18px}
+  .sec-t{font-weight:600;font-size:13px;color:#334155;border-left:3px solid var(--primary);
+    padding-left:8px;margin-bottom:10px}
+  .typegrid{display:flex;flex-wrap:wrap;gap:8px}
+  .typegrid button{border:1px solid var(--line);background:#fff;border-radius:6px;padding:7px 12px;
+    cursor:pointer;font-size:13px;display:inline-flex;align-items:center;gap:6px;color:#334155}
+  .typegrid button.on{border-color:var(--primary);background:#eaf2ff;color:var(--primary);font-weight:600}
+  .frow{display:flex;align-items:flex-start;gap:10px;margin-bottom:10px}
+  .frow>label{width:86px;flex:none;color:var(--sub);font-size:13px;line-height:32px}
+  .frow .fld{flex:1;min-width:0}
+  .frow input,.frow select,.frow textarea{width:100%;border:1px solid var(--line);border-radius:6px;
+    padding:6px 10px;font:inherit}
+  .frow .hint{color:#9aa4b2;font-size:11.5px;margin-top:4px}
+  .tag{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:4px;
+    padding:3px 7px;margin:0 5px 5px 0;font-size:12.5px;background:#fbfcfd}
+  .tag b{cursor:pointer;color:#9aa4b2;font-weight:400}
+  .add{display:inline-block;color:var(--primary);cursor:pointer;font-size:12.5px;
+    border:1px dashed #bcd3ff;border-radius:4px;padding:3px 9px;background:#f7faff}
+  .radios label{margin-right:16px;font-size:13px;color:#334155}
+</style>
+</head>
+<body>
+
+<!-- ===== 顶栏：左 logo+名称；右 控制按钮 + 面包屑 + 公共组件 ===== -->
+<header class="hdr">
+  <div class="logo-zone"><span class="logo">G</span> <b>GateBox</b> <span class="app">控制台</span></div>
+  <div class="hdr-right">
+    <button class="iconbtn" data-tip="切换侧边栏" id="collapseBtn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
+    <nav class="crumbs"><span>网关</span><span class="sep">/</span><span class="cur">路由</span></nav>
+    <div class="sp"></div>
+    <button class="iconbtn" data-tip="任务">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg></button>
+    <button class="iconbtn" data-tip="历史记录">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></button>
+    <button class="iconbtn" data-tip="编辑器模式">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6l-5 6 5 6M16 6l5 6-5 6"/></svg></button>
+    <button class="iconbtn" data-tip="切换主题">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 1 0 9.8 9.8z"/></svg></button>
+  </div>
+</header>
+
+<!-- ===== 下部：左导航 + 右主区 ===== -->
+<div class="shell">
+  <aside class="side" id="side">
+    <a href="#" class="on">网关</a><a href="#">域名</a><a href="#">部署</a>
+    <a href="#">组件</a><a href="#">监控</a><a href="#">设置</a>
+  </aside>
+  <div class="main">
+    <div class="toolbar">
+      <input id="q" class="search" placeholder="搜索域名 / 服务 / 后端…">
+      <span class="muted" id="cnt" style="font-size:12px"></span>
+      <div class="sp"></div>
+      <div class="seg" id="seg">
+        <button class="on" data-v="list">列表</button><button data-v="card">卡片</button>
+      </div>
+      <div class="colwrap">
+        <button class="btn" id="colBtn">列设置</button>
+        <div class="colpanel" id="colPanel"></div>
+      </div>
+      <button class="btn p" onclick="openForm()">＋ 发布路由</button>
+    </div>
+    <div class="body">
+      <div id="list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 新建 / 编辑 抽屉（基本信息在头部，编辑区 表单 ⇄ YAML） ===== -->
+<div class="mask" id="fmMask"></div>
+<div class="drawer wide" id="fmDrawer">
+  <div class="dr-hd">
+    <span class="dot ok" id="fmDot"></span>
+    <input class="hd-input nm" id="fmName" placeholder="路由名">
+    <select class="hd-input" id="fmTypeSel" style="width:140px"></select>
+    <input class="hd-input sv" id="fmSvc" placeholder="服务">
+    <div class="sp" style="flex:1"></div>
+    <div class="seg" id="modeSeg">
+      <button class="on" data-m="form">表单</button>
+      <button data-m="yaml">YAML</button>
+      <button data-m="split">并排</button>
+    </div>
+    <button class="iconbtn" onclick="closeForm()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </div>
+  <div class="dr-body" id="fmBody"></div>
+  <div class="dr-ft">
+    <span class="ok" id="fmValid">✓ 校验通过</span>
+    <div class="sp" style="flex:1"></div>
+    <button class="btn" onclick="closeForm()">取消</button>
+    <button class="btn p" onclick="saveForm()">保存</button>
+  </div>
+</div>
+
+<script>
+/* ===== 品牌图标（simple-icons，抄自 utils/brandIcons.ts） ===== */
+const DOCKER_PATH='M13.983 11.078h2.119a.186.186 0 00.186-.185V9.006a.186.186 0 00-.186-.186h-2.119a.185.185 0 00-.185.185v1.888c0 .102.083.185.185.185m-2.954-5.43h2.118a.186.186 0 00.186-.186V3.574a.186.186 0 00-.186-.185h-2.118a.185.185 0 00-.185.185v1.888c0 .102.082.185.185.185m0 2.716h2.118a.187.187 0 00.186-.186V6.29a.186.186 0 00-.186-.185h-2.118a.185.185 0 00-.185.185v1.887c0 .102.082.185.185.186m-2.93 0h2.12a.186.186 0 00.184-.186V6.29a.185.185 0 00-.185-.185H8.1a.185.185 0 00-.185.185v1.887c0 .102.083.185.185.186m-2.964 0h2.119a.186.186 0 00.185-.186V6.29a.185.185 0 00-.185-.185H5.136a.186.186 0 00-.186.185v1.887c0 .102.084.185.186.186m5.893 2.715h2.118a.186.186 0 00.186-.185V9.006a.186.186 0 00-.186-.186h-2.118a.185.185 0 00-.185.185v1.888c0 .102.082.185.185.185m-2.93 0h2.12a.185.185 0 00.184-.185V9.006a.185.185 0 00-.184-.186h-2.12a.185.185 0 00-.184.185v1.888c0 .102.083.185.185.185m-2.964 0h2.119a.185.185 0 00.185-.185V9.006a.185.185 0 00-.184-.186h-2.12a.186.186 0 00-.186.186v1.887c0 .102.084.185.186.185m-2.92 0h2.12a.185.185 0 00.184-.185V9.006a.185.185 0 00-.184-.186h-2.12a.185.185 0 00-.184.185v1.888c0 .102.082.185.185.185M23.763 9.89c-.065-.051-.672-.51-1.954-.51-.338.001-.676.03-1.01.087-.248-1.7-1.653-2.53-1.716-2.566l-.344-.199-.226.327c-.284.438-.49.922-.612 1.43-.23.97-.09 1.882.403 2.661-.595.332-1.55.413-1.744.42H.751a.751.751 0 00-.75.748 11.376 11.376 0 00.692 4.062c.545 1.428 1.355 2.48 2.41 3.124 1.18.723 3.1 1.137 5.275 1.137.983.003 1.963-.086 2.93-.266a12.248 12.248 0 003.823-1.389c.98-.567 1.86-1.288 2.61-2.136 1.252-1.418 1.998-2.997 2.553-4.4h.221c1.372 0 2.215-.549 2.68-1.009.309-.293.55-.65.707-1.046l.098-.288Z';
+const CADDY_PATH='M11.094.47c-.842 0-1.696.092-2.552.288a11.37 11.37 0 0 0-4.87 2.423 10.632 10.632 0 0 0-2.36 2.826A10.132 10.132 0 0 0 .305 8.582c-.398 1.62-.4 3.336-.043 5.048.085.405.183.809.31 1.212a11.85 11.85 0 0 0 1.662 3.729 3.273 3.273 0 0 0-.086.427 3.323 3.323 0 0 0 2.848 3.71 3.279 3.279 0 0 0 1.947-.346c1.045.51 2.17.864 3.339 1.04a11.66 11.66 0 0 0 4.285-.155 11.566 11.566 0 0 0 4.936-2.485 10.643 10.643 0 0 0 2.352-2.894 11.164 11.164 0 0 0 1.356-4.424 11.214 11.214 0 0 0-.498-4.335c.175-.077.338-.175.486-.293a.444.444 89.992 0 0 .001 0c.402-.322.693-.794.777-1.342a2.146 2.146 0 0 0-1.79-2.434 2.115 2.115 0 0 0-1.205.171c-.038-.043-.078-.086-.113-.13a11.693 11.693 0 0 0-3.476-2.93 13.348 13.348 0 0 0-1.76-.81 13.55 13.55 0 0 0-2.06-.613A12.121 12.121 0 0 0 11.093.47Zm.714.328c.345-.004.688.01 1.028.042a9.892 9.892 0 0 1 2.743.639c.984.39 1.89.958 2.707 1.632.803.662 1.502 1.45 2.091 2.328.026.039.048.08.07.12a2.12 2.12 0 0 0-.435 2.646c-.158.114-.97.692-1.634 1.183-.414.308-.733.557-.733.557l.581.68s.296-.276.665-.638c.572-.562 1.229-1.233 1.395-1.403a2.122 2.122 0 0 0 1.907.677 11.229 11.229 0 0 1-.013 4.046 11.41 11.41 0 0 1-1.475 3.897 12.343 12.343 0 0 1-2.079 2.587c-1.19 1.125-2.633 2.022-4.306 2.531a10.826 10.826 0 0 1-3.973.484 11.04 11.04 0 0 1-3.057-.652 3.304 3.304 0 0 0 1.417-2.294 3.275 3.275 0 0 0-.294-1.842c.18-.162.403-.363.656-.6 1.015-.955 2.353-2.303 2.353-2.303l-.47-.599s-1.63.972-2.801 1.728c-.307.198-.573.378-.777.517a3.273 3.273 0 0 0-1.516-.611c-1.507-.198-2.927.672-3.487 2.017a10.323 10.323 0 0 1-.695-1.078A10.92 10.92 0 0 1 .728 14.8a10.35 10.35 0 0 1-.2-1.212c-.164-1.653.103-3.258.629-4.754a12.95 12.95 0 0 1 1.087-2.288c.57-.968 1.248-1.872 2.069-2.656A11.013 11.013 0 0 1 11.808.797Zm-.147 3.257a3.838 3.838 0 0 0-3.82 3.82v2.36h-.94c-.751 0-1.377.625-1.377 1.377v3.8h1.46v-3.718h9.354v6.264H10.02v1.46h6.4c.751 0 1.377-.625 1.377-1.377v-6.43c0-.751-.626-1.377-1.377-1.377h-.94v-2.36a3.838 3.838 0 0 0-3.82-3.819zm0 1.46a2.371 2.371 0 0 1 2.36 2.36v2.36H9.3v-2.36a2.372 2.372 0 0 1 2.36-2.36zm10.141.392a1.253 1.253 0 0 1 1.296 1.434c-.049.319-.217.59-.453.78-.266.213-.61.318-.968.264a1.253 1.253 0 0 1-1.045-1.42 1.255 1.255 0 0 1 1.17-1.058zM5.384 17.425a2.02 2.02 0 0 1 1.917 1.298c.116.3.159.628.114.967a2.015 2.015 0 0 1-2.249 1.728 2.016 2.016 0 0 1-1.727-2.25 2.017 2.017 0 0 1 1.945-1.743z';
+const brand=(p,c,s=14)=>`<span class="brand"><svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="${c}"><path d="${p}"/></svg></span>`;
+const dockerIcon=(s=14)=>brand(DOCKER_PATH,'#2496ED',s);
+const caddyIcon =(s=14)=>brand(CADDY_PATH,'#22B638',s);
+
+/* 其他图标（stroke=currentColor） */
+const SVG={
+  tlsOn:'<svg viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>',
+  tlsOff:'<svg viewBox="0 0 24 24" fill="none" stroke="#9aa4b2" stroke-width="2"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 7-2.6"/></svg>',
+  proxy:'<svg viewBox="0 0 24 24" fill="none" stroke="#1d4ed8" stroke-width="2"><path d="M4 8h12l-3-3M20 16H8l3 3"/></svg>',
+  file:'<svg viewBox="0 0 24 24" fill="none" stroke="#b45309" stroke-width="2"><path d="M4 7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/></svg>',
+  redir:'<svg viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2"><path d="M6 6h9a4 4 0 0 1 0 8H8"/><path d="M11 17l-3-3 3-3"/></svg>',
+  tcp:'<svg viewBox="0 0 24 24" fill="none" stroke="#0891b2" stroke-width="2"><path d="M8 4v16M16 4v16M4 8h16M4 16h16"/></svg>',
+  respond:'<svg viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="2"><rect x="4" y="6" width="16" height="12" rx="2"/><path d="M8 10h8"/></svg>',
+  eye:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>',
+  edit:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
+  stop:'<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>',
+  reload:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 11a8 8 0 1 0-2 6"/><path d="M20 4v7h-7"/></svg>',
+  log:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg>',
+  del:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13h10l1-13"/></svg>',
+};
+const TYPE_CN={reverse_proxy:'反向代理',file_server:'静态文件',redirect:'重定向',
+  respond:'固定响应',tcp_proxy:'TCP 转发',udp_proxy:'UDP 转发'};
+const typeIcon=t=>SVG[{reverse_proxy:'proxy',file_server:'file',redirect:'redir',
+  respond:'respond',tcp_proxy:'tcp',udp_proxy:'tcp'}[t]]||SVG.respond;
+
+/* ===== 数据 ===== */
+const routes=[
+  { route:'aria', service:'aria2-pro', source:'docker', tls:true, tlsTip:'证书有效至 2026-12-01\n剩余 72 天',
+    type:'reverse_proxy', domains:['aria.neob.cn'], ports:[443], protocol:'https',
+    backendMain:'http://192.168.1.20:6880', backendHint:'nas · aria2-pro',
+    mw:[['gzip','gzip/zstd 压缩'],['websocket','支持 WebSocket 长连接']],
+    state:'ok', stateText:'已生效', stateHint:'证书有效 · 上游健康' },
+  { route:'ariarpc', service:'aria2-pro', source:'docker', tls:true, tlsTip:'证书有效至 2026-12-01\n剩余 72 天',
+    type:'reverse_proxy', domains:['ariarpc.neob.cn','aria-rpc.neob.cn'], ports:[443], protocol:'https',
+    backendMain:'http://192.168.1.20:6800', backendHint:'nas · aria2-pro',
+    mw:[['websocket','支持 WebSocket 长连接']],
+    state:'ok', stateText:'已生效', stateHint:'证书有效 · 上游健康' },
+  { route:'ariaui', service:'aria2-pro', source:'docker', tls:true, tlsTip:'证书有效至 2026-12-01\n剩余 72 天',
+    type:'reverse_proxy', domains:['ariaui.neob.cn'], ports:[443,9443], protocol:'https',
+    backendMain:'http://192.168.1.20:6880', backendHint:'nas · aria2-pro',
+    mw:[['gzip','gzip/zstd 压缩']],
+    state:'warn', stateText:'证书告警', stateHint:'证书 12 天后到期' },
+  { route:'openwrt', service:'openwrt', source:'caddy', tls:true, tlsTip:'证书有效至 2026-10-10\n剩余 20 天',
+    type:'reverse_proxy', domains:['router.neob.cn'], ports:[443], protocol:'https',
+    backendMain:'http://192.168.123.1:80', backendHint:'手动 · 反代',
+    mw:[['gzip','gzip/zstd 压缩']],
+    state:'ok', stateText:'已生效', stateHint:'证书有效 · 上游健康' },
+  { route:'docs', service:'docs', source:'caddy', tls:true, tlsTip:'证书有效至 2026-11-20\n剩余 61 天',
+    type:'file_server', domains:['docs.neob.cn'], ports:[443], protocol:'https',
+    backendMain:'/srv/docs', backendHint:'静态文件 · browse 关闭',
+    mw:[['auth','基础认证'],['gzip','gzip/zstd 压缩'],['cache','静态资源缓存']],
+    state:'ok', stateText:'已生效', stateHint:'证书有效' },
+  { route:'old', service:'old', source:'caddy', tls:true, tlsTip:'证书有效至 2026-11-20\n剩余 61 天',
+    type:'redirect', domains:['old.neob.cn'], ports:[443], protocol:'https',
+    backendMain:'https://docs.neob.cn', backendHint:'301 永久重定向',
+    mw:[], state:'ok', stateText:'已生效', stateHint:'证书有效' },
+  { route:'mc', service:'minecraft', source:'docker', tls:false, tlsTip:'未启用 TLS（L4）',
+    type:'tcp_proxy', domains:['mc.neob.cn'], ports:[6801], protocol:'tcp',
+    backendMain:'192.168.1.20:25565', backendHint:'nas · minecraft',
+    mw:[], state:'ok', stateText:'已生效', stateHint:'L4 转发（caddy-l4）' },
+];
+
+/* ===== 列 ===== */
+const ALLCOLS=[{k:'route',label:'路由'},{k:'tls',label:'TLS'},{k:'type',label:'类型'},
+  {k:'domains',label:'域名'},{k:'entry',label:'入口'},{k:'backend',label:'后端'},
+  {k:'mw',label:'中间件'},{k:'state',label:'状态'},{k:'ops',label:'操作'}];
+let cols=ALLCOLS.map(c=>({...c,on:true}));
+let view='list', cur=null, tab='cfg';
+const $=s=>document.querySelector(s);
+const dotc=s=>s==='ok'?'ok':s==='warn'?'warn':s==='err'?'err':'off';
+const M=m=>`<div class="m">${m||'&nbsp;'}</div>`;
+const S=s=>`<div class="s">${s||'&nbsp;'}</div>`;
+const cellWrap=(m,s)=>`<div class="c">${M(m)}${s?S(s):''}</div>`;
+
+/* 操作：统一 icon-only，所有行都一样，无逻辑 */
+function actionIcons(){
+  const b=(svg,color,tip)=>`<span class="actbtn" data-tip="${tip}" style="color:${color}">${svg}</span>`;
+  return `<div class="ops">`
+    + b(SVG.stop,'#fa8c16','停止')
+    + b(SVG.reload,'#13c2c2','重启')
+    + b(SVG.log,'#1677ff','日志')
+    + b(SVG.del,'#ff4d4f','删除')
+    + `</div>`;
+}
+
+function cell(k,r){
+  switch(k){
+    case 'route': return cellWrap(r.route,
+      `<span class="owner">${r.source==='docker'?dockerIcon(14):caddyIcon(14)}<span>${r.service}</span></span>`);
+    case 'tls': return `<div class="ic ${r.tls?'':'dim'}" data-tip="${r.tlsTip}">${r.tls?SVG.tlsOn:SVG.tlsOff}</div>`;
+    case 'type': return `<div class="ic" data-tip="${TYPE_CN[r.type]||r.type}">${typeIcon(r.type)}</div>`;
+    case 'domains':{
+      const more=r.domains.length>1?` <span class="more" data-tip="${r.domains.join('\n')}">+${r.domains.length-1}</span>`:'';
+      return cellWrap(`<span data-tip="${r.domains.join('\n')}">${r.domains[0]}</span>${more}`,'');
+    }
+    case 'entry': return cellWrap(`<span class="ports">${r.ports.map(p=>`<span class="chip">${p}</span>`).join('')}</span>`,r.protocol);
+    case 'backend': return cellWrap(`<code class="cbe">${r.backendMain}</code>`,r.backendHint);
+    case 'mw': return cellWrap(r.mw.length?r.mw.map(([n,d])=>`<span class="chip" data-tip="${n}：${d}">${n}</span>`).join(''):'—','');
+    case 'state': return cellWrap(`<span class="dot ${dotc(r.state)}"></span>${r.stateText}`,r.stateHint);
+    case 'ops': return `<div class="ops-wrap">${actionIcons()}</div>`;
+  }
+}
+
+function render(){
+  const q=$('#q').value.trim().toLowerCase();
+  const list=routes.filter(r=>!q||(r.route+r.service+r.domains.join()+r.backendMain).toLowerCase().includes(q));
+  $('#cnt').textContent=`共 ${list.length} 条路由`;
+  const on=cols.filter(c=>c.on), el=$('#list');
+  if(view==='list'){
+    el.innerHTML=`<table><thead><tr>${on.map(c=>`<th>${c.label}</th>`).join('')}</tr></thead>
+      <tbody>${list.map(r=>`<tr class="clk" onclick="openForm('${r.route}')">
+        ${on.map(c=>`<td>${cell(c.k,r)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+  } else {
+    el.innerHTML=`<div class="cards">${list.map(r=>`
+      <div class="card" onclick="openForm('${r.route}')">
+        <div class="h">${r.source==='docker'?dockerIcon(18):caddyIcon(18)} ${r.route}
+          <span class="muted" style="font-size:12px;font-weight:400">· ${r.service}</span></div>
+        ${r.state==='warn'?`<div class="warn">⚠ ${r.stateHint}</div>`:''}
+        <div class="l"><b>域名</b> ${r.domains.join('， ')}</div>
+        <div class="l"><b>入口</b> ${r.ports.join(', ')} · ${r.protocol} &nbsp; <b>TLS</b> ${r.tls?'✓':'—'}</div>
+        <div class="l"><b>后端</b> ${r.backendMain} <span class="muted">（${r.backendHint}）</span></div>
+        <div class="l"><b>中间件</b> ${r.mw.length?r.mw.map(([n])=>`<span class="chip">${n}</span>`).join(''):'—'}</div>
+        <div class="l"><span class="dot ${dotc(r.state)}"></span>${r.stateText} · ${r.stateHint}</div>
+      </div>`).join('')}</div>`;
+  }
+}
+
+/* 列设置 */
+function renderColPanel(){
+  $('#colPanel').innerHTML=cols.map((c,i)=>`<div class="colrow">
+      <input type="checkbox" ${c.on?'checked':''} onchange="toggleCol(${i},this.checked)">
+      <span>${c.label}</span>
+      <button onclick="moveCol(${i},-1)">↑</button><button onclick="moveCol(${i},1)">↓</button>
+    </div>`).join('');
+}
+function toggleCol(i,v){cols[i].on=v;render();}
+function moveCol(i,d){const j=i+d;if(j<0||j>=cols.length)return;[cols[i],cols[j]]=[cols[j],cols[i]];renderColPanel();render();}
+$('#colBtn').onclick=e=>{e.stopPropagation();$('#colPanel').classList.toggle('on');renderColPanel();};
+document.addEventListener('click',()=>$('#colPanel').classList.remove('on'));
+$('#collapseBtn').onclick=()=>{const s=$('#side');s.style.display=s.style.display==='none'?'block':'none';};
+
+document.querySelectorAll('#seg button').forEach(b=>b.onclick=()=>{
+  view=b.dataset.v;document.querySelectorAll('#seg button').forEach(x=>x.classList.toggle('on',x===b));render();});
+$('#q').oninput=render;
+
+/* ===== 新建 / 编辑：基于模型自动切换「表单 ⇄ YAML」 =====
+   模型 = 对象类型 + 字段 schema；表单由它生成，YAML 是它的等价文本。
+   基本信息（名称 / 类型 / 服务）在抽屉头部，不进编辑区（对齐 OxiDNS）。 */
+const SCHEMA=[                                   // 仅「可编辑字段」
+  {k:'domains',     label:'域名',   type:'list', group:'接入'},
+  {k:'entrypoint',  label:'入口点', type:'text', group:'接入'},
+  {k:'ports',       label:'端口',   type:'list', group:'接入'},
+  {k:'tls',         label:'TLS',    type:'bool', group:'接入'},
+  {k:'middlewares', label:'中间件', type:'list', group:'接入'},
+  {k:'backend',     label:'后端',   type:'text', group:'后端'},
+];
+const BASIC=[{k:'name'},{k:'type'}];             // 头部展示、不可编辑
+let obj=null, mode='form';
+
+function openForm(name){
+  const r=name?routes.find(x=>x.route===name):null;
+  obj=r?{name:r.route,type:r.type,service:r.service,domains:[...r.domains],entrypoint:r.protocol,
+        ports:[...r.ports],tls:r.tls,middlewares:r.mw.map(m=>m[0]),backend:r.backendMain}
+      :{name:'',type:'reverse_proxy',service:'',domains:[],entrypoint:'https',ports:[443],
+        tls:true,middlewares:[],backend:''};
+  /* 基本信息固定在顶部，可直接编辑 */
+  $('#fmName').value=obj.name;
+  $('#fmSvc').value=obj.service||'';
+  $('#fmTypeSel').innerHTML=Object.entries(TYPE_CN)
+    .map(([k,v])=>`<option value="${k}" ${k===obj.type?'selected':''}>${v}</option>`).join('');
+  $('#fmName').oninput=e=>obj.name=e.target.value;
+  $('#fmSvc').oninput=e=>obj.service=e.target.value;
+  $('#fmTypeSel').onchange=e=>{obj.type=e.target.value; renderBody();};
+  setMode('form');
+  $('#fmDrawer').classList.add('on'); $('#fmMask').classList.add('on');
+}
+function closeForm(){$('#fmDrawer').classList.remove('on');$('#fmMask').classList.remove('on');}
+$('#fmMask').onclick=closeForm;
+
+/* 切换：表单→YAML 序列化；YAML→表单 反序列化 + 校验 */
+function setMode(m){
+  if(mode!=='form' && m==='form'){ const ta=$('#fmYaml'); if(ta) obj=Object.assign(obj, parseYaml(ta.value)); }
+  mode=m;
+  document.querySelectorAll('#modeSeg button').forEach(b=>b.classList.toggle('on',b.dataset.m===m));
+  renderBody();
+}
+document.querySelectorAll('#modeSeg button').forEach(b=>b.onclick=()=>setMode(b.dataset.m));
+
+function formHtml(){
+  const groups={}; SCHEMA.forEach(f=>{(groups[f.group]=groups[f.group]||[]).push(f)});
+  return Object.entries(groups).map(([g,fs])=>
+    `<div class="sec"><div class="sec-t">${g}</div>${fs.map(fieldRow).join('')}</div>`).join('');
+}
+/* 编辑器：复用 GateBox CodeEditor 的观感（深色 + 等宽 + 工具条） */
+function yamlEditor(){ return `<div class="editor">
+    <div class="ed-bar"><span class="t">yaml</span>
+      <button>撤销</button><button>重做</button><button>搜索</button><button>复制</button></div>
+    <textarea id="fmYaml" spellcheck="false">${toYaml(obj)}</textarea></div>`; }
+
+function renderBody(){
+  const b=$('#fmBody');
+  if(mode==='form'){ b.innerHTML=formHtml(); }
+  else if(mode==='yaml'){
+    b.innerHTML=yamlEditor()+`<div class="hint" style="color:#9aa4b2;font-size:12px;margin-top:6px">同一份内容：改 YAML 再切回表单会反序列化并校验。</div>`;
+    wireYaml();
+  } else {                                   // 并排（参考 compose 界面）
+    b.innerHTML=`<div class="split">
+      <div class="pane"><div class="pane-h">表单（由模型生成）</div>${formHtml()}</div>
+      <div class="pane"><div class="pane-h">YAML（等价文本）</div>${yamlEditor()}</div></div>`;
+    wireYaml();
+  }
+}
+function wireYaml(){
+  const ta=$('#fmYaml'); if(!ta) return;
+  ta.oninput=e=>{
+    const p=parseYaml(e.target.value);
+    $('#fmValid').textContent = p ? '✓ 校验通过' : '✗ YAML 有误';
+    obj=Object.assign(obj,p);
+    if(mode==='split'){ /* 并排：YAML → 表单即时同步 */ }
+  };
+}
+function fieldRow(f){
+  const v=obj[f.k];
+  if(f.type==='bool')
+    return `<div class="frow"><label>${f.label}</label><div class="fld">
+      <label style="color:#334155"><input type="checkbox" ${v?'checked':''} style="width:auto"
+        onchange="onField('${f.k}','${f.type}',this.checked)"> 是</label></div></div>`;
+  const val=f.type==='list'?(Array.isArray(v)?v.join(', '):(v||'')):(v==null?'':v);
+  return `<div class="frow"><label>${f.label}</label><div class="fld">
+    <input value="${val}" oninput="onField('${f.k}','${f.type}',this.value)"></div></div>`;
+}
+function onField(k,t,v){
+  obj[k]= t==='list' ? v.split(',').map(s=>s.trim()).filter(Boolean) : v;
+  if(mode==='split'){ const ta=$('#fmYaml'); if(ta) ta.value=toYaml(obj); }  // 表单 → YAML 即时同步
+}
+
+/* 极简序列化 / 反序列化（够表达这层对象即可） */
+const YAML_KEYS=['name','type',...SCHEMA.map(f=>f.k)];
+function toYaml(o){
+  return YAML_KEYS.map(k=>{ const v=o[k]; const f=SCHEMA.find(x=>x.k===k)||{};
+    return f.type==='list' ? `${k}: [${(v||[]).join(', ')}]` : `${k}: ${v}`;
+  }).join('\n');
+}
+function parseYaml(text){
+  const out={};
+  text.split('\n').forEach(line=>{
+    const m=line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*)$/); if(!m) return;
+    const k=m[1], raw=m[2]; const f=SCHEMA.find(x=>x.k===k);
+    if(f&&f.type==='list') out[k]=raw.replace(/^\[|\]$/g,'').split(',').map(s=>s.trim()).filter(Boolean);
+    else if(f&&f.type==='bool') out[k]=/true/i.test(raw);
+    else out[k]=raw;
+  });
+  return out;
+}
+function saveForm(){closeForm();}
+
+renderColPanel();render();
+</script>
+</body>
+</html>

@@ -1,0 +1,106 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# 对象：组件 Component（执行者内的一项功能）
+# 对外提供配置项与观测来源，内部用若干能力完成。自述由插件 / 核心自带，用户不可改。
+# 归属：组件。参考：ADR-042 §4 / §4.1
+# ─────────────────────────────────────────────────────────────────────────────
+
+kind: component                       # 对象类型标识（factKind）
+title: 组件                            # 显示名
+group: 组件                            # 归属一级页面
+list: true                            # 多实例
+
+schema:                               # 字段契约
+  - key: executor                     # 字段键：执行者
+    label: 执行者                      # 显示标签
+    type: text                        # 控件：单行文本（插件 id 或「核心」）
+    readonly: true                    # 只读
+    description: 插件 id（caddy / docker …）或「核心」
+  - key: name                         # 字段键：组件名
+    label: 组件名
+    type: text
+    readonly: true
+    description: 执行者内的一项功能，如 反向代理 / 编排 / 配置编译
+  - key: provides                     # 字段键：提供的类型
+    label: 提供                       # 显示标签
+    type: object                      # 控件：对象
+    readonly: true
+    description: 提供给类型目录的类型（service_types / middleware_types / entrypoint_protocols）
+  - key: abilities                    # 字段键：能力
+    label: 能力                       # 显示标签
+    type: array                       # 控件：数组
+    readonly: true
+    description: 该组件可施加的能力 id（见能力字典）
+  - key: consumes                     # 字段键：消费
+    label: 消费                       # 显示标签
+    type: array
+    readonly: true
+    description: 需要（消费）的对象类型
+  - key: produces                     # 字段键：产出
+    label: 产出                       # 显示标签
+    type: array
+    readonly: true
+    description: 产出（派生）的对象类型
+
+example:                              # 模拟数据基础
+  - executor: caddy                   # 执行者：插件 caddy
+    name: 反向代理                     # 组件名
+    provides: { service_types: [reverse_proxy, file_server, redirect, respond] }   # 提供的服务类型
+    abilities: [config.write, config.reload, state.read, logs.read]                # 能力
+    consumes: [路由, 中间件]           # 消费
+    produces: [服务态]                 # 产出
+  - executor: caddy                   # 执行者：插件 caddy
+    name: 端口接入                     # 组件名
+    provides: { entrypoint_protocols: [http, https, grpc, websocket, php] }        # 入口协议
+    abilities: [config.write, config.reload]
+    consumes: [入口点]
+    produces: [服务态]
+  - executor: caddy                   # 执行者：插件 caddy
+    name: 中间件                       # 组件名
+    provides: { middleware_types: [encode, basic_auth, headers, websocket, rewrite, code] }   # 中间件类型
+    abilities: [config.write]
+    consumes: [中间件]
+    produces: [服务态]
+  - executor: acme.sh                 # 执行者：插件 acme.sh
+    name: 证书                         # 组件名
+    provides: {}                      # 不提供类型
+    abilities: [config.write, task.trigger, data.read, logs.read]                 # 能力
+    consumes: [域名, 凭证]             # 消费
+    produces: [证书]                   # 产出（派生）
+    logMarkers:                       # 日志标志 → 步骤序列模板（供日志地图对账；见 model/log.yaml）
+      sequences: [acme_issue, acme_renew]   # 首次签发 / 续期（不同流程 → 不同序列）
+  - executor: docker                  # 执行者：插件 docker
+    name: 编排                         # 组件名
+    provides: {}
+    abilities: [config.write, process.start, process.stop, process.restart, resource.delete, state.read, logs.read]
+    consumes: [部署, 镜像, 变量, 仓库凭证]
+    produces: [容器, 派生服务]
+  - executor: docker                  # 执行者：插件 docker
+    name: 容器                         # 组件名
+    provides: {}
+    abilities: [state.read, process.start, process.stop, resource.delete, logs.read]
+    consumes: [容器]
+    produces: []
+  - executor: ddns-go                 # 执行者：插件 ddns-go
+    name: 更新解析                     # 组件名
+    provides: {}
+    abilities: [config.write, config.reload, task.trigger, logs.read, data.read]
+    consumes: [域名, 凭证, 公网IP]
+    produces: [解析记录]
+  - executor: 核心                     # 执行者：GateBox 核心
+    name: 配置编译                     # 组件名
+    provides: {}
+    abilities: [config.compile, object.validate]
+    consumes: [服务, 路由, 域名, 证书, 变量, 中间件]
+    produces: [Caddy 配置]
+  - executor: 核心                     # 执行者：GateBox 核心
+    name: 对象派生                     # 组件名
+    provides: {}
+    abilities: [object.derive]
+    consumes: [容器]
+    produces: [派生服务]
+  - executor: 核心                     # 执行者：GateBox 核心
+    name: 差异比对                     # 组件名
+    provides: {}
+    abilities: [state.diff]
+    consumes: [对象]
+    produces: [差异]

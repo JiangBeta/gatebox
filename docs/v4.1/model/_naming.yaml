@@ -1,0 +1,67 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# V4.1 对象模型 · 命名映射与推进约定
+# 状态：批次 0 地基 · 草案
+# 依据：docs/v4.1/views.md（为准）· docs/adr/ADR-042.md §13
+# ─────────────────────────────────────────────────────────────────────────────
+
+conventions:                                    # 全局约定
+  分层: "项目 → 服务 → 路由（views.md §5）"       # 三层对象：项目含服务，服务含路由
+  服务: "编排中的一项（一个容器 / compose 的一个 service）；可发布多个端口 → 含多条路由"   # 服务的定义
+  路由: "一个转发，后端为 1 个端口；含 域名 / 入口点+端口 / 中间件 / TLS / 类型 / 后端"    # 路由的定义
+  根域名: "Domain 对象（一行一个）"                # 根域名是独立对象
+  二级域名: "不建实体，内联在路由 / 服务的域名行"    # 二级域名内联，不单独建表
+  字段类型: "复用前端 ConfigField（text/password/number/select/switch/textarea/array/object/reference）"   # 字段类型集合
+  原型: "静态 HTML（docs/v4.1/prototype/）+ data/mock.js，可直接双击打开"   # 原型形态（用户确认：静态）
+  能力命名: "名词.动词，如 config.write / process.start / task.trigger"    # 能力 id 命名规则
+  # 规范：对象结构统一为两段（spec / status）。源字段可编辑、平铺；自动记录的观测值放入 status 子节点，只读、YAML 默认折叠。
+  对象结构: "源字段（可编辑，平铺，默认展开）+ status（自动记录，只读，嵌套，默认折叠）"   # 对齐 ADR-042 不变量 3：spec 由蓝图展开、status 由观测
+  status语义: "status 只放观测 / 派生结果（证书状态、在线、校验、安装状态…）；不进表单，不由用户编辑"
+  # 日志规范
+  日志视图: "地图视图（触发卡 → sequence 卡，可缩放/拖动画布）/ 文本视图（CodeEditor + 日志格式高亮）；展示最后一份日志"
+  序列模板: "步骤序列由组件自述声明（sequence: no/step/marker/optional）；运行时按 marker 匹配真实日志 → 实际步骤，未命中 optional 记跳过；不同流程用不同模板"
+
+renames:                                        # 旧概念 → V4.1 对象映射
+  App:                                          # 旧：应用分组
+    to: 分组                                     # 新：分组（可选，纯标签）
+    note: 可选，纯标签
+  Service旧:                                     # 旧：Service（接入 + 后端）
+    to: [服务, 路由]                             # 新：拆成服务与路由
+    note: 旧 Service = 接入 + 后端，现拆开
+  Fragment:                                     # 旧：Caddy 片段
+    to: 中间件                                    # 新：中间件
+    note: Caddy 片段 → Middleware
+  PortBinding:                                  # 旧：端口表
+    to: 入口点                                    # 新：入口点
+    note: 协议 → 端口（一对多）
+  ComposeInstance:                              # 旧：编排实例
+    to: 部署                                      # 新：部署单元
+    note: 部署单元
+  DNSCredential:                                # 旧：DNS 凭证
+    to: DNS凭证                                   # 保持，归域名页
+  Registry:                                     # 旧：镜像仓库凭证
+    to: 仓库凭证                                  # 保持，归部署页
+  Domain:                                       # 旧：根域名
+    to: 根域名                                    # 保持
+  Cert:                                         # 旧：证书
+    to: 证书                                      # 派生对象，只读
+    note: 派生对象，只读
+  CertLog:                                      # 旧：证书日志
+    to: 证书日志                                  # 派生对象，只读
+    note: 派生对象，只读
+  Variable:                                     # 旧：变量
+    to: 变量                                      # 保持
+  ACMEEmail:                                    # 旧：全局 ACME 邮箱
+    to: acme配置.email                            # 降为字段
+    note: 是字段，不是独立对象
+
+batches:                                        # 推进批次（依赖拓扑，严格按序）
+  - { no: 0, name: 地基, state: done, items: [原型框架, mock数据层, 命名映射] }        # 骨架 + mock + 映射
+  - { no: 1, name: 原子对象, state: done, items: [acme配置, caddy全局, 主机, 变量, 入口点, DNS凭证, 仓库凭证, 能力字典] }   # 无前置的原子对象
+  - { no: 2, name: 组件与类型目录, state: deferred, items: [插件, 组件自述, 类型目录] }   # 插件部分最后处理（主系统无插件也能运行）
+  - { no: 3, name: 域名, state: done, items: [根域名, 域名/证书, DNS供应商] }            # 依赖凭证
+  - { no: 4, name: 网关声明, state: pending, items: [中间件, 服务, 路由] }               # 核心声明对象
+  - { no: 5, name: 部署, state: pending, items: [部署单元, 模板] }                       # 部署与应用商店
+  - { no: 6, name: 派生对象, state: pending, items: [证书, 容器, 镜像, 网络, 存储卷, 派生服务, 解析记录] }   # 只读派生
+  - { no: 7, name: 链与蓝图, state: pending, items: [链, 步骤, 蓝图] }                   # 编排与真相
+  - { no: 8, name: 记录与主视图, state: doing, items: [日志地图/文本, RequestRun, 流量链首页] }   # 记录与主视图
+  - { no: 9, name: 监控, state: pending, items: [流量, 健康, 证书, 解析] }               # 监控

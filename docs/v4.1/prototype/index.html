@@ -1,0 +1,1097 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GateBox V4.1 原型 · 批次 1</title>
+<script>
+  /* 尽早应用主题，避免闪烁。默认深色；两套主题随页面生成。 */
+  try { document.documentElement.dataset.theme = localStorage.getItem('v41-theme') || 'dark'; } catch (e) {}
+</script>
+<style>
+  /* ── 主题 A：深色（默认）── */
+  :root, [data-theme="dark"]{
+    --bg:#12161d; --panel:#1b212c; --line:#2a3342; --text:#e6e9ef; --sub:#98a2b3;
+    --primary:#4096ff; --ok:#3fb950; --warn:#d29922; --err:#f85149;
+    --shadow:0 1px 3px rgba(0,0,0,.4); --side:#0b0f16; --head:#171d27;
+    --field:#12161d; --soft:#202836; --hover:#1d2635; --ws:#8993a4; --side-fg:#c9d1d9;
+    --yaml-key:#c586c0; --yaml-punct:#e5a15a; --yaml-val:#98c379; --yaml-comment:#6b7280;
+  }
+  /* ── 主题 B：浅色 ── */
+  [data-theme="light"]{
+    --bg:#f5f6f8; --panel:#fff; --line:#e3e6eb; --text:#1f2329; --sub:#6b7280;
+    --primary:#1677ff; --ok:#22c55e; --warn:#f59e0b; --err:#ef4444;
+    --shadow:0 1px 3px rgba(0,0,0,.08); --side:#001529; --head:#fafbfc;
+    --field:#fff; --soft:#f6f8fa; --hover:#f7f9ff; --ws:#c2c8d0; --side-fg:#c9d1d9;
+    --yaml-key:#8250df; --yaml-punct:#d97706; --yaml-val:#16a34a; --yaml-comment:#9ca3af;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:14px -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans',sans-serif;
+    background:var(--bg);color:var(--text)}
+  .app{display:flex;min-height:100vh}
+  .side{width:190px;flex:0 0 190px;background:var(--side);color:var(--side-fg);padding:12px 0;transition:width .18s,flex-basis .18s}
+  .app.nav-min .side{width:64px;flex-basis:64px;padding:12px 0}
+  .brand{display:flex;align-items:center;gap:10px;padding:6px 16px 16px;color:#fff}
+  .brand .logo{width:28px;height:28px;flex:0 0 28px;display:flex;align-items:center;justify-content:center;background:var(--primary);border-radius:7px;font-weight:700;font-size:12px;color:#fff}
+  .brand .btext{font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden}
+  .brand .btext i{display:block;font-size:11px;color:#6b7280;font-style:normal;font-weight:400}
+  .app.nav-min .brand{justify-content:center;padding:6px 0 16px}
+  .app.nav-min .brand .btext{display:none}
+  .side a{display:flex;align-items:center;gap:10px;padding:8px 16px;color:var(--side-fg);text-decoration:none;font-size:13px;position:relative}
+  .side a:hover{background:#112a45}.side a.on{background:var(--primary);color:#fff}
+  .side a .ico{width:20px;height:20px;flex:0 0 20px;display:inline-flex;align-items:center;justify-content:center}
+  .side a .tx{flex:1;white-space:nowrap;overflow:hidden}
+  .side a .badge{font-size:10px;color:#6b7280}.side a.on .badge{color:#dbe7ff}
+  .app.nav-min .side a{justify-content:center;padding:6px 0}
+  .app.nav-min .side a .tx,.app.nav-min .side a .badge{display:none}
+  .app.nav-min .side a .ico{width:40px;height:40px;flex:0 0 40px;border-radius:8px}
+  .app.nav-min .side a:hover .ico{background:#112a45}
+  .app.nav-min .side a.on:hover .ico{background:var(--primary)}
+  .app.nav-min .side a::after{content:attr(data-tip);position:absolute;left:calc(100% + 10px);top:50%;transform:translateY(-50%);
+    background:var(--head);color:var(--text);font-size:12px;padding:5px 9px;border-radius:5px;border:1px solid var(--line);
+    white-space:nowrap;opacity:0;pointer-events:none;z-index:30;transition:opacity .12s;box-shadow:var(--shadow)}
+  .app.nav-min .side a:hover::after{opacity:1}
+  .main{flex:1;min-width:0;display:flex;flex-direction:column}
+  .top{background:var(--panel);border-bottom:1px solid var(--line);padding:9px 20px;display:flex;align-items:center;gap:12px}
+  .top .crumb{font-size:15px;font-weight:600}
+  .top .crumb .sub{font-weight:400;color:var(--sub);font-size:12px;margin-left:8px}
+  .top .sp{flex:1}
+  .btn{border:1px solid var(--line);background:var(--panel);color:var(--text);border-radius:6px;padding:5px 12px;cursor:pointer;font-size:13px}
+  .btn:hover{border-color:var(--primary);color:var(--primary)}
+  .btn.p{background:var(--primary);border-color:var(--primary);color:#fff}
+  .btn[disabled]{opacity:.5;cursor:not-allowed}
+  .icon-btn{border:1px solid var(--line);background:var(--panel);color:var(--sub);width:32px;height:30px;border-radius:6px;
+    cursor:pointer;display:inline-flex;align-items:center;justify-content:center;position:relative}
+  .icon-btn:hover{border-color:var(--primary);color:var(--primary)}
+  /* 操作列：仿网关页的无边框彩色 icon 按钮 */
+  .act-btn{border:0;background:transparent;width:28px;height:28px;border-radius:6px;cursor:pointer;
+    display:inline-flex;align-items:center;justify-content:center;position:relative}
+  .act-btn:hover{background:var(--hover)}
+  th.ops,td.ops{white-space:nowrap;width:1%}
+  td.ops .act-btn{margin-right:2px}
+  .body{padding:0 20px 20px;overflow:auto}
+  .pagetabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:0 -20px 16px;padding:0 20px;background:var(--panel)}
+  .pagetabs button{border:0;background:transparent;padding:11px 14px;cursor:pointer;color:var(--sub);font-size:13.5px;
+    border-bottom:2px solid transparent;margin-bottom:-1px}
+  .pagetabs button:hover{color:var(--primary)}
+  .pagetabs button.on{color:var(--primary);border-bottom-color:var(--primary);font-weight:500}
+  .hint{color:var(--sub);font-size:12px;margin:14px 0 12px}
+  .statcards{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:18px}
+  .scard{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:16px 18px;box-shadow:var(--shadow);cursor:pointer;transition:border-color .15s,box-shadow .15s,transform .15s}
+  .scard:hover{border-color:var(--primary);box-shadow:0 6px 18px rgba(0,0,0,.12);transform:translateY(-1px)}
+  .scard .srow{display:flex;align-items:center;justify-content:space-between}
+  .scard .stitle{font-size:12.5px;color:var(--sub)}
+  .scard .sico{width:30px;height:30px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center}
+  .scard .smain{font-size:28px;font-weight:650;margin:8px 0 4px;letter-spacing:-.5px}
+  .scard .ssub{font-size:12px;color:var(--sub)}
+  .inline-input{border:1px solid var(--line);border-radius:6px;padding:6px 10px;font:inherit;background:var(--field);color:var(--text);width:280px;margin-right:8px}
+  .certfilter{display:flex;gap:8px;margin:0 0 14px}
+  .certfilter .cf{border:1px solid var(--line);background:var(--panel);color:var(--sub);border-radius:16px;padding:5px 12px;cursor:pointer;font-size:12.5px}
+  .certfilter .cf:hover{border-color:var(--primary)}
+  .certfilter .cf.on{background:var(--primary);border-color:var(--primary);color:#fff}
+  .certfilter .cf b{font-weight:600}
+  .cfsel{appearance:none;-webkit-appearance:none;border:1px solid var(--line);color:var(--text);border-radius:16px;
+    background:var(--panel) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238b95a7' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>") no-repeat right 10px center;
+    padding:5px 30px 5px 12px;font-size:12.5px;margin-left:auto;cursor:pointer}
+  .cfsel:focus{outline:none;border-color:var(--primary)}
+  .certcell{display:inline-flex;align-items:center;gap:5px}
+  #mask4{z-index:41}
+  .vwrap{display:flex;flex-direction:column;gap:12px}
+  .dw-label{font-size:12px;color:var(--sub);margin-bottom:4px}
+  .vfld textarea.code{display:block;position:static;width:100%;border:1px solid var(--line);border-radius:6px;padding:8px 11px;font-family:ui-monospace,Menlo,monospace;font-size:11px;line-height:1.5;background:var(--field);color:var(--text);resize:vertical;white-space:pre;overflow:auto}
+  .vline{font-size:12px;color:var(--sub);word-break:break-all}
+  #mask5{z-index:41}
+  #mask6{z-index:41}
+  .logtabs{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;margin-right:8px}
+  .logtabs button{border:0;background:transparent;padding:4px 12px;cursor:pointer;color:var(--sub);font-size:12.5px}
+  .logtabs button.on{background:var(--primary);color:#fff}
+  .trigcard{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--soft);margin-bottom:14px}
+  .trigcard .ttag{background:var(--primary);color:#fff;border-radius:4px;padding:2px 8px;font-size:12px}
+  .trigcard .tmeta{font-size:12.5px;color:var(--sub)}
+  .steptable{width:100%;border-collapse:collapse}
+  .steptable th,.steptable td{padding:8px 12px;border-bottom:1px solid var(--line);font-size:13px;text-align:left;vertical-align:middle}
+  .steptable th{background:var(--head);color:var(--sub);font-weight:500}
+  .logcode{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:var(--field);font-family:ui-monospace,Menlo,monospace;font-size:12.5px;line-height:1.7}
+  .logcode .lgutter{flex:0 0 46px;text-align:right;padding:10px 8px;color:var(--sub);background:var(--soft);border-right:1px solid var(--line);user-select:none;opacity:.75}
+  .logcode .ltext{margin:0;padding:10px 12px;white-space:pre;overflow:auto;color:var(--text)}
+  .ltext .lt{color:#8b95a7}
+  .ltext .lv{font-weight:700}
+  .ltext .lv-INFO{color:#22c55e}.ltext .lv-WARN{color:#d29922}.ltext .lv-ERROR{color:#ef4444}.ltext .lv-DEBUG{color:#8b95a7}.ltext .lv-CERT{color:#c586c0}
+  /* 地图视图：触发卡 → 连接线 → 任务卡（仿 OxiDNS） */
+  /* 可缩放 / 拖动 画布（仿 OxiDNS） */
+  .lcanvas{position:relative;height:560px;border:1px solid var(--line);border-radius:10px;overflow:hidden;cursor:grab;
+    background:radial-gradient(circle, rgba(139,149,167,.14) 1px, transparent 1px) 0 0/22px 22px, var(--bg)}
+  .lcanvas.grabbing{cursor:grabbing}
+  .lworld{position:absolute;left:0;top:0;width:1200px;height:900px;transform-origin:0 0;will-change:transform}
+  .ledges{position:absolute;left:0;top:0;pointer-events:none}
+  .lnode{position:absolute;background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow);overflow:hidden}
+  .lnode:hover{border-color:var(--primary)}
+  .lnode .nh{display:flex;align-items:center;gap:8px;padding:9px 14px;border-bottom:1px solid var(--line);background:var(--head);font-weight:600;font-size:13px}
+  .lnode .nh .dot{width:8px;height:8px;border-radius:50%;flex:0 0 8px}
+  .lnode .kv{display:flex;justify-content:space-between;gap:12px;padding:7px 14px;font-size:13px;border-top:1px dashed var(--line)}
+  .lnode .kv:first-of-type{border-top:0}
+  .lnode .kv span{color:var(--sub)}
+  .lnode .kv b{font-weight:500}
+  .steps .step{display:grid;grid-template-columns:42px 1fr 66px 30px 50px;align-items:center;gap:8px;padding:6px 14px;font-size:13px}
+  .steps .step+.step{border-top:1px dashed var(--line)}
+  .steps .step .sn{color:var(--sub);font-family:ui-monospace,monospace}
+  .steps .step .sm,.steps .step .sd{color:var(--sub);font-family:ui-monospace,monospace;font-size:12px}
+  .steps .step .sd{text-align:right}
+  .steps .step .st{display:inline-flex}
+  .edge-label{position:absolute;transform:translate(-50%,-50%);background:var(--panel);border:1px solid var(--line);
+    border-radius:12px;padding:2px 10px;font-size:11.5px;font-family:ui-monospace,monospace;color:var(--sub);white-space:nowrap;z-index:2}
+  .lstats{position:absolute;left:12px;top:10px;display:flex;gap:6px;z-index:3}
+  .llegend{position:absolute;left:12px;bottom:12px;background:var(--panel);border:1px solid var(--line);border-radius:8px;
+    padding:8px 12px;font-size:12px;color:var(--sub);box-shadow:var(--shadow);z-index:3}
+  .llegend .row{display:flex;align-items:center;gap:7px;margin:3px 0}
+  .llegend .dot{width:8px;height:8px;border-radius:50%}
+  .llegend .line{width:18px;height:0;border-top:1.5px solid #5b6470}
+  .llegend .dash{width:18px;height:0;border-top:1.5px dashed #5b6470}
+  .lctrl{position:absolute;right:10px;bottom:10px;display:flex;gap:6px;align-items:center;background:var(--panel);
+    border:1px solid var(--line);border-radius:8px;padding:4px 8px;box-shadow:var(--shadow);z-index:3}
+  .lctrl .lz{font-size:12px;color:var(--sub);min-width:40px;text-align:right}
+  .tcard{border:1px solid var(--line);border-radius:8px;background:var(--panel);overflow:hidden}
+  .tch{display:flex;align-items:center;padding:8px 14px;background:var(--head);border-bottom:1px solid var(--line);font-weight:600;font-size:13px}
+  .tch .sp{flex:1}
+  .tvtab{width:100%;border-collapse:collapse}
+  .tvtab th,.tvtab td{padding:7px 14px;font-size:13px;text-align:left;vertical-align:middle}
+  .tvtab th{color:var(--sub);font-weight:500;background:var(--soft)}
+  .tvtab.steps th{background:var(--head)}
+  .tvtab.steps tbody tr+tr td{border-top:1px dashed var(--line)}
+  .lconn{height:26px;margin-left:44px;border-left:1px dashed var(--line);position:relative}
+  .lconn::after{content:'';position:absolute;left:-4.5px;bottom:-1px;border-left:4.5px solid transparent;border-right:4.5px solid transparent;border-top:6px solid var(--line)}
+  .logmeta{font-size:12.5px;color:var(--sub);margin-bottom:10px}
+  .cday{color:var(--sub);font-size:12px}
+  .cday b{font-weight:700}
+  .rname{font-weight:600;cursor:default}
+  .route .rsub{font-size:12px;color:var(--sub);display:flex;align-items:center;gap:5px;margin-top:3px}
+  .bic{width:14px;height:14px;display:inline-flex;align-items:center;justify-content:center;flex:0 0 14px}
+  .grp{background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow);margin-bottom:16px;overflow:hidden}
+  .grp.nocut{overflow:visible}
+  .grp>.hd{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--head);border-bottom:1px solid var(--line)}
+  .grp>.hd .nm{font-weight:600}
+  .tag{font-size:11px;color:var(--sub);background:var(--soft);border-radius:4px;padding:1px 6px}
+  .tag.file{font-family:ui-monospace,Menlo,monospace}
+  .tag.b-on{background:rgba(34,197,94,.16);color:#22c55e}
+  .tag.b-off{background:rgba(239,68,68,.16);color:#ef4444}
+  .grp>.hd .sp{flex:1}
+  table{width:100%;border-collapse:collapse}
+  th,td{text-align:left;padding:9px 14px;border-bottom:1px solid var(--line);font-size:13px;vertical-align:middle}
+  th{background:var(--head);color:var(--sub);font-weight:500;white-space:nowrap}
+  tr:last-child td{border-bottom:0}tr.clk:hover{background:var(--hover);cursor:pointer}
+  .yes{color:var(--ok)}.no{color:#777}.adv{color:var(--sub)}
+  .chip{display:inline-block;border:1px solid var(--line);border-radius:4px;padding:0 6px;margin:0 4px 2px 0;
+    font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:var(--text);background:var(--soft)}
+  code{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--text)}
+  .empty{color:var(--sub);font-size:13px;padding:28px;text-align:center}
+  .mask{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;z-index:20}.mask.on{display:block}
+  #mask2{z-index:20}
+  #mask3{z-index:41}
+  /* 弹窗（Modal，仿 Ant Design） */
+  .mdl{position:fixed;z-index:42;top:100px;left:50%;transform:translateX(-50%);width:520px;max-width:94vw;max-height:86vh;
+    background:var(--panel);border-radius:8px;display:none;flex-direction:column;overflow:hidden;
+    box-shadow:0 6px 16px rgba(0,0,0,.12),0 9px 28px 8px rgba(0,0,0,.08)}
+  .mdl.on{display:flex}
+  .mdl-hd{display:flex;align-items:center;padding:16px 24px;border-bottom:1px solid var(--line);font-size:15px;font-weight:600}
+  .mdl-hd .x{margin-left:auto;border:0;background:transparent;color:var(--sub);cursor:pointer;line-height:1;padding:2px 4px;font-size:14px}
+  .mdl-hd .x:hover{color:var(--text)}
+  .mdl-bd{padding:20px 24px;overflow:auto}
+  .mdl-ft{padding:10px 24px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:8px}
+  .drawer{position:fixed;top:0;right:0;bottom:0;width:1040px;max-width:96vw;background:var(--panel);
+    box-shadow:-4px 0 20px rgba(0,0,0,.35);transform:translateX(100%);transition:.2s;z-index:21;display:flex;flex-direction:column}
+  .drawer.on{transform:none}
+  .dr-hd{padding:12px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
+  .dr-hd .sp{flex:1}
+  .dr-cols{flex:1;display:flex;flex-direction:row;min-height:0}
+  .dr-cols.col{flex-direction:column}
+  .dr-left{flex:0 0 46%;padding:15px 18px;overflow:auto;border-right:1px solid var(--line)}
+  .dr-cols.col .dr-left{flex:0 0 40%;max-height:none;border-right:0;border-bottom:1px solid var(--line)}
+  .splitter{flex:0 0 6px;background:var(--line);cursor:col-resize;transition:background .12s}
+  .splitter:hover{background:var(--primary)}
+  .dr-cols.col .splitter{cursor:row-resize}
+  .dr-right{flex:1;padding:12px 18px 15px;overflow:hidden;display:flex;flex-direction:column;min-width:0}
+  .dr-ft{padding:11px 18px;border-top:1px solid var(--line);display:flex;align-items:center;gap:10px}
+  .field{margin-bottom:12px}
+  .field label{display:block;font-size:12px;color:var(--sub);margin-bottom:4px}
+  .field label .req{color:var(--err);margin-left:3px}
+  .field .desc{font-size:11.5px;color:var(--sub);margin-top:4px;line-height:1.6}
+  .field input[type=text],.field input[type=password],.field input[type=number],.field select,.field textarea{
+    width:100%;border:1px solid var(--line);border-radius:6px;padding:7px 10px;font:inherit;background:var(--field);color:var(--text)}
+  .field textarea{font-family:ui-monospace,Menlo,monospace;font-size:12.5px;line-height:1.6;min-height:84px;resize:vertical}
+  .ref{display:flex;gap:8px;align-items:center}
+  .ref select{flex:1}
+  /* ── YAML 编辑器（复刻 CodeEditor.vue）── */
+  .ed{display:flex;flex-direction:column;flex:1;min-height:0;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:var(--field)}
+  .ed-bar{display:flex;align-items:center;gap:4px;padding:5px 8px;border-bottom:1px solid var(--line);background:var(--soft);color:var(--sub)}
+  .ed-bar .lbl{font-size:11.5px;color:var(--sub);margin-left:4px}
+  .ed-bar .sp{flex:1}
+  .ed-btn{border:0;background:transparent;width:28px;height:26px;border-radius:5px;cursor:pointer;color:var(--sub);
+    display:inline-flex;align-items:center;justify-content:center;position:relative}
+  .ed-btn:hover{background:var(--hover);color:var(--primary)}
+  /* icon 悬浮提示 */
+  .tip{position:relative}
+  .tip::after{content:attr(data-tip);position:absolute;top:calc(100% + 6px);left:50%;transform:translateX(-50%);
+    background:var(--text);color:var(--panel);font-size:11px;line-height:1;padding:4px 7px;border-radius:4px;
+    white-space:nowrap;opacity:0;pointer-events:none;transition:opacity .12s;z-index:1000;font-family:-apple-system,sans-serif}
+  .tip:hover{z-index:1000}
+  .tip:hover::after{opacity:1}
+  .ed-wrap{display:flex;flex:1;min-height:0}
+  .gutter{flex:0 0 58px;padding:10px 4px 10px 0;overflow:hidden;font-family:ui-monospace,Menlo,monospace;
+    font-size:12.5px;line-height:21.25px;color:var(--sub);background:var(--soft);border-right:1px solid var(--line);user-select:none;opacity:.75}
+  .gutter .gl{display:flex;justify-content:flex-end;align-items:center;gap:4px;height:21.25px;line-height:21.25px}
+  .gutter .tri{width:12px;text-align:center;font-size:9px;color:var(--sub);cursor:pointer;opacity:0}
+  .gutter .tri.on{opacity:.9}
+  .gutter .tri.on:hover{color:var(--primary)}
+  .gutter .ln{min-width:16px;text-align:right}
+  .ed-body{position:relative;flex:1;min-width:0;background:var(--field)}
+  #drYaml{position:absolute;inset:0;width:100%;height:100%;border:0;outline:0;margin:0;resize:none;padding:10px 12px;
+    font-family:ui-monospace,Menlo,monospace;font-size:12.5px;line-height:21.25px;letter-spacing:0;background:transparent;color:transparent;
+    white-space:pre;overflow:auto;caret-color:var(--primary);z-index:1}
+  #drYaml::selection{background:rgba(64,150,255,.3)}
+  .blank{position:absolute;inset:0;margin:0;padding:10px 12px;font-family:ui-monospace,Menlo,monospace;font-size:12.5px;
+    line-height:21.25px;letter-spacing:0;white-space:pre;overflow:hidden;pointer-events:none;z-index:2}
+  .blank .ws{color:var(--ws);display:inline-block;line-height:1;vertical-align:middle}   /* 空格点：默认显示、垂直居中于行 */
+  .blank.hide-ws .ws{color:transparent}                       /* 关闭空格显示 */
+  .blank .tk-key{color:var(--yaml-key)}                       /* 字段名：紫 */
+  .blank .tk-punct{color:var(--yaml-punct)}                   /* 标点：橙 */
+  .blank .tk-val{color:var(--yaml-val)}                       /* 内容：绿 */
+  .blank .tk-comment{color:var(--yaml-comment)}               /* 注释：灰 */
+  .ok{color:var(--ok);font-size:12px}.sp{flex:1}
+  /* 协议选择 */
+  .picker{position:fixed;z-index:22;top:50%;left:50%;transform:translate(-50%,-50%);width:600px;max-width:94vw;
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,.35);display:none;overflow:hidden}
+  .picker.on{display:block}
+  .picker .ph{padding:13px 18px;border-bottom:1px solid var(--line);font-weight:600}
+  .picker .pb{padding:6px 0;max-height:64vh;overflow:auto}
+  .picker .src{padding:8px 18px 4px;font-size:12px;color:var(--sub);display:flex;align-items:center;gap:8px}
+  .picker .row{display:flex;align-items:center;gap:10px;padding:9px 18px}
+  .picker .row:hover{background:var(--hover)}
+  .picker .row.off{opacity:.55}
+  .picker .row .nm{font-family:ui-monospace,monospace;font-weight:600;min-width:90px}
+  .picker .row .sp{flex:1}
+  .picker .row .tx{color:var(--sub)}
+  .picksearch{padding:2px 18px 10px}
+  .picksearch input{width:100%;border:1px solid var(--line);border-radius:6px;padding:7px 10px;font:inherit;background:var(--field);color:var(--text)}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand"><span class="logo"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.7l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.7l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.3 7 12 12 20.7 7"/><line x1="12" y1="22" x2="12" y2="12"/></svg></span><span class="btext">GateBox<i>V4.1 原型</i></span></div>
+    <nav id="nav"></nav>
+  </aside>
+  <div class="main">
+    <div class="top">
+      <button class="icon-btn tip" id="btnNav" data-tip="切换导航栏" onclick="toggleNav()"></button>
+      <div class="crumb" id="crumb"></div>
+      <div class="sp"></div>
+      <button class="icon-btn tip" id="btnTheme" data-tip="切换主题" onclick="toggleTheme()"></button>
+      <button class="btn" onclick="reloadMock()">重载 mock</button>
+    </div>
+    <div class="body" id="body"></div>
+  </div>
+</div>
+
+<div class="mask" id="mask" onclick="closeAll()"></div>
+<div class="drawer" id="drawer">
+  <div class="dr-hd">
+    <b id="drTitle"></b><span class="tag" id="drTag"></span>
+    <span class="sp"></span>
+    <button class="icon-btn tip" id="btnLayout" data-tip="切换布局（上下/左右）" onclick="toggleLayout()"></button>
+    <button class="btn" onclick="closeAll()">关闭</button>
+  </div>
+  <div class="dr-cols" id="drCols">
+    <div class="dr-left" id="drLeft"><p class="hint" style="margin-top:0">表单（由对象 schema 生成）</p><div id="drForm"></div></div>
+    <div class="splitter" id="splitter" title="拖动调整大小"></div>
+    <div class="dr-right">
+      <p class="hint" style="margin-top:0">YAML（同一对象的等价文本 · 复刻 CodeEditor.vue）</p>
+      <div class="ed">
+        <div class="ed-bar">
+          <button class="ed-btn tip" data-tip="撤销" onclick="edUndo()" id="ic-undo"></button>
+          <button class="ed-btn tip" data-tip="重做" onclick="edRedo()" id="ic-redo"></button>
+          <button class="ed-btn tip" data-tip="查找" onclick="edFind()" id="ic-search"></button>
+          <button class="ed-btn tip" data-tip="复制" onclick="edCopy()" id="ic-copy"></button>
+          <button class="ed-btn tip" data-tip="格式化" onclick="edFormat()" id="ic-format"></button>
+          <button class="ed-btn tip" data-tip="显示/隐藏空格" onclick="toggleWs()" id="ic-ws"></button>
+          <span class="sp"></span><span class="lbl">YAML</span>
+        </div>
+        <div class="ed-wrap">
+          <div class="gutter" id="drGutter"></div>
+          <div class="ed-body">
+            <textarea class="code" id="drYaml" spellcheck="false" wrap="off"></textarea>
+            <pre class="blank" id="drBlank"></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="dr-ft"><span class="ok" id="drValid">✓ 校验通过</span><span class="sp"></span>
+    <button class="btn" onclick="closeAll()">取消</button><button class="btn p">保存</button></div>
+</div>
+
+<div class="mask" id="mask2" onclick="closeAll()"></div>
+<div class="picker" id="picker">
+  <div class="ph">新增入口点 · 选择协议（来自类型目录）</div>
+  <div class="pb" id="pickerBody"></div>
+</div>
+
+<div class="mask" id="mask3" onclick="closeStack()"></div>
+<div class="mdl" id="stackModal">
+  <div class="mdl-hd"><b id="stackTitle"></b><button class="x" onclick="closeStack()">✕</button></div>
+  <div class="mdl-bd" id="stackForm"></div>
+  <div class="mdl-ft"><button class="btn" onclick="closeStack()">取消</button><button class="btn p" onclick="stackSave()">保存</button></div>
+</div>
+
+<div class="mask" id="mask4" onclick="closeView()"></div>
+<div class="mdl" id="viewModal" style="width:820px">
+  <div class="mdl-hd"><b>查看证书</b><button class="x" onclick="closeView()">✕</button></div>
+  <div class="mdl-bd" id="viewBody"></div>
+</div>
+
+<div class="mask" id="mask5" onclick="closeLog()"></div>
+<div class="mdl" id="logModal" style="width:900px">
+  <div class="mdl-hd"><b id="logTitle">日志</b><span class="sp"></span>
+    <span class="logtabs" id="logTabs">
+      <button data-v="map" class="on" onclick="setLogView('map')">地图视图</button>
+      <button data-v="text" onclick="setLogView('text')">文本视图</button>
+    </span>
+    <button class="x" onclick="closeLog()">✕</button>
+  </div>
+  <div class="mdl-bd" id="logBody"></div>
+</div>
+
+<div class="mask" id="mask6" onclick="closeConfirm()"></div>
+<div class="mdl" id="confirmModal" style="width:420px">
+  <div class="mdl-hd"><b id="confirmTitle"></b><button class="x" onclick="closeConfirm()">✕</button></div>
+  <div class="mdl-bd" id="confirmBody"></div>
+  <div class="mdl-ft"><button class="btn" onclick="closeConfirm()">取消</button><button class="btn p" id="confirmOk">确认</button></div>
+</div>
+
+<script src="data/mock.js?v=3"></script>
+<script src="data/brands.js?v=1"></script>
+<script>
+window.onerror = (m, s, l, c) => { try { let b = document.getElementById('jserr'); if (!b) { b = document.createElement('div'); b.id = 'jserr'; b.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#ef4444;color:#fff;padding:6px 12px;font:12px/1.5 monospace;z-index:9999;white-space:pre-wrap'; document.body.appendChild(b); } b.textContent = 'JS 错误: ' + m + ' @' + l + ':' + c; } catch (e) {} };
+const $ = s => document.querySelector(s);
+const PAGES = window.V41.pages, OBJ = window.V41.objects, CATALOG = window.V41.catalog || {};
+let page = 'settings', tab = 'system', cur = null, showWs = true;
+
+/* ── 图标 ── */
+const ICONS = {
+  undo:   '<polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/>',
+  redo:   '<polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/>',
+  search: '<circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+  copy:   '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+  format: '<line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="14" y2="12"/><line x1="4" y1="18" x2="18" y2="18"/>',
+  moon:   '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>',
+  sun:    '<circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/>',
+  row:    '<rect x="3" y="4" width="18" height="16" rx="2"/><line x1="12" y1="4" x2="12" y2="20"/>',
+  col:    '<rect x="3" y="4" width="18" height="16" rx="2"/><line x1="3" y1="12" x2="21" y2="12"/>',
+  space:  '<line x1="4" y1="12" x2="20" y2="12" stroke-dasharray="0.1 4.2" stroke-width="2.4" stroke-linecap="round"/>',
+  menu:   '<line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>',
+  store:  '<path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/>',
+  zap:    '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
+  plug:   '<path d="M9 2v6M15 2v6"/><path d="M6 8h12v3a6 6 0 0 1-6 6 6 6 0 0 1-6-6z"/><path d="M12 17v5"/>',
+  download:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
+  shield: '<path d="M12 2 4 5.5V11c0 5 3.4 8.6 8 11 4.6-2.4 8-6 8-11V5.5z"/>',
+  key:    '<circle cx="8" cy="15" r="4"/><path d="M10.8 12.2 20 3"/><path d="M17 6l3 3"/><path d="M14 9l2 2"/>',
+  eye:    '<path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/>',
+  refresh:'<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.5 9a9 9 0 0 1 14.9-3.4L23 10M1 14l4.6 4.4A9 9 0 0 0 20.5 15"/>',
+  filetext:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>',
+  trash:  '<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/>',
+  check:  '<polyline points="20 6 9 17 4 12"/>',
+  minus:  '<line x1="5" y1="12" x2="19" y2="12"/>',
+  x:      '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+  pluscircle:'<circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/>',
+  share:  '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.6" y1="13.5" x2="15.4" y2="17.5"/><line x1="15.4" y1="6.5" x2="8.6" y2="10.5"/>',
+  globe:  '<circle cx="12" cy="12" r="9"/><line x1="3" y1="12" x2="21" y2="12"/><path d="M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18z"/>',
+  box:    '<path d="M21 16V8a2 2 0 0 0-1-1.7l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.7l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.3 7 12 12 20.7 7"/><line x1="12" y1="22" x2="12" y2="12"/>',
+  grid:   '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>',
+  activity:'<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>',
+  gear:   '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+};
+function svg(k){ return `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[k]}</svg>`; }
+function paintIcons(){
+  ['undo','redo','search','copy','format'].forEach(k => { const el = $('#ic-' + k); if (el) el.innerHTML = svg(k); });
+  const ws = $('#ic-ws'); if (ws) ws.innerHTML = svg('space');
+  const nav = $('#btnNav'); if (nav) nav.innerHTML = svg('menu');
+  const theme = document.documentElement.dataset.theme;
+  $('#btnTheme').innerHTML = svg(theme === 'dark' ? 'sun' : 'moon');
+  $('#btnLayout').innerHTML = svg($('#drCols').classList.contains('col') ? 'row' : 'col');
+}
+function toggleTheme(){
+  const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = next;
+  try { localStorage.setItem('v41-theme', next); } catch (e) {}
+  paintIcons();
+}
+function toggleLayout(){ $('#drCols').classList.toggle('col'); paintIcons(); }
+function toggleNav(){ document.querySelector('.app').classList.toggle('nav-min'); }
+
+/* ── 值格式化 ── */
+function esc(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function isObj(v){ return v && typeof v === 'object'; }
+function toYaml(v, ind){
+  ind = ind || 0;
+  const p = '  '.repeat(ind);
+  if (Array.isArray(v)) { if (!v.length) return p + '[]';
+    return v.map(x => isObj(x) ? p + '- ' + toYaml(x, ind + 1).trimStart() : p + '- ' + scalar(x)).join('\n'); }
+  if (isObj(v)) { return Object.entries(v).map(([k, val]) =>
+    isObj(val) ? p + k + ':\n' + toYaml(val, ind + 1) : p + k + ': ' + scalar(val)).join('\n'); }
+  return p + scalar(v);
+}
+function scalar(x){ if (x === null || x === undefined) return ''; if (typeof x === 'string') return /[:#\[\]{},]|^\s|\s$/.test(x) ? JSON.stringify(x) : x; return String(x); }
+function providerLabel(id){ const p = (window.V41.dnsProviders || []).find(x => x.id === id); return p ? p.label : id; }
+function cell(f, val){
+  if (f.key === 'provider') return esc(providerLabel(val));
+  if (f.type === 'switch') return val ? '<span class="yes">✓</span>' : '<span class="no">✗</span>';
+  if (f.type === 'array') return (val || []).map(v => `<span class="chip">${esc(v)}</span>`).join('') || '—';
+  if (f.type === 'object') return `<code>${esc(JSON.stringify(val))}</code>`;
+  if (f.type === 'password') return val ? '••••' : '—';
+  if (f.type === 'textarea') return val ? esc(String(val).split('\n')[0]).slice(0, 40) + (String(val).length > 40 ? '…' : '') : '—';
+  return val === undefined || val === '' ? '—' : esc(val);
+}
+function inlineCell(kind, i, c, val){
+  if (c.type === 'switch') return `<input type="checkbox" ${val ? 'checked' : ''} onclick="event.stopPropagation()" onchange="toggleInline('${kind}',${i},'${c.key}',this.checked)">`;
+  return cell(c, val);
+}
+function toggleInline(kind, i, key, val){ OBJ[kind].data[i][key] = val; render(); }
+function derivedCell(key, val, item){
+  if (key === 'builtin') return val ? '<span class="tag b-on">内置</span>' : '<span class="tag">自定义</span>';
+  if (key === 'installed') return val ? '<span class="yes">✓</span>' : '<span class="tag b-off">未安装</span>';
+  if (key === 'hookInstalled') return val ? '<span class="yes">✓</span>' : '<span class="tag b-off">未安装</span>';
+  if (key === 'source') return `<span class="chip">${esc(val)}</span>`;
+  if (key === 'version') return val ? `<code>${esc(val)}</code>` : '—';
+  if (key === 'latestVersion') {
+    const cur = item && item.status ? item.status.version : '';
+    const up = val && cur && val !== cur;
+    return `<code${up ? ' style="color:var(--warn)"' : ''}>${esc(val || '—')}</code>` +
+      (up ? ' <span class="tag" style="background:rgba(210,153,34,.16);color:#d29922">可更新</span>' : '');
+  }
+  if (key === 'certStatus') {
+    const style = { '有效': 'background:rgba(34,197,94,.16);color:#22c55e', '即将到期': 'background:rgba(210,153,34,.16);color:#d29922', '已过期': 'background:rgba(239,68,68,.16);color:#ef4444' }[val] || '';
+    return `<span class="tag" style="${style}">${esc(val)}</span>`;
+  }
+  if (typeof val === 'boolean') return val ? '<span class="yes">✓</span>' : '<span class="no">✗</span>';
+  if (val === '' || val === undefined || val === null) return '—';
+  if (/At$|Seen$/.test(key)) return esc(String(val).replace('T', ' ').slice(0, 19));
+  return esc(val);
+}
+function actionCell(kind, i, a){
+  return `<button class="act-btn tip" data-tip="${esc(a.tip)}"${a.color ? ` style="color:${a.color}"` : ''} onclick="event.stopPropagation();runAction('${kind}',${i},'${a.id}')">${svg(a.icon)}</button>`;
+}
+function runAction(kind, i, id){
+  const item = OBJ[kind].data[i];
+  if (id === 'hook-test') {
+    const ok = Math.random() > 0.2;                 // 模拟：80% 通过
+    item.status = item.status || {};
+    item.status.hookInstalled = ok;
+    alert(`测试 hook ${item.acmeHook}：${ok ? '通过（可读取环境变量）' : '失败（acme.sh 未带该 hook）'}`);
+    render();
+  } else if (id === 'upgrade') {
+    item.status.version = item.status.latestVersion;   // 升级到最新版本
+    alert(`已升级 ${item.id} 到 ${item.status.version}（模拟）`);
+    render();
+  }
+}
+function checkUpdate(){
+  // 模拟拉取远程版本：把 tencent 提升到 v1.2.0，演示「可更新 / 升级」
+  const l = window.V41.dnsProviders || [];
+  const t = l.find(p => p.id === 'tencent');
+  if (t && t.status) t.status.latestVersion = 'v1.2.0';
+  alert('已检查更新（模拟远程库）');
+  render();
+}
+
+/* ── 侧栏 ── */
+const PAGE_ICON = { services: 'share', domains: 'globe', deploy: 'box', components: 'grid', market: 'store', monitor: 'activity', settings: 'gear' };
+function renderNav(){
+  $('#nav').innerHTML = Object.entries(PAGES).map(([k, p]) => {
+    const n = (p.tabs || []).reduce((a, t) => a + (t.kinds || []).reduce((b, kind) => b + (OBJ[kind] ? (OBJ[kind].list ? OBJ[kind].data.length : 1) : 0), 0), 0);
+    return `<a href="#" data-page="${k}" data-tip="${esc(p.label)}" class="${k === page ? 'on' : ''}">` +
+      `<span class="ico">${svg(PAGE_ICON[k] || 'box')}</span><span class="tx">${p.label}</span>` +
+      (n ? `<span class="badge">${n}</span>` : '') + `</a>`;
+  }).join('');
+  document.querySelectorAll('#nav a').forEach(a => a.onclick = e => {
+    e.preventDefault(); page = a.dataset.page;
+    const p = PAGES[page]; tab = (p.tabs && p.tabs[0]) ? p.tabs[0].key : ''; render();
+  });
+}
+
+/* ── 主区 ── */
+function render(){
+  renderNav();
+  const p = PAGES[page], tabs = p.tabs || [];
+  const ct = tabs.find(t => t.key === tab) || tabs[0] || {};
+  $('#crumb').innerHTML = `设置 / ${p.label}` + (tabs.length > 1 ? `<span class="sub">${ct.label || ''}</span>` : '');
+  if (!tabs.length) { $('#body').innerHTML = `<p class="hint">该页在后续批次实现（见 docs/v4.1/model/_naming.yaml 批次表）</p>`; return; }
+  if (!tabs.find(t => t.key === tab)) tab = tabs[0].key;
+  const curTab = tabs.find(t => t.key === tab);
+  const inner = curTab.render === 'cert-page'
+    ? certPageHTML()
+    : cardsHTML(curTab.cards) + (curTab.kinds || []).map(renderGroup).join('');
+  $('#body').innerHTML = `<div class="pagetabs">` + tabs.map(t => `<button data-tab="${t.key}" class="${t.key === tab ? 'on' : ''}">${t.label}</button>`).join('') + `</div>` + inner;
+  document.querySelectorAll('.pagetabs button').forEach(b => b.onclick = () => { tab = b.dataset.tab; render(); });
+  document.querySelectorAll('tr.clk').forEach(tr => tr.onclick = () => openDrawer(tr.dataset.kind, +tr.dataset.i));
+}
+/* ── 统计卡（页级）── */
+const NOW = new Date('2026-09-22T00:00:00Z');            // 原型当前时间
+const SOON = 30 * 864e5;                                  // 即将过期：≤30 天
+let certFilter = 'all';                                   // 域名页证书状态筛选
+let rootFilter = 'all';                                   // 域名页根域名筛选
+function computeCards(key){
+  if (key !== 'domain-overview') return [];
+  const V = window.V41;
+  const domains = (V.objects.domain || {}).data || [];
+  const subTotal = domains.reduce((a, d) => a + ((d.status && d.status.subdomainCount) || 0), 0);
+  const certs = V.certificates || [];
+  const expired  = certs.filter(c => new Date(c.notAfter) < NOW).length;
+  const expiring = certs.filter(c => { const t = new Date(c.notAfter); return t >= NOW && t - NOW <= SOON; }).length;
+  const provs = (V.dnsProviders || []).filter(p => p.enabled).length;
+  const creds = ((V.objects['dns-credential'] || {}).data || []).length;
+  return [
+    { title: '域名数量', main: subTotal,     sub: `根域名 ${domains.length}`, icon: 'globe', tone: '#1677ff', link: { page: 'domains', tab: 'domain' } },
+    { title: '证书数量', main: certs.length, subHTML: `过期 <b style="color:#ef4444">${expired}</b> · 即将过期 <b style="color:#d29922">${expiring}</b>`, icon: 'shield', tone: '#16a34a', link: { page: 'domains', tab: 'domain-name', filter: 'expiring' } },
+    { title: 'DNS 供应商', main: provs,      sub: '已启用', icon: 'store', tone: '#13c2c2', link: { page: 'domains', tab: 'credential' } },
+    { title: 'DNS 凭证',   main: creds,      sub: '已启用', icon: 'key',   tone: '#fa8c16', link: { page: 'domains', tab: 'credential' } },
+  ];
+}
+function cardsHTML(key){
+  const cards = computeCards(key);
+  if (!cards.length) return '';
+  return `<div class="statcards">` + cards.map(c => `<div class="scard" onclick="goto('${c.link.page}','${c.link.tab}'${c.link.filter ? `,'${c.link.filter}'` : ''})">
+    <div class="srow"><span class="stitle">${esc(c.title)}</span><span class="sico" style="color:${c.tone};background:${c.tone}1f">${svg(c.icon)}</span></div>
+    <div class="smain">${esc(c.main)}</div>
+    <div class="ssub">${c.subHTML || esc(c.sub || '')}</div></div>`).join('') + `</div>`;
+}
+function goto(pageKey, tabKey, filter){ page = pageKey; tab = tabKey; if (filter) certFilter = filter; render(); }
+
+/* ── 域名（证书管理）页：参照现有 tab=cert ── */
+function dayLeft(s){ if (!s) return null; const ms = new Date(s).getTime() - NOW.getTime(); return isNaN(ms) ? null : Math.max(0, Math.ceil(ms / 864e5)); }
+function dayTag(d){
+  if (d === null) return '—';
+  const c = d <= 10 ? '#ef4444' : d <= 30 ? '#d29922' : '#22c55e';
+  return `<span class="tag" style="background:${c}22;color:${c}">剩余 ${d} 天</span>`;
+}
+function friendlyIssuer(i){ const m = { YE1: "Let's Encrypt E1", YE2: "Let's Encrypt E2", R10: "Let's Encrypt R10", R11: "Let's Encrypt R11", R12: "Let's Encrypt R12", R13: "Let's Encrypt R13" }; return i ? (m[i] || ('颁发机构 ' + i)) : '—'; }
+function certAct(fqdn, act){
+  if (act === 'copy') { try { navigator.clipboard.writeText(fqdn); } catch (e) {} alert('已复制 ' + fqdn); return; }
+  if (act === 'view') { const s = (window.V41.subdomains || []).find(x => x.fqdn === fqdn); if (s) return viewCert(s); }
+  if (act === 'logs') return openLog('acme');
+  const s = (window.V41.subdomains || []).find(x => x.fqdn === fqdn);
+  if (act === 'renew') return confirmDialog(s && s.hasCert ? '重新申请' : '申请证书',
+    `确定对 <b>${esc(fqdn)}</b> ${s && s.hasCert ? '重新申请' : '申请'}证书？`, () => alert(`${fqdn} · 已提交申请（模拟）`));
+  if (act === 'del') return confirmDialog('删除证书',
+    `确定删除 <b>${esc(fqdn)}</b> 的证书？`, () => alert(`${fqdn} · 证书已删除（模拟）`));
+  alert(`${fqdn} · ${act}（模拟）`);
+}
+/* 通用确认弹窗（含取消） */
+let confirmCb = null;
+function confirmDialog(title, body, onOk){
+  confirmCb = onOk;
+  $('#confirmTitle').textContent = title;
+  $('#confirmBody').innerHTML = body;
+  $('#confirmOk').onclick = () => { const cb = confirmCb; closeConfirm(); cb && cb(); };
+  $('#mask6').classList.add('on'); $('#confirmModal').classList.add('on');
+}
+function closeConfirm(){ $('#confirmModal').classList.remove('on'); $('#mask6').classList.remove('on'); confirmCb = null; }
+/* 查看证书（照现有 tab=cert：公钥 fullchain.pem / 私钥 key.pem，等宽小字）*/
+function fakePem(type, seed){
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  let x = 0; for (let i = 0; i < seed.length; i++) x = (x * 31 + seed.charCodeAt(i)) >>> 0;
+  let b = ''; for (let i = 0; i < 64 * 10; i++) { x = (x * 1103515245 + 12345) >>> 0; b += chars[x % 64]; }
+  return `-----BEGIN ${type}-----\n` + b.match(/.{1,64}/g).join('\n') + `\n-----END ${type}-----`;
+}
+function fmtTime(s){ return s ? String(s).replace('T', ' ').slice(0, 19) : '—'; }
+function viewCert(s){
+  $('#viewBody').innerHTML =
+    `<div class="vwrap">` +
+    `<div class="vfld"><div class="dw-label">公钥（fullchain.pem）</div>` +
+    `<textarea class="code" rows="10" readonly>${esc(fakePem('CERTIFICATE', s.fqdn + '|pub'))}</textarea></div>` +
+    `<div class="vfld"><div class="dw-label">私钥（key.pem）</div>` +
+    `<textarea class="code" rows="10" readonly>${esc(fakePem('PRIVATE KEY', s.fqdn + '|key'))}</textarea></div>` +
+    `<div class="vline">${esc(s.fqdn)} · ${esc(friendlyIssuer(s.issuer))} · 有效期 ${esc(fmtTime(s.notBefore))} ~ ${esc(fmtTime(s.notAfter))}</div>` +
+    `<div class="vline">序列号：${esc(s.serial || '-')}</div>` +
+    `</div>`;
+  $('#mask4').classList.add('on'); $('#viewModal').classList.add('on');
+}
+function closeView(){ $('#viewModal').classList.remove('on'); $('#mask4').classList.remove('on'); }
+
+/* ── 日志（最后一份 Run）：地图视图 / 文本视图 ── */
+let logKey = null, logView = 'map';
+const TRIGGER = { boot: '第一次启动', manual: '手工触发', schedule: '自动更新' };
+const STEP_ICON = { success: 'check', failed: 'x', running: 'activity', skipped: 'minus' };
+const STEP_COLOR = { success: '#22c55e', failed: '#ef4444', running: '#1677ff', skipped: '#8b95a7' };
+function openLog(key, view){
+  logKey = key; logView = view || 'map';
+  $('#logTitle').textContent = '日志 · ' + (key === 'acme' ? 'acme 证书签发' : key);
+  $('#logTabs').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === logView));
+  renderLogBody();
+  $('#mask5').classList.add('on'); $('#logModal').classList.add('on');
+}
+function closeLog(){ $('#logModal').classList.remove('on'); $('#mask5').classList.remove('on'); }
+function setLogView(v){ logView = v; $('#logTabs').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === v)); renderLogBody(); }
+function fmtMs(ms){ return ms >= 1000 ? (ms / 1000).toFixed(1) + 's' : ms + 'ms'; }
+function logHL(line){
+  if (/^-----(BEGIN|END)/.test(line)) return `<span class="lv lv-CERT">${esc(line)}</span>`;
+  let h = esc(line).replace(/^(\[[^\]]+\])/, '<span class="lt">$1</span>');
+  h = h.replace(/(successful|successfully|Success|success|Cert success)/g, '<span class="lv lv-INFO">$1</span>');
+  h = h.replace(/\b(error|Error|failed|Failed|fail)\b/g, '<span class="lv lv-ERROR">$1</span>');
+  h = h.replace(/\b(Pending|Sleeping|wait)\b/g, '<span class="lv lv-WARN">$1</span>');
+  return h;
+}
+/* 日志解析：按序列模板的 marker 顺序匹配日志行 → 实际步骤（时间/耗时）；未命中 optional 记 skipped */
+function parseLog(text, tpl){
+  const lines = (text || '').split('\n');
+  const tsOf = l => { const m = l.match(/(\d{2}:\d{2}:\d{2})/); return m ? m[1] : ''; };
+  const secOf = t => { const p = t.split(':').map(Number); return p.length === 3 ? p[0] * 3600 + p[1] * 60 + p[2] : 0; };
+  let cursor = 0; const hits = [];
+  for (const s of (tpl || [])) {
+    let idx = -1;
+    for (let i = cursor; i < lines.length; i++) { if (lines[i].includes(s.marker)) { idx = i; break; } }
+    if (idx >= 0) { hits.push({ s, ok: true, at: tsOf(lines[idx]) }); cursor = idx + 1; }
+    else hits.push({ s, ok: false, at: '' });
+  }
+  return hits.map((h, i) => {
+    const next = hits.slice(i + 1).find(x => x.ok);
+    const ms = (h.ok && next && h.at && next.at) ? Math.max(0, (secOf(next.at) - secOf(h.at)) * 1000) : 0;
+    return { no: h.s.no, step: h.s.step, marker: h.s.marker, at: h.at || '—', state: h.ok ? 'success' : 'skipped', ms };
+  });
+}
+function renderLogBody(){
+  const log = (window.V41.logs || {})[logKey];
+  if (!log) { $('#logBody').innerHTML = '<div class="empty">无日志</div>'; return; }
+  const stText = log.state === 'success' ? '成功' : log.state === 'failed' ? '失败' : '进行中';
+  let body;
+  if (logView === 'map') {
+    const role = { boot: '系统', manual: '用户', schedule: '定时器' }[log.trigger] || log.trigger;
+    const act = TRIGGER[log.trigger] || log.trigger;
+    const steps = parseLog(log.text, (window.V41.sequences || {})[log.sequence]);
+    body = `<div class="lcanvas" id="lcanvas">
+      <div class="lstats"><span class="tag">1 个节点</span><span class="tag">序列 ${steps.length} 步</span><span class="tag">${esc(stText)}</span><span class="tag">${esc(fmtMs(log.ms))}</span></div>
+      <div class="lworld" id="lworld">
+        <svg class="ledges" width="1200" height="900" viewBox="0 0 1200 900">
+          <defs><marker id="arw" markerWidth="10" markerHeight="10" refX="8" refY="3.2" orient="auto"><path d="M0,0 L6.5,3.2 L0,6.4 z" fill="#5b6470"/></marker></defs>
+          <path d="M320 62 H436" stroke="#5b6470" stroke-width="1.4" fill="none" marker-end="url(#arw)"/>
+        </svg>
+        <div class="lnode" style="left:0;top:0;width:320px">
+          <div class="nh"><span class="dot" style="background:#e7ac2a"></span>触发任务<span class="sp"></span><span class="tag">入口</span></div>
+          <div class="kv"><span>角色</span><b>${esc(role)}</b></div>
+          <div class="kv"><span>动作</span><b>${esc(act)}</b></div>
+          <div class="kv"><span>时间</span><b>${esc(fmtTime(log.startedAt))}</b></div>
+        </div>
+        <div class="edge-label" style="left:378px;top:44px">acme_sequence</div>
+        <div class="lnode" style="left:440px;top:0;width:560px">
+          <div class="nh"><span class="dot" style="background:#1677ff"></span>ACME 程序<span class="sp"></span><span class="tag">序列 ${steps.length} 条 · ${esc(stText)} · ${esc(fmtMs(log.ms))}</span></div>
+          <div class="steps">${steps.map(s => `<div class="step">
+            <span class="sn">#${s.no}</span>
+            <span class="ss"><span class="tip" data-tip="${esc(s.marker)}">${esc(s.step)}</span></span>
+            <span class="sm">${esc(s.at)}</span>
+            <span class="st" style="color:${STEP_COLOR[s.state] || 'var(--sub)'}">${svg(STEP_ICON[s.state] || 'minus')}</span>
+            <span class="sd">${esc(fmtMs(s.ms))}</span></div>`).join('')}</div>
+        </div>
+      </div>
+      <div class="llegend">
+        <div class="row"><span class="dot" style="background:#e7ac2a"></span>触发</div>
+        <div class="row"><span class="dot" style="background:#1677ff"></span>sequence</div>
+        <div class="row"><span class="line"></span>调用</div>
+        <div class="row"><span class="dash"></span>步骤</div>
+      </div>
+      <div class="lctrl">
+        <button class="btn" onclick="lzoom(1.2)">＋</button>
+        <button class="btn" onclick="lzoom(0.8)">－</button>
+        <button class="btn" onclick="lfit()">适配</button>
+        <span class="lz" id="lz">100%</span>
+      </div>
+    </div>`;
+  } else {
+    const lines = (log.text || '').split('\n');
+    const gut = lines.map((_, i) => `<div>${i + 1}</div>`).join('');
+    const meta = `<div class="logmeta">${esc(log.chain)} · ${esc(TRIGGER[log.trigger] || log.trigger)} · 耗时 ${esc(fmtMs(log.ms))} · ${esc(stText)}</div>`;
+    body = meta + `<div class="logcode"><div class="lgutter">${gut}</div><pre class="ltext">${lines.map(logHL).join('\n')}</pre></div>`;
+  }
+  $('#logBody').innerHTML = body;
+  bindCanvas();
+}
+/* 画布：放大 / 缩小 / 拖动（仿 OxiDNS 地图） */
+let lT = { x: 12, y: 12, k: 1 }, lDrag = null;
+function lapply(){ const w = $('#lworld'); if (!w) return; w.style.transform = `translate(${lT.x}px,${lT.y}px) scale(${lT.k})`; const z = $('#lz'); if (z) z.textContent = Math.round(lT.k * 100) + '%'; }
+function lzoom(f){ lT.k = Math.max(0.4, Math.min(2.5, lT.k * f)); lapply(); }
+function lfit(){
+  const c = $('#lcanvas'); if (!c) return;
+  const cw = c.clientWidth, ch = c.clientHeight;
+  const contentW = 1020, contentH = 430;                       // 内容包围盒（触发320 + 间距120 + 任务560）
+  const k = Math.max(0.4, Math.min(1, (cw - 32) / contentW));
+  lT = { k, x: 16, y: Math.max(12, (ch - contentH * k) / 2) };
+  lapply();
+}
+function bindCanvas(){
+  const c = $('#lcanvas'); if (!c) return;
+  requestAnimationFrame(lfit);                                 // 等布局完成再适配
+  c.onwheel = e => {
+    e.preventDefault(); const r = c.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+    const k2 = Math.max(0.4, Math.min(2.5, lT.k * (e.deltaY < 0 ? 1.1 : 0.9))), s = k2 / lT.k;
+    lT.x = mx - (mx - lT.x) * s; lT.y = my - (my - lT.y) * s; lT.k = k2; lapply();
+  };
+  c.onmousedown = e => { if (e.target.closest('button')) return; lDrag = { x: e.clientX, y: e.clientY, tx: lT.x, ty: lT.y }; c.classList.add('grabbing'); };
+  window.onmousemove = e => { if (!lDrag) return; lT.x = lDrag.tx + (e.clientX - lDrag.x); lT.y = lDrag.ty + (e.clientY - lDrag.y); lapply(); };
+  window.onmouseup = () => { if (!lDrag) return; lDrag = null; c.classList.remove('grabbing'); };
+}
+/* 品牌图标（simple-icons path，源自 data/brands.js）*/
+function brandSVG(kind, size){ const b = (window.BRANDS || {})[kind]; if (!b) return ''; return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="${b.color}" style="display:block"><path d="${b.path}"/></svg>`; }
+function certStatusOf(s){
+  if (!s.hasCert) return { key: 'unissued', label: '未签发', color: '#8b95a7' };
+  const t = new Date(s.notAfter);
+  if (t < NOW) return { key: 'expired', label: '已过期', color: '#ef4444' };
+  if (dayLeft(s.notAfter) <= 30) return { key: 'expiring', label: '即将过期', color: '#d29922' };
+  return { key: 'valid', label: '有效', color: '#22c55e' };
+}
+function setCertFilter(f){ certFilter = f; render(); }
+function setRootFilter(r){ rootFilter = r; render(); }
+function certPageHTML(){
+  const V = window.V41, subs = V.subdomains || [], email = (V.objects.acme.data || {}).email || '';
+  // 状态筛选条（全部 / 有效 / 即将过期 / 已过期 / 未签发）
+  const defs = [ { key: 'all', label: '全部' }, { key: 'valid', label: '有效' }, { key: 'expiring', label: '即将过期' }, { key: 'expired', label: '已过期' }, { key: 'unissued', label: '未签发' } ];
+  const cnt = k => k === 'all' ? subs.length : subs.filter(s => certStatusOf(s).key === k).length;
+  const chips = defs.map(d => `<button class="cf${certFilter === d.key ? ' on' : ''}" onclick="setCertFilter('${d.key}')">${d.label} <b>${cnt(d.key)}</b></button>`).join('');
+  const roots = [...new Set(subs.map(s => s.root))];
+  const rootSel = `<select class="cfsel" onchange="setRootFilter(this.value)"><option value="all">根域名：全部</option>` +
+    roots.map(r => `<option value="${esc(r)}"${rootFilter === r ? ' selected' : ''}>${esc(r)}</option>`).join('') + `</select>`;
+  const list = subs.filter(s => (certFilter === 'all' || certStatusOf(s).key === certFilter) && (rootFilter === 'all' || s.root === rootFilter));
+  const stIcon = { valid: 'check', expiring: 'minus', expired: 'x', unissued: 'minus' };
+  const rows = list.map(s => {
+    const st = certStatusOf(s), d = dayLeft(s.notAfter);
+    const routeCell = `<span class="tip rname" data-tip="${esc(s.remark || '')}">${esc(s.route)}</span>`;
+    const serviceCell = `<div class="rsub"><span class="bic">${brandSVG(s.source, 13)}</span>· ${esc(s.service)}${s.project ? ' · ' + esc(s.project) : ''}</div>`;
+    const certCell = `<span class="tip certcell" data-tip="${esc(st.label)}${s.hasCert ? ' · 到期 ' + esc(String(s.notAfter).replace('T', ' ').slice(0, 16)) : ''}">` +
+      `<span style="color:${st.color};display:inline-flex">${svg(stIcon[st.key])}</span>` +
+      (s.hasCert ? `<span class="cday">剩余 <b style="color:${st.color}">${d}</b> 天</span>` : '') + `</span>`;
+    const ops =
+      (s.hasCert ? `<button class="act-btn tip" data-tip="查看（公钥/私钥）" style="color:#1677ff" onclick="certAct('${esc(s.fqdn)}','view')">${svg('eye')}</button>` : '') +
+      (s.hasCert
+        ? `<button class="act-btn tip" data-tip="重新申请" style="color:#13c2c2" onclick="certAct('${esc(s.fqdn)}','renew')">${svg('refresh')}</button>`
+        : `<button class="act-btn tip" data-tip="申请证书" style="color:#22c55e" onclick="certAct('${esc(s.fqdn)}','renew')">${svg('pluscircle')}</button>`) +
+      `<button class="act-btn tip" data-tip="证书日志" style="color:#1677ff" onclick="certAct('${esc(s.fqdn)}','logs')">${svg('filetext')}</button>` +
+      `<button class="act-btn tip" data-tip="复制域名" style="color:#8b95a7" onclick="certAct('${esc(s.fqdn)}','copy')">${svg('copy')}</button>` +
+      (s.hasCert ? `<button class="act-btn tip" data-tip="删除" style="color:#ef4444" onclick="certAct('${esc(s.fqdn)}','del')">${svg('trash')}</button>` : '');
+    return `<tr><td><b>${esc(s.fqdn)}</b></td><td>${routeCell}</td><td>${serviceCell}</td><td>${certCell}</td><td class="ops">${ops}</td></tr>`;
+  }).join('');
+  return `<div class="grp"><div class="hd"><span class="nm">ACME 注册邮箱</span><span class="tag">${esc(email || '未设置')}</span><span class="sp"></span>
+      <button class="btn" onclick="goto('settings','system')">前往设置</button></div></div>
+    <div class="certfilter">${chips}${rootSel}</div>
+    <div class="grp nocut"><div class="hd"><span class="nm">二级域名 / 证书</span><span class="tag">${list.length} 项</span><span class="sp"></span></div>
+    <table><thead><tr><th>二级域名</th><th>路由</th><th>服务</th><th>证书</th><th class="ops">操作</th></tr></thead>
+    <tbody>${rows || '<tr><td colspan="5" class="empty">无匹配</td></tr>'}</tbody></table></div>`;
+}
+function renderGroup(kind){
+  const o = OBJ[kind], derived = o.status || [], actions = o.actions || [], rows = o.list ? o.data : [o.data];
+  const head = o.schema.map(c => `<th>${esc(c.label)}${c.advanced ? ' <span class="adv">·高级</span>' : ''}</th>`).join('')
+    + derived.map(d => `<th>${esc(d.label)}</th>`).join('') + (actions.length ? '<th class="ops">操作</th>' : '');
+  const cls = o.noEdit ? '' : 'clk';
+  const body = rows.map((item, i) => `<tr class="${cls}" data-kind="${kind}" data-i="${i}">` +
+    o.schema.map(c => `<td>${c.editable ? inlineCell(kind, i, c, item[c.key]) : cell(c, item[c.key])}</td>`).join('')
+    + derived.map(d => `<td>${derivedCell(d.key, item.status ? item.status[d.key] : item[d.key], item)}</td>`).join('')
+    + (actions.length ? `<td class="ops">${actions.filter(a => !a.when || a.when(item)).map(a => actionCell(kind, i, a)).join('')}</td>` : '')
+    + '</tr>').join('');
+  const chk = o.checkUpdate ? `<button class="btn" onclick="event.stopPropagation();checkUpdate()">检查更新</button>` : '';
+  const add = o.list && !o.readonly ? `<button class="btn p" onclick="event.stopPropagation();onAdd('${kind}')">＋ 新增</button>` : '';
+  return `<div class="grp"><div class="hd"><span class="nm">${esc(o.title)}</span>
+      <span class="tag">${o.list ? rows.length + ' 项' : '单例'}</span>
+      <span class="tag file">${esc(o.file)}</span><span class="sp"></span>${chk}${add}</div>
+    <table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+}
+
+/* ── 新增：DNS 供应商从远程库选取；其余直接打开抽屉 ── */
+function onAdd(kind){ if (kind === 'dns-provider') return openProviderPicker(); openDrawer(kind, -1); }
+let provRemote = [];
+function openProviderPicker(){
+  provRemote = window.V41.dnsProviderIndex || [];
+  $('#picker .ph').textContent = '新增 DNS 供应商 · 从远程库选取（github: gatebox-store/dns-providers）';
+  $('#pickerBody').innerHTML = `<div class="picksearch"><input id="provSearch" placeholder="搜索 标识 / 名称" oninput="filterProviders()"></div><div id="provList"></div>`;
+  renderProviderList(provRemote);
+  $('#mask2').classList.add('on'); $('#picker').classList.add('on');
+}
+function renderProviderList(list){
+  const have = new Set((window.V41.dnsProviders || []).map(p => p.id));
+  $('#provList').innerHTML = list.map(p => `<div class="row ${have.has(p.id) ? 'off' : ''}">
+      <span class="nm">${esc(p.id)}</span><span class="tx">${esc(p.label || '')}</span>
+      <span class="tag">${esc(p.acmeHook)}</span><span class="sp"></span>
+      ${have.has(p.id) ? '<span class="tag b-on">已添加</span>' : `<button class="btn p" onclick="importProvider('${esc(p.id)}')">导入</button>`}
+    </div>`).join('') || '<div class="row">无匹配</div>';
+}
+function filterProviders(){
+  const q = ($('#provSearch').value || '').toLowerCase();
+  renderProviderList(provRemote.filter(p => p.id.toLowerCase().includes(q) || (p.label || '').toLowerCase().includes(q)));
+}
+function importProvider(id){
+  const meta = (window.V41.dnsProviderIndex || []).find(p => p.id === id); if (!meta) return;
+  window.V41.dnsProviders.push({ id: meta.id, label: meta.label, acmeHook: meta.acmeHook, from: 'remote', source: 'remote',
+    enabled: false, docs: '', fields: meta.fields || [], status: { hookInstalled: false } });
+  closeAll(); render();
+}
+function closeAll(){
+  ['#drawer', '#picker'].forEach(s => $(s).classList.remove('on'));
+  ['#mask', '#mask2'].forEach(s => $(s).classList.remove('on'));
+}
+
+/* ── 表单渲染/绑定（抽屉与叠加弹窗共用）── */
+function renderObjForm(container, o, item, onChange){
+  if (o.uiHint === 'dns-credential') { container.innerHTML = renderDnsForm(item); bindDnsInto(container, o, item, onChange); }
+  else { container.innerHTML = o.schema.map(f => field(f, item[f.key], o, item)).join(''); bindFields(container, o, item, onChange); }
+}
+function exclusiveTaken(f, o, item){ const arr = (o && o.data) || []; return arr.some(x => x[f.key] === f.exclusive && x !== item); }
+function rerenderDrawerForm(){ renderObjForm($('#drForm'), OBJ[cur.kind], cur.item, setYaml); }
+
+/* ── 抽屉 ── */
+function openDrawer(kind, i, preset){
+  const o = OBJ[kind];
+  let pre = preset || {};
+  if (kind === 'host' && i < 0 && !pre.role) pre = Object.assign({ role: 'worker' }, pre);   // edge 系统预置，手动新增只能 worker
+  const item = Object.assign({}, o.list ? (i >= 0 ? o.data[i] : {}) : o.data, pre);
+  cur = { kind, item, schema: o.schema };
+  $('#drTitle').textContent = o.title + (o.list && i >= 0 ? ' · ' + (item[o.schema[0].key] || '') : '');
+  $('#drTag').textContent = o.file;
+  rerenderDrawerForm();
+  setYaml(); paintIcons();
+  $('#mask').classList.add('on'); $('#drawer').classList.add('on');
+}
+
+/* ── 叠加弹窗（Modal over Drawer）：嵌套新增 + 自动回填 ── */
+let stack = null;
+function stackAdd(kind, slot){
+  const o = OBJ[kind], item = {};
+  if (kind === 'host') item.role = 'worker';
+  stack = { kind, item, slot };
+  $('#stackTitle').textContent = '新增 · ' + o.title;
+  renderObjForm($('#stackForm'), o, item, null);
+  paintIcons();
+  $('#mask3').classList.add('on'); $('#stackModal').classList.add('on');
+}
+function closeStack(){ $('#stackModal').classList.remove('on'); $('#mask3').classList.remove('on'); stack = null; }
+function stackSave(){
+  if (!stack) return;
+  const o = OBJ[stack.kind], item = stack.item, slot = stack.slot;
+  if (o.list) o.data.push(item);                       // 原型：加入数据（真实由 API 保存）
+  closeStack();
+  if (slot && cur) { cur.item[slot] = item.name || item.id; rerenderDrawerForm(); setYaml(); }   // 回填父表单并重渲染
+}
+/* DNS 凭证：按供应商动态渲染字段（只列已启用供应商，来自设置 → DNS 供应商）*/
+function renderDnsForm(item){
+  const all = window.V41.dnsProviders || [];
+  const provs = all.filter(p => p.enabled);                    // 只列 enabled 的供应商
+  if (!provs.length) return '<div class="desc">尚未启用任何 DNS 供应商：请到「设置 → DNS 供应商」勾选「显示」后再添加凭证</div>';
+  if (!item.provider || !provs.some(p => p.id === item.provider)) item.provider = provs[0].id;
+  const spec = provs.find(p => p.id === item.provider);
+  item.fields = item.fields || {};
+  const prov = `<div class="field"><label>供应商<span class="req">*</span></label>` +
+    `<select id="f_provider" data-key="provider">` + provs.map(p => `<option value="${esc(p.id)}"${p.id === item.provider ? ' selected' : ''}>${esc(p.label || p.id)}</option>`).join('') + `</select>` +
+    `<div class="desc">只列已启用供应商；注入 acme.sh hook <code>${esc(spec ? spec.acmeHook : '')}</code></div></div>`;
+  const name = `<div class="field"><label>名称<span class="req">*</span></label>` +
+    `<input type="text" id="f_name" data-key="name" value="${esc(item.name || '')}" placeholder="dnspod-main"></div>`;
+  const fields = (spec ? spec.fields : []).map(f => {
+    const v = item.fields[f.key] || '';
+    const input = (f.type === 'password' || f.secret)
+      ? `<input type="password" data-fkey="${esc(f.key)}" value="${esc(v)}" placeholder="留空表示不修改">`
+      : `<input type="text" data-fkey="${esc(f.key)}" value="${esc(v)}">`;
+    return `<div class="field"><label>${esc(f.label || f.key)}${f.required ? '<span class="req">*</span>' : ''}${f.advanced ? ' <span class="adv">·高级</span>' : ''}</label>${input}` +
+      `<div class="desc">env: ${esc(f.env || '—')}</div></div>`;
+  }).join('') || '<div class="desc">该供应商无需额外字段</div>';
+  return name + prov + `<div class="field"><label>凭证字段</label>${fields}</div>`;
+}
+function bindDnsInto(container, o, item, onChange){
+  container.querySelectorAll('[data-key]').forEach(el => {
+    el.oninput = el.onchange = () => {
+      if (el.dataset.key === 'provider') { item.provider = el.value; item.fields = {};   // 切换供应商：清空旧字段
+        renderObjForm(container, o, item, onChange); }
+      else item[el.dataset.key] = el.value;
+      onChange && onChange();
+    };
+  });
+  container.querySelectorAll('[data-fkey]').forEach(el => {
+    el.oninput = () => { item.fields = item.fields || {}; item.fields[el.dataset.fkey] = el.value; onChange && onChange(); };
+  });
+}
+function field(f, val, o, item){
+  const id = 'f_' + f.key, req = f.required ? '<span class="req">*</span>' : '';
+  let input;
+  if (f.type === 'select') {
+    let opts;
+    if (f.dynamic && f.key === 'protocol') {
+      const list = CATALOG.entrypoint_protocols || [];
+      opts = list.map(p => `<option value="${esc(p.id)}"${p.id === val ? ' selected' : ''}${p.installed ? '' : ' disabled'}>${esc(p.label || p.id)} · ${esc(p.from)}${p.installed ? '' : '（依赖缺失）'}</option>`).join('');
+    } else {
+      opts = (f.options || []).map(o2 => {
+        const dis = f.exclusive && o2.value === f.exclusive && exclusiveTaken(f, o, item);
+        return `<option value="${esc(o2.value)}"${o2.value === val ? ' selected' : ''}${dis ? ' disabled' : ''}>${esc(o2.label)}${dis ? '（已存在）' : ''}</option>`;
+      }).join('');
+    }
+    const dyn = f.dynamic && f.key !== 'protocol' && !(f.options || []).length ? `<option value="${esc(val || '')}" selected>${esc(val || '（动态，来自类型目录）')}</option>` : '';
+    input = `<select id="${id}" data-key="${f.key}">${dyn}${opts}</select>`;
+  } else if (f.type === 'switch') input = `<input type="checkbox" id="${id}" data-key="${f.key}" ${val ? 'checked' : ''}>`;
+  else if (f.type === 'array') input = `<input type="text" id="${id}" data-key="${f.key}" value="${esc((val || []).join(', '))}">`;
+  else if (f.type === 'object') input = `<textarea id="${id}" data-key="${f.key}">${esc(JSON.stringify(val || {}, null, 2))}</textarea>`;
+  else if (f.type === 'reference') {
+    const t = (f.reference && f.reference.types && f.reference.types[0]) || null;
+    const src = (t && OBJ[t]) ? (OBJ[t].data || []) : [];
+    const opts = src.map(x => `<option value="${esc(x.name)}"${x.name === val ? ' selected' : ''}>${esc(x.name)}</option>`).join('');
+    input = `<div class="ref"><select id="${id}" data-key="${f.key}"><option value="">（未选择）</option>${opts}</select>` +
+      (t ? `<button type="button" class="btn" onclick="stackAdd('${t}','${f.key}')">＋新增</button>` : '') + `</div>`;
+  }
+  else if (f.type === 'password') input = `<input type="password" id="${id}" data-key="${f.key}" value="${esc(val || '')}">`;
+  else if (f.type === 'number') input = `<input type="number" id="${id}" data-key="${f.key}" value="${esc(val ?? '')}">`;
+  else if (f.type === 'textarea') input = `<textarea id="${id}" data-key="${f.key}" placeholder="${esc(f.placeholder || '')}">${esc(val ?? '')}</textarea>`;
+  else input = `<input type="text" id="${id}" data-key="${f.key}" value="${esc(val ?? '')}" placeholder="${esc(f.placeholder || '')}">`;
+  return `<div class="field"><label>${esc(f.label)}${req}${f.advanced ? ' <span class="adv">·高级</span>' : ''}</label>${input}` +
+    (f.description ? `<div class="desc">${esc(f.description)}</div>` : '') + `</div>`;
+}
+function bindFields(container, o, item, onChange){
+  container.querySelectorAll('[data-key]').forEach(el => {
+    const f = o.schema.find(x => x.key === el.dataset.key); if (!f) return;
+    el.oninput = el.onchange = () => {
+      let v = el.value;
+      if (f.type === 'switch') v = el.checked;
+      else if (f.type === 'number') v = v === '' ? '' : Number(v);
+      else if (f.type === 'array') v = v.split(',').map(s => s.trim()).filter(Boolean).map(x => (f.item && f.item.type === 'number') ? Number(x) : x);
+      else if (f.type === 'object') { try { v = JSON.parse(v); } catch (e) { return; } }
+      item[f.key] = v; validate(f, el); onChange && onChange();
+    };
+  });
+}
+function validate(f, el){
+  if (!f.pattern) return;
+  const ok = el.value === '' || new RegExp(f.pattern).test(el.value);
+  el.style.borderColor = ok ? '' : 'var(--err)';
+  $('#drValid').textContent = ok ? '✓ 校验通过' : '✗ ' + f.label + ' 格式不合法';
+  $('#drValid').style.color = ok ? '' : 'var(--err)';
+}
+
+/* ── YAML 编辑器（缩进折叠；status = 自动记录，默认折叠）── */
+let fold = null;                                             // 折叠集合：被折叠块的起始行号
+function indentOf(l){ return (l.match(/^\s*/) || [''])[0].length; }
+function keyName(l){ const m = l.match(/^([A-Za-z0-9_\-.]+):/); return m ? m[1] : null; }
+function foldUnits(raw){                                     // 缩进块：后续更深缩进的行归它
+  const units = [];
+  for (let i = 0; i < raw.length; i++) {
+    if (raw[i].trim() === '') continue;
+    const ind = indentOf(raw[i]); let end = -1, j = i + 1;
+    while (j < raw.length) { const l = raw[j]; if (l.trim() === '') { j++; continue; } if (indentOf(l) > ind) { end = j; } else break; j++; }
+    if (end > i) units.push({ start: i, end });
+  }
+  return units;
+}
+function setYaml(){
+  cur.raw = toYaml(cur.item);
+  fold = new Set();
+  const raw = cur.raw.split('\n');
+  for (const u of foldUnits(raw)) if (keyName(raw[u.start]) === 'status') fold.add(u.start);   // status（自动记录）默认折叠
+  renderEd();
+}
+function syncEd(){ if (cur && cur.raw !== undefined) renderEd(); }
+function renderEd(){
+  if (!cur || cur.raw === undefined) return;
+  const raw = cur.raw.split('\n'), units = foldUnits(raw);
+  const hidden = new Set(), summary = {}; let anyFold = false;
+  for (const u of units) {
+    if (!fold.has(u.start)) continue;
+    anyFold = true;
+    for (let i = u.start + 1; i <= u.end; i++) hidden.add(i);
+    const isStatus = keyName(raw[u.start]) === 'status';
+    summary[u.start] = `${keyName(raw[u.start])}: ⋯   # ${isStatus ? '自动记录（只读）' : '已折叠'} ${u.end - u.start} 项 · 点行号 ▶ 展开`;
+  }
+  const lines = [], orig = [];
+  for (let i = 0; i < raw.length; i++) { if (hidden.has(i)) continue; lines.push(summary[i] !== undefined ? summary[i] : raw[i]); orig.push(i); }
+  const ta = $('#drYaml'); ta.value = lines.join('\n'); ta.readOnly = anyFold;
+  $('#drGutter').innerHTML = orig.map(oi => {
+    const u = units.find(x => x.start === oi);
+    const tri = u ? `<span class="tri on" data-line="${oi}">${fold.has(oi) ? '▶' : '▼'}</span>` : '<span class="tri"></span>';
+    return `<div class="gl">${tri}<span class="ln">${oi + 1}</span></div>`;
+  }).join('');
+  $('#drBlank').innerHTML = hlAll(ta.value);
+  $('#drGutter').querySelectorAll('.tri[data-line]').forEach(el => el.onclick = () => {   // 点行号区三角折叠/展开
+    const oi = +el.dataset.line;
+    if (fold.has(oi)) fold.delete(oi); else fold.add(oi);
+    renderEd();
+  });
+  syncScroll();
+}
+/* YAML 语法高亮（参考 OxiDNS 配色）*/
+function e1(ch){ return ch.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function wsChar(){ return '<span class="ws">·</span>'; }
+function plain(s, cls){ return s.split('').map(ch => ch === ' ' ? wsChar() : `<span class="${cls}">${e1(ch)}</span>`).join(''); }
+function valChars(s){ return s.split('').map(ch => '[]{},'.includes(ch) ? `<span class="tk-punct">${e1(ch)}</span>` : ch === ' ' ? wsChar() : `<span class="tk-val">${e1(ch)}</span>`).join(''); }
+function findUnquoted(s, target){ let q = null; for (let i = 0; i < s.length; i++) { const c = s[i];
+  if (q) { if (c === q) q = null; } else if (c === '"' || c === "'") q = c; else if (c === target) return i; } return -1; }
+function hlLine(line){
+  const ci = findUnquoted(line, '#');
+  const body = ci >= 0 ? line.slice(0, ci) : line, comment = ci >= 0 ? line.slice(ci) : '';
+  const lead = body.match(/^\s*/)[0];
+  let out = plain(lead, 'tk-val');
+  let rest = body.slice(lead.length);
+  const dm = rest.match(/^-\s+/);
+  if (dm) { out += '<span class="tk-punct">-</span>' + wsChar(); rest = rest.slice(dm[0].length); }
+  const colon = findUnquoted(rest, ':');
+  if (colon >= 0) {
+    out += plain(rest.slice(0, colon), 'tk-key');
+    out += '<span class="tk-punct">:</span>';
+    out += valChars(rest.slice(colon + 1));
+  } else if (rest) out += valChars(rest);
+  if (comment) out += plain(comment, 'tk-comment');
+  return out;
+}
+function hlAll(t){ return t.split('\n').map(hlLine).join('\n'); }
+function syncScroll(){
+  $('#drGutter').scrollTop = $('#drYaml').scrollTop;
+  $('#drBlank').scrollTop = $('#drYaml').scrollTop;
+  $('#drBlank').scrollLeft = $('#drYaml').scrollLeft;
+}
+function applyWs(){ $('#drBlank').classList.toggle('hide-ws', !showWs); const el = $('#ic-ws'); if (el) el.style.color = showWs ? 'var(--primary)' : ''; }
+function toggleWs(){ showWs = !showWs; applyWs(); }
+function edUndo(){ $('#drYaml').focus(); document.execCommand('undo'); }
+function edRedo(){ $('#drYaml').focus(); document.execCommand('redo'); }
+function edFind(){ const ta = $('#drYaml'), q = prompt('查找'); if (!q) return;
+  const idx = ta.value.indexOf(q, ta.selectionEnd);
+  if (idx < 0) { alert('未找到: ' + q); return; } ta.focus(); ta.setSelectionRange(idx, idx + q.length); }
+function edCopy(){
+  const t = $('#drYaml').value, done = () => { flash('✓ 已复制'); };
+  if (navigator.clipboard) navigator.clipboard.writeText(t).then(done, () => fallbackCopy(t, done));
+  else fallbackCopy(t, done);
+}
+function fallbackCopy(t, cb){ const ta = $('#drYaml'); ta.focus(); ta.select();
+  try { document.execCommand('copy'); cb(); } catch (e) { alert('复制失败'); }
+  ta.setSelectionRange(t.length, t.length); }
+function edFormat(){ cur.item = JSON.parse(JSON.stringify(cur.item)); setYaml(); }
+function flash(msg){ const el = $('#drValid'); const old = el.textContent; el.textContent = msg; el.style.color = 'var(--ok)'; setTimeout(() => { el.textContent = old; el.style.color = ''; }, 1200); }
+
+function reloadMock(){ const s = document.createElement('script'); s.src = 'data/mock.js?' + Date.now();
+  s.onload = () => { page = 'settings'; tab = 'system'; render(); }; document.body.appendChild(s); }
+
+$('#drYaml').addEventListener('input', () => { $('#drBlank').innerHTML = hlAll($('#drYaml').value); });
+$('#drYaml').addEventListener('scroll', syncScroll);
+window.addEventListener('resize', syncEd);
+
+/* 拖拽分隔条：调整表单 / 编辑器大小（左右、上下布局皆可）*/
+(function initSplitter(){
+  const sp = $('#splitter'), cols = $('#drCols'), left = $('#drLeft');
+  sp.addEventListener('mousedown', e => {
+    e.preventDefault();
+    const vertical = !cols.classList.contains('col');
+    const rect = cols.getBoundingClientRect();
+    const move = ev => {
+      const pct = vertical ? (ev.clientX - rect.left) / rect.width * 100 : (ev.clientY - rect.top) / rect.height * 100;
+      left.style.flexBasis = Math.max(15, Math.min(85, pct)) + '%';
+      syncEd();
+    };
+    const up = () => { document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); document.body.style.userSelect = ''; };
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
+  });
+})();
+
+let pendingView = null, pendingLog = null;
+(function initFromHash(){ const m = location.hash.replace('#', '').split('/'); if (m[0] && PAGES[m[0]]) { page = m[0]; if (m[1]) tab = m[1]; } if (m[2] === 'view' && m[3]) pendingView = decodeURIComponent(m[3]); if (m[2] === 'log' && m[3]) pendingLog = { key: m[3], view: m[4] || 'map' }; })();
+render(); paintIcons(); applyWs();
+if (pendingView) { const s = (window.V41.subdomains || []).find(x => x.fqdn === pendingView); if (s) viewCert(s); }
+if (pendingLog) openLog(pendingLog.key, pendingLog.view);
+</script>
+</body>
+</html>

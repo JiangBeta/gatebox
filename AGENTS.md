@@ -30,6 +30,32 @@ pnpm build          # 输出到 backend/internal/web/dist（go:embed 内嵌）
 pnpm dev --host 0.0.0.0
 ```
 
+## 重启 GateBox（运行时）
+
+当前以**手动后台进程**运行（非 systemd）：cwd 为仓库根，环境 `GATEBOX_ADDR=0.0.0.0:8099`、`GATEBOX_DATA_DIR=./data`，日志 `data/logs/gatebox.log`。
+
+```bash
+# 1) 改了后端 → 先重新构建（改了前端要先 pnpm build，见「致命顺序」）
+mise run build
+
+# 2) 优雅停止（新版 SIGTERM 会先停插件 sidecar 再退出）
+pgrep -af '\./gatebox$'                     # 取 PID
+kill -TERM <pid>                            # 等端口释放：ss -ltn | grep ':8099' 应为空
+
+# 3) 按原样启动（detached，日志追加）
+cd ~/Projects/gatebox
+GATEBOX_ADDR=0.0.0.0:8099 GATEBOX_DATA_DIR=./data \
+  setsid ./gatebox >> data/logs/gatebox.log 2>&1 < /dev/null &
+
+# 4) 验证
+curl -s http://127.0.0.1:8099/api/v1/health                  # {"status":"ok"}
+curl -s http://127.0.0.1:8099/api/v1/plugins | jq -r '.[].id' # 应含在线插件（仅 4 个=索引验签失败）
+```
+
+- **禁止**用 `pkill -f gatebox`（会误伤 caddy / tmux / 本工具进程）；按具体 PID 停。
+- 运行时配置 `data/conf/gatebox.conf`（`catalog_url` / `catalog_pubkey` 等）**无热加载，改后必须重启**；配了 `catalog_pubkey` 即强制校验索引签名。
+- 重启后若插件页/在线插件缺失，先看 `data/logs/gatebox.log` 是否有「签名校验失败 / 拉取在线插件索引失败」。
+
 ## 致命顺序
 
 1. **改了前端 → 必须重新编译后端**（`go:embed` 编译期嵌入 `dist`，热替换无效）。

@@ -1,0 +1,49 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# 对象：Caddy 全局设置
+# 结构：源字段（可编辑，平铺）+ status（自动记录，只读，默认折叠）
+# 引擎级配置。归属：设置 → 系统。端口不在此（属「入口点」）。
+# 参考：docs/v4.1/views.md §11 · ADR-042 待定 1
+# ─────────────────────────────────────────────────────────────────────────────
+
+kind: caddy-global                    # 对象类型标识（factKind）
+title: Caddy 全局                      # 显示名
+group: 设置                            # 归属一级页面
+singleton: true                       # 单例：全局仅一份设置
+
+schema:                               # 源字段（可编辑）
+  - key: admin                        # 字段键：admin API 地址
+    label: 管理地址                    # 显示标签
+    type: text                        # 控件：文本框
+    advanced: true                    # 高级字段：默认折叠
+    default: "127.0.0.1:2019"         # 默认值（仅本机）
+    description: Caddy admin API，仅监听本机
+  - key: logLevel                     # 字段键：日志级别
+    label: 日志级别                    # 显示标签
+    type: select                      # 控件：下拉
+    required: true                    # 必填
+    default: INFO                     # 默认值
+    options:                          # 下拉选项
+      - { label: DEBUG, value: DEBUG }   # 最详细
+      - { label: INFO, value: INFO }     # 默认
+      - { label: WARN, value: WARN }
+      - { label: ERROR, value: ERROR }
+  - key: logRetentionDays             # 字段键：日志保留天数
+    label: 日志保留天数                # 显示标签
+    type: number                      # 控件：数字
+    advanced: true                    # 高级字段
+    default: 7                        # 默认保留 7 天
+
+# 自动记录 status（只读，YAML 默认折叠）
+status:
+  - key: running                      # Caddy 是否运行中
+    label: 运行中
+    note: 由进程 / admin API 探测
+  - key: version                      # 当前版本
+    label: 版本
+    note: 运行时版本（含变体 features）
+
+example:                              # 模拟数据基础
+  admin: "127.0.0.1:2019"             # admin API 仅本机
+  logLevel: INFO                      # 默认日志级别
+  logRetentionDays: 7                 # 保留 7 天
+  status: { running: true, version: v2.10.0 }

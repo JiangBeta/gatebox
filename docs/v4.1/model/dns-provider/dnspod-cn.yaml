@@ -1,0 +1,37 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# DNS 供应商 · DNSPod.cn（国内站）
+# 规则来源：acme.sh dnsapi（hook dns_dp）
+# 说明：dnspod.cn 自有 API（DP_Id / DP_Key），区别于腾讯云 API（dns_tencent）。
+# ─────────────────────────────────────────────────────────────────────────────
+
+kind: dns-provider                    # 对象类型标识
+id: dnspod-cn                         # 供应商标识
+label: DNSPod（dnspod.cn）             # 显示名
+group: 设置                            # 归属：设置 → DNS 供应商
+acmeHook: dns_dp                      # acme.sh hook
+docs: https://github.com/acmesh-official/acme.sh/wiki/dnsapi#2-dnspodcn-option
+enabled: true                         # 显示开关：默认勾选（便于测试）
+
+fields:                               # 凭证字段模型
+  - key: id                           # 字段键：登录账号 ID
+    label: 登录账号                    # 显示标签
+    type: text                        # 控件：单行文本
+    required: true
+    env: DP_Id                        # → 环境变量
+    note: dnspod.cn 账号 ID
+  - key: key                          # 字段键：API Token
+    label: API Token                  # 显示标签
+    type: password                    # 控件：掩码
+    required: true
+    secret: true
+    env: DP_Key
+    note: dnspod.cn 的 API Key（控制台 API Keys）
+
+status:                               # 自动记录（只读）
+  - key: hookInstalled
+    label: hook 可用
+    note: acme.sh 是否带 dns_dp
+
+example:                              # 凭证示例（掩码）
+  name: dnspod-cn-main
+  fields: { id: "123456", key: "••••••••" }

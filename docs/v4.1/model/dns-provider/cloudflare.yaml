@@ -1,0 +1,45 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# DNS 供应商 · Cloudflare
+# 规则来源：acme.sh dnsapi（hook dns_cf）
+# 建模约定：一个供应商一个文件；enabled 控制是否在「域名 → 凭证 → 添加凭证」出现。
+# ─────────────────────────────────────────────────────────────────────────────
+
+kind: dns-provider                    # 对象类型标识（factKind）
+id: cloudflare                        # 供应商标识（唯一）
+label: Cloudflare                     # 显示名
+group: 设置                            # 归属：设置 → DNS 供应商
+acmeHook: dns_cf                      # acme.sh 的 dnsapi hook 名
+docs: https://github.com/acmesh-official/acme.sh/wiki/dnsapi#1-cloudflare-option   # 官方文档
+enabled: true                         # 显示开关：本供应商默认勾选（便于测试）
+
+# 凭证字段模型：键 = 凭证字段名，env = 注入 acme.sh 的环境变量
+fields:
+  - key: token                        # 字段键
+    label: API Token                  # 显示标签
+    type: password                    # 控件：掩码
+    required: true                    # 必填
+    secret: true                      # 敏感（不回显）
+    env: CF_Token                     # → 环境变量 CF_Token
+    note: 需 Zone.DNS.Edit 权限
+  - key: accountId                    # 字段键
+    label: Account ID                 # 多域名同账户时使用
+    type: text
+    required: false
+    env: CF_Account_ID
+    advanced: true
+  - key: zoneId                       # 字段键
+    label: Zone ID                    # 单域名时使用
+    type: text
+    required: false
+    env: CF_Zone_ID
+    advanced: true
+
+# 自动记录 status（只读）
+status:
+  - key: hookInstalled                # 当前 acme.sh 是否带该 hook
+    label: hook 可用
+    note: 由探测 acme.sh --list-hooks 得出
+
+example:                              # 凭证示例（掩码）
+  name: cf-main
+  fields: { token: "••••••••", accountId: "763eac4f1bcebd8b5c95e9fc50d010b4" }

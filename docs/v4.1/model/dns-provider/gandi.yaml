@@ -1,0 +1,30 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# DNS 供应商 · Gandi LiveDNS
+# 规则来源：acme.sh dnsapi（hook dns_gandi_livedns）
+# ─────────────────────────────────────────────────────────────────────────────
+
+kind: dns-provider                    # 对象类型标识
+id: gandi                             # 供应商标识
+label: Gandi LiveDNS                  # 显示名
+group: 设置                            # 归属：设置 → DNS 供应商
+acmeHook: dns_gandi_livedns           # acme.sh hook
+docs: https://github.com/acmesh-official/acme.sh/wiki/dnsapi#18-use-gandi-livedns-api
+enabled: false                        # 显示开关：默认不选
+
+fields:                               # 凭证字段模型
+  - key: token                        # 字段键：Personal Access Token
+    label: Personal Access Token      # 显示标签
+    type: password
+    required: true
+    secret: true
+    env: GANDI_LIVEDNS_TOKEN
+    note: 已弃用的 GANDI_LIVEDNS_KEY 不再使用
+
+status:                               # 自动记录（只读）
+  - key: hookInstalled
+    label: hook 可用
+    note: acme.sh 是否带 dns_gandi_livedns
+
+example:                              # 凭证示例（掩码）
+  name: gandi-main
+  fields: { token: "••••••••" }

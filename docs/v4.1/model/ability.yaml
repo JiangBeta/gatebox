@@ -1,0 +1,58 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# 对象：能力字典 Capability
+# 定义：GateBox 能施加的一个动作；通用且有限，分三族（控制 / 观测 / 加工）。
+# 只读：清单来自所有组件自述的并集，模型里不写死。
+# 命名：`名词.动词`，如 config.write（写工具配置）、process.start（启动进程）。
+# 参考：ADR-042 §5 · glossary §能力　　归属页面：组件
+# ─────────────────────────────────────────────────────────────────────────────
+
+kind: ability                    # 对象类型标识（factKind）
+title: 能力字典                   # 显示名
+group: 组件                       # 归属一级页面
+readonly: true                   # 只读：来自组件自述并集，界面不可增删
+list: true                       # 多实例，以列表呈现
+
+schema:                          # 字段契约：驱动表单 / 表格列
+  - key: id                      # 字段键：能力标识
+    label: 标识                   # 显示标签
+    type: text                   # 控件：单行文本
+    required: true               # 必填
+    placeholder: config.write    # 输入提示：名词.动词
+  - key: label                   # 字段键：中文名
+    label: 名称
+    type: text
+    required: true
+  - key: role                    # 字段键：所属能力族
+    label: 族
+    type: select                 # 控件：下拉
+    required: true
+    options:                     # 下拉选项（三族）
+      - { label: 控制, value: 控制 }   # 控制族：写配置 / 校验 / 重载 / 启停 / 删除 / 触发
+      - { label: 观测, value: 观测 }   # 观测族：读状态 / 日志 / 指标 / 数据
+      - { label: 加工, value: 加工 }   # 加工族：编译 / 派生 / 比对 / 校验（核心对对象）
+  - key: description             # 字段键：说明
+    label: 说明
+    type: textarea               # 控件：多行文本（说明统一多行）
+    required: false
+
+# 能力清单：三族共 16 项。id 取「名词.动词」，动词后置便于按前缀归类。
+example:
+  # ── 控制族：对组件 / 插件施加 ──
+  - { id: config.write,    label: 写配置,    role: 控制, description: 写入工具的原生配置（Caddyfile / compose / ddns 配置） }   # 对应「写配置」
+  - { id: config.validate, label: 校验配置,  role: 控制, description: 校验配置语法（不改现状） }                                  # 对应「校验配置」；针对工具配置语法
+  - { id: config.reload,   label: 应用/重载, role: 控制, description: 原子替换并生效（Caddy reload） }                           # 对应「应用/重载」；原子性见 ADR-042 不变量 5
+  - { id: process.start,   label: 启动,      role: 控制, description: 启动进程 / 容器 }                                          # 对应「启动」
+  - { id: process.stop,    label: 停止,      role: 控制, description: 停止进程 / 容器 }                                          # 对应「停止」
+  - { id: process.restart, label: 重启,      role: 控制, description: 重启进程 / 容器 }                                          # 对应「重启」
+  - { id: resource.delete, label: 删除,      role: 控制, description: 删除资源（容器 / 证书 / 解析记录 / 镜像） }                 # 对应「删除」；不用 del/remove，避免与具体资源名混淆
+  - { id: task.trigger,    label: 触发任务,  role: 控制, description: 触发插件内部动作（acme 签发、ddns 检查） }                  # 对应「触发任务」；插件内部不建模（黑盒）
+  # ── 观测族：读回来做证据 ──
+  - { id: state.read,      label: 读状态,    role: 观测, description: 读取运行状态（进程 / 容器 / 服务态） }                      # 对应「读状态」
+  - { id: logs.read,       label: 读日志,    role: 观测, description: 读取日志（不落库，按需读取） }                             # 对应「读日志」
+  - { id: metrics.read,    label: 读指标,    role: 观测, description: 读取指标（QPS / 延迟 / 错误率） }                         # 对应「读指标」
+  - { id: data.read,       label: 读数据,    role: 观测, description: 读取数据（证书内容 / 当前解析值） }                       # 对应「读数据」
+  # ── 加工族：核心对对象施加 ──
+  - { id: config.compile,  label: 编译,      role: 加工, description: 由对象渲染出工具配置（对象 → Caddyfile） }                 # 对应「编译」；核心·配置编译
+  - { id: object.derive,   label: 派生,      role: 加工, description: 由现状派生对象（容器端口 → 派生服务 / 上游地址） }         # 对应「派生」；核心·对象派生
+  - { id: state.diff,      label: 比对,      role: 加工, description: 比较期望与现状，找出漂移 }                                  # 对应「比对」；核心·差异比对
+  - { id: object.validate, label: 校验,      role: 加工, description: 校验对象合法性（引用完整 / 冲突 / 必填） }                    # 对应「校验」；针对对象数据，区别于 config.validate

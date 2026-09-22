@@ -1,0 +1,40 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# DNS 供应商 · Amazon Route 53
+# 规则来源：acme.sh dnsapi（hook dns_aws）
+# ─────────────────────────────────────────────────────────────────────────────
+
+kind: dns-provider                    # 对象类型标识
+id: route53                           # 供应商标识
+label: Amazon Route 53                # 显示名
+group: 设置                            # 归属：设置 → DNS 供应商
+acmeHook: dns_aws                     # acme.sh hook
+docs: https://github.com/acmesh-official/acme.sh/wiki/dnsapi#10-use-amazon-route53-domain-api
+enabled: false                        # 显示开关：默认不选
+
+fields:                               # 凭证字段模型
+  - key: accessKeyId                  # 字段键：Access Key ID
+    label: AWS Access Key ID          # 显示标签
+    type: text
+    required: true
+    env: AWS_ACCESS_KEY_ID
+  - key: secretAccessKey              # 字段键：Secret Access Key
+    label: AWS Secret Access Key      # 显示标签
+    type: password
+    required: true
+    secret: true
+    env: AWS_SECRET_ACCESS_KEY
+  - key: slowRate                     # 字段键：请求间隔（可选）
+    label: 请求间隔（秒）              # 缓解 AWS 限流
+    type: number
+    required: false
+    env: AWS_DNS_SLOWRATE
+    advanced: true
+
+status:                               # 自动记录（只读）
+  - key: hookInstalled
+    label: hook 可用
+    note: acme.sh 是否带 dns_aws
+
+example:                              # 凭证示例（掩码）
+  name: aws-main
+  fields: { accessKeyId: "AKIA••••", secretAccessKey: "••••••••" }

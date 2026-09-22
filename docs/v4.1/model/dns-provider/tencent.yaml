@@ -1,0 +1,35 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# DNS 供应商 · 腾讯云（DNSPod）
+# 规则来源：acme.sh dnsapi（hook dns_tencent，TencentCloud API）
+# 说明：与项目内置一致（backend/internal/extension/registry.go）。
+# ─────────────────────────────────────────────────────────────────────────────
+
+kind: dns-provider                    # 对象类型标识
+id: tencent                           # 供应商标识
+label: 腾讯云（Tencent）                # 显示名
+group: 设置                            # 归属：设置 → DNS 供应商
+acmeHook: dns_tencent                 # acme.sh hook
+docs: https://github.com/acmesh-official/acme.sh/wiki/dnsapi2#dns_tencent
+enabled: true                         # 显示开关：默认勾选
+
+fields:                               # 凭证字段模型
+  - key: id                           # 字段键：SecretId
+    label: SecretId                   # 显示标签
+    type: text                        # 控件：单行文本
+    required: true
+    env: Tencent_SecretId             # → 环境变量
+  - key: key                          # 字段键：SecretKey
+    label: SecretKey                  # 显示标签
+    type: password                    # 控件：掩码
+    required: true
+    secret: true
+    env: Tencent_SecretKey
+
+status:                               # 自动记录（只读）
+  - key: hookInstalled
+    label: hook 可用
+    note: acme.sh 是否带 dns_tencent
+
+example:                              # 凭证示例（掩码）
+  name: tencent-main
+  fields: { id: "AKID••••", key: "••••••••" }
