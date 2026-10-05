@@ -39,23 +39,57 @@ const dotColor = computed(() => {
 
 <template>
   <div class="topo-node">
-    <Handle type="target" :position="Position.Left" />
+    <Handle
+      type="target"
+      :position="Position.Left"
+    />
     <div class="topo-node__head">
-      <span class="topo-node__dot" :style="{ background: dotColor }" />
+      <span
+        class="topo-node__dot"
+        :style="{ background: dotColor }"
+      />
       <span class="topo-node__title">{{ data.label }}</span>
-      <a-tag v-if="data.tier" :bordered="false">{{ data.tier }}</a-tag>
-      <span v-if="runState" class="topo-node__run" :style="{ borderColor: runColor, color: runColor }">
+      <a-tag
+        v-if="data.tier"
+        :bordered="false"
+      >
+        {{ data.tier }}
+      </a-tag>
+      <span
+        v-if="runState"
+        class="topo-node__run"
+        :style="{ borderColor: runColor, color: runColor }"
+      >
         {{ runState }}
       </span>
     </div>
-    <div v-if="data.functions?.length" class="topo-node__tags">
-      <a-tag v-for="f in data.functions" :key="f" color="blue" :bordered="false">{{ f }}</a-tag>
+    <div
+      v-if="data.functions?.length"
+      class="topo-node__tags"
+    >
+      <a-tag
+        v-for="f in data.functions"
+        :key="f"
+        color="blue"
+        :bordered="false"
+      >
+        {{ f }}
+      </a-tag>
     </div>
     <div class="topo-node__meta">
-      <span v-for="c in data.consumes ?? []" :key="c.info">↓{{ c.info }} {{ c.count }}</span>
-      <span v-for="p in data.produces ?? []" :key="p.info">↑{{ p.info }} {{ p.count }}</span>
+      <span
+        v-for="c in data.consumes ?? []"
+        :key="c.info"
+      >↓{{ c.info }} {{ c.count }}</span>
+      <span
+        v-for="p in data.produces ?? []"
+        :key="p.info"
+      >↑{{ p.info }} {{ p.count }}</span>
     </div>
-    <Handle type="source" :position="Position.Right" />
+    <Handle
+      type="source"
+      :position="Position.Right"
+    />
   </div>
 </template>
 

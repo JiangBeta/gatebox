@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, h, computed, type Component, type VNode } from 'vue'
+import { useRouter } from 'vue-router'
 import {
   Table, Tag, Button, Space, Popover, Alert, Modal, Checkbox,
   Spin, Tooltip, Typography, Input, message, Drawer,
@@ -15,10 +16,19 @@ import {
 } from '../../api/docker'
 import ContainerLogsModal from '../../components/ContainerLogsModal.vue'
 import ContainerExecModal from '../../components/ContainerExecModal.vue'
+import HostBar from '../../app/components/HostBar.vue'
+import GroupHeader from '../../app/components/GroupHeader.vue'
+import { countByHost, useHostFilter } from '../../app/composables/useHostFilter'
 
 const [messageApi, contextHolder] = message.useMessage()
+const router = useRouter()
+
+// 主机维度（V4.1）：主机条筛选 + 离线降级。资源列表本身不裁剪，
+// 由 shownContainers 按筛选后喂给 Table——统计与「全部升级」也要跟着筛选走。
+const { match: hostMatch, setCounts, isOnline: hostIsOnline, addressOf } = useHostFilter()
 
 const containers = ref<ContainerView[]>([])
+const shownContainers = computed(() => containers.value.filter((c) => hostMatch(c.host)))
 const info = ref<DockerInfo | null>(null)
 const loading = ref(true)
 const loadError = ref('')
@@ -144,6 +154,7 @@ async function load(showSpinner = false) {
   try {
     containers.value = await listContainers()
     loadError.value = ''
+    setCounts(countByHost(containers.value))
   } catch (e: any) {
     loadError.value = e.message || '加载失败'
   } finally {
@@ -213,6 +224,11 @@ async function doConvert() {
   } finally {
     convertBusy.value = false
   }
+}
+
+/** 组头的「拉取镜像」入口：拉取动作在镜像 tab（那里才看得到已有镜像和 tag）。 */
+function gotoImages() {
+  router.push({ path: '/deploy', query: { tab: 'images' } })
 }
 
 function confirmUpgradeAll() {
@@ -290,7 +306,7 @@ function renderCpu(record: ContainerView) {
   if (!record.hasStats) return filledBtn('采集中', true)
   const u = record.cpuPercent
   const trigger = filledBtn(`${u.toFixed(2)} %`)
-  const hst = record.host
+  const hst = record.hostStats
   const cores = hst?.corePercents || []
   const freq = hst?.cpuFreqGHz
   // 第一行 5 列:CPU / 整体使用率柱状图(60%宽) / % 居右绿 / CPU 频率 / 频率值右蓝。
@@ -332,7 +348,7 @@ function renderMemory(record: ContainerView) {
   if (record.state !== 'running') return filledBtn('-', true)
   if (!record.hasStats) return filledBtn('采集中', true)
   const trigger = filledBtn(fmtBytes(record.memoryUsage))
-  const hst = record.host
+  const hst = record.hostStats
   const items: [string, string][] = [
     ['内存总量(Total)', fmtGiB(hst?.memTotalGiB)],
     ['使用量(Used)', fmtGiB(hst?.memUsedGiB)],
@@ -399,6 +415,24 @@ function iconBtn(opts: {
   })
 }
 
+/** renderHostCell 主机列：在线点 + 主机名 + 地址（原型 hostCell）。
+ *  离线时把状态标成「未知」而不是沿用上次的状态——那是在撒谎。 */
+function renderHostCell(name?: string) {
+  if (!name) return h('span', { style: 'color:#999' }, '—')
+  const on = hostIsOnline(name)
+  const addr = addressOf(name)
+  return h('div', { style: 'display:flex;align-items:center;gap:6px;min-width:0' }, [
+    h('span', {
+      style: `display:inline-block;width:8px;height:8px;border-radius:50%;flex:0 0 8px;background:${on ? '#52c41a' : '#ff4d4f'}`,
+    }),
+    h('div', { style: 'display:flex;flex-direction:column;line-height:1.25;min-width:0' }, [
+      h('span', { style: 'font-weight:600' }, name),
+      h('span', { style: 'color:#8b95a7;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' },
+        on ? addr || '—' : '离线 · 状态未知'),
+    ]),
+  ])
+}
+
 const columns = computed(() => [
   {
     title: '名称',
@@ -416,22 +450,37 @@ const columns = computed(() => [
       ]),
   },
   {
-    title: '健康',
-    key: 'health',
-    width: 92,
+    title: '来源',
+    dataIndex: 'source',
+    key: 'source',
+    width: 84,
+    // 来源决定「能不能编辑」：托管 = GateBox 建的，外部 = compose 建的，游离 = 手工 docker run 的。
+    // 三个词比一个 enabled 开关有信息量——用户真正想知道的是「这东西归不归我管」。
     customRender: ({ record }: { record: ContainerView }) => {
-      if (!record.health) return outlinedBtn('未检测', '#999')
-      const color = record.health === 'healthy' ? '#52c41a'
-        : record.health === 'unhealthy' ? '#ff4d4f'
-          : record.health === 'starting' ? '#faad14' : '#1677ff'
-      return outlinedBtn(record.health, color)
+      const map: Record<string, [string, string]> = {
+        managed: ['托管', '#52c41a'],
+        external: ['外部', '#8b95a7'],
+        loose: ['游离', '#fa8c16'],
+      }
+      const [label, color] = map[record.source] || [record.source, '#8b95a7']
+      return outlinedBtn(label, color)
     },
   },
+  // 主机列：在线点 + 主机名 + 地址（ADR-042 §13 主机维度）。
+  // 离线时把状态标成「未知」而不是沿用上次的状态——那是在撒谎。
   {
-    title: '状态',
-    dataIndex: 'state',
-    key: 'state',
-    width: 92,
+    title: '主机',
+    key: 'host',
+    width: 150,
+    customRender: ({ record }: { record: ContainerView }) => renderHostCell(record.host),
+  },
+  {
+    // 运行状态和健康检查合到一列（原型 .healthcell）：两列分开时同一行要横跨
+    // 200px 才能拼出一个完整判断（「已停止」+「未检测」），扫描时得来回对齐。
+    // 图标给结论，文字给细节。
+    title: '健康',
+    key: 'health',
+    width: 130,
     customRender: ({ record }: { record: ContainerView }) => {
       const map: Record<string, [string, string]> = {
         running: ['运行中', '#52c41a'],
@@ -441,24 +490,49 @@ const columns = computed(() => [
         created: ['已创建', '#1677ff'],
         dead: ['异常', '#ff4d4f'],
       }
-      const [label, color] = map[record.state] || [record.state, '#1677ff']
-      return outlinedBtn(label, color)
+      const [stateLabel, stateColor] = map[record.state] || [record.state, '#1677ff']
+      const offline = !hostIsOnline(record.host)
+      const running = record.state === 'running'
+      const healthLabel = !record.health
+        ? '未检测'
+        : record.health === 'healthy'
+          ? '健康'
+          : record.health === 'unhealthy'
+            ? '不健康'
+            : record.health === 'starting'
+              ? '检查中'
+              : record.health
+      const healthColor = !record.health ? '#999'
+        : record.health === 'healthy' ? '#52c41a'
+          : record.health === 'unhealthy' ? '#ff4d4f'
+            : record.health === 'starting' ? '#faad14' : '#1677ff'
+      return h(Tooltip, {
+        title: offline
+          ? `主机 ${record.host} 离线（agent 不可达），运行状态与健康检查均为上次采集结果`
+          : running
+            ? `运行状态：${stateLabel}；健康检查：${healthLabel}`
+            : `运行状态：${stateLabel}；容器未运行，无健康检查数据`,
+      }, {
+        default: () => h('div', { style: 'display:flex;align-items:center;gap:6px' }, [
+          outlinedBtn(stateLabel, offline ? '#999' : stateColor),
+          running ? outlinedBtn(healthLabel, healthColor) : null,
+        ]),
+      })
     },
   },
   { title: '端口', key: 'ports', width: 110, customRender: ({ record }: { record: ContainerView }) => renderPorts(record) },
   {
-    title: 'CPU',
-    dataIndex: 'cpu',
-    key: 'cpu',
-    width: 100,
-    customRender: ({ record }: { record: ContainerView }) => renderCpu(record),
-  },
-  {
-    title: '内存',
-    dataIndex: 'memory',
-    key: 'memory',
-    width: 130,
-    customRender: ({ record }: { record: ContainerView }) => renderMemory(record),
+    // CPU 与内存并到一格（原型 .rescell）：两个数本来就是同一次采样的一对，
+    // 分列后横向滚动才能同时看到，正好丢掉「谁用得多」的对比。
+    // hover 面板仍各带全部明细（每核柱状图 / 宿主内存分布）——合并的是列，不是信息。
+    title: 'CPU / 内存',
+    key: 'resource',
+    width: 190,
+    customRender: ({ record }: { record: ContainerView }) =>
+      h('div', { style: 'display:flex;align-items:center;gap:12px' }, [
+        renderCpu(record),
+        renderMemory(record),
+      ]),
   },
   {
     title: '创建时间',
@@ -476,6 +550,20 @@ const columns = computed(() => [
     customRender: ({ record }: { record: ContainerView }) => {
       const isBusy = !!busy.value[record.id]
       const running = record.state === 'running'
+      // 主机离线时全部操作禁用，并在 tip 里说清原因：
+      // agent 不可达时请求只会静默失败，用户却以为容器停了/删了。
+      const offline = !hostIsOnline(record.host)
+      const off = (why: string) => (offline ? `主机 ${record.host} 离线（agent 不可达），无法${why}` : '')
+      if (offline) {
+        return h(Space, { size: 0, wrap: false, align: 'center' }, {
+          default: () => [
+            h('span', {
+              style: 'color:#ff4d4f;font-size:12px;white-space:nowrap',
+              title: off('操作'),
+            }, '主机离线，操作已禁用'),
+          ],
+        })
+      }
       // 槽位数量恒定(启停共用一个槽),避免行与行之间图标错位
       return h(Space, { size: 0, wrap: false, align: 'center' }, {
         default: () => [
@@ -505,28 +593,21 @@ const columns = computed(() => [
                 loading: isBusy,
                 onClick: () => act(record, startContainer, '启动'),
               }),
-          iconBtn({
+iconBtn({
             icon: ReloadOutlined,
             tip: running ? '重启' : '容器未运行,请直接启动',
             disabled: !running,
-            color: '#ff4d4f',
+            // 重启用青色：红色留给停止/删除这类不可逆动作，扫一行时颜色即风险级别。
+            color: '#13c2c2',
             loading: isBusy && running,
             onClick: () => act(record, restartContainer, '重启'),
-          }),
-          iconBtn({
-            icon: DeleteOutlined,
-            // 只有已停止的容器可删除(docs §4.5):强删会跳过优雅停止,可能损坏数据
-            tip: running ? '运行中的容器不可删除,请先停止' : '删除',
-            type: 'danger',
-            disabled: running,
-            loading: isBusy && !running,
-            onClick: () => confirmRemove(record),
           }),
           // 游离容器可转为编排(docs §4.3)
           ...(record.source === 'loose'
             ? [iconBtn({
                 icon: SwapOutlined,
                 tip: '转为编排',
+                color: '#fa8c16',
                 onClick: () => openConvert(record),
               })]
             : []),
@@ -537,6 +618,16 @@ const columns = computed(() => [
             color: '#1677ff',
             loading: isBusy,
             onClick: () => confirmUpgradeOne(record),
+          }),
+          // 删除放在升级之后：破坏性动作统一收尾，横向扫到最后一项才是删除。
+          iconBtn({
+            icon: DeleteOutlined,
+            // 只有已停止的容器可删除(docs §4.5):强删会跳过优雅停止,可能损坏数据
+            tip: running ? '运行中的容器不可删除,请先停止' : '删除',
+            color: '#ef4444',
+            disabled: running,
+            loading: isBusy && !running,
+            onClick: () => confirmRemove(record),
           }),
         ],
       })
@@ -576,37 +667,48 @@ onUnmounted(() => {
     </template>
   </Alert>
 
-  <div class="header-row">
-    <div v-if="info" class="summary">
-      <span>Docker {{ info.serverVersion }}</span>
-      <span>容器 {{ info.containersRunning }}/{{ info.containers }} 运行中</span>
-      <span>镜像 {{ info.images }}</span>
-      <span>日志驱动 {{ info.loggingDriver }}</span>
-      <span>{{ info.imagePlatform }} · {{ info.ncpu }} 核</span>
-      <Tag v-if="!info.logsReadable" color="warning">
-        当前日志驱动不支持在线查看日志
-      </Tag>
-    </div>
-    <div class="header-actions">
-      <Button
-        type="primary"
-        ghost
-        :disabled="!containers.length"
-        @click="confirmUpgradeAll"
-      >
-        <template #icon><SyncOutlined /></template>
-        全部升级
-      </Button>
-    </div>
+  <!-- 环境摘要（原型 .lstats 的标签串）：Docker 版本 / 运行中 / 镜像 / 日志驱动 -->
+  <div
+    v-if="info"
+    class="lstats"
+  >
+    <span class="lstats-tag">Docker {{ info.serverVersion }}</span>
+    <span class="lstats-tag">容器 {{ info.containersRunning }}/{{ info.containers }} 运行中</span>
+    <span class="lstats-tag">镜像 {{ info.images }}</span>
+    <span class="lstats-tag">日志驱动 {{ info.loggingDriver }}</span>
+    <span class="lstats-tag">{{ info.imagePlatform }} · {{ info.ncpu }} 核</span>
+    <span
+      v-if="!info.logsReadable"
+      class="lstats-tag lstats-warn"
+    >日志驱动不支持在线查看</span>
   </div>
+
+  <!-- 主机维度：主机条 + 离线横幅（在表格之上，横跨整个内容区） -->
+  <HostBar resource="containers" />
+
+  <GroupHeader
+    name="容器"
+    :tag="`${shownContainers.length} 项`"
+  >
+    <Button
+      :disabled="!shownContainers.length"
+      @click="confirmUpgradeAll"
+    >
+      <template #icon><SyncOutlined /></template>
+      全部升级
+    </Button>
+    <Button @click="gotoImages">
+      拉取镜像
+    </Button>
+  </GroupHeader>
 
   <!-- scroll-x = 各列宽度之和。窄屏时横向滚动,而不是把「名称」压到换行 -->
   <Table
     :columns="columns"
-    :data-source="containers"
+    :data-source="shownContainers"
     :loading="loading"
     :row-key="(record: ContainerView) => record.id"
-    :scroll="{ x: 1310 }"
+    :scroll="{ x: 1470 }"
     size="small"
   />
 
@@ -726,15 +828,23 @@ onUnmounted(() => {
   flex-wrap: wrap;
   margin-bottom: 12px;
 }
-.summary {
+/* 环境摘要标签串（原型 .lstats）：11px 次级字，弱化成标签而不是正文，
+   免得和下面表格的统计数字抢注意力。 */
+.lstats {
   display: flex;
-  gap: 18px;
-  align-items: center;
   flex-wrap: wrap;
-  font-size: 13px;
-  color: #666;
+  gap: 6px;
+  margin-bottom: 12px;
 }
-.header-actions {
-  flex-shrink: 0;
+.lstats-tag {
+  font-size: var(--gb-font-xs);
+  color: var(--gb-color-text-secondary);
+  background: var(--gb-color-fill-quaternary);
+  border-radius: var(--gb-radius-sm);
+  padding: 1px 6px;
+}
+.lstats-warn {
+  background: rgba(250, 173, 20, 0.16);
+  color: #fa8c16;
 }
 </style>

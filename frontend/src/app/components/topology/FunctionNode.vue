@@ -6,10 +6,20 @@ defineProps<NodeProps>()
 
 <template>
   <div class="topo-fn">
-    <Handle type="target" :position="Position.Left" />
-    <div class="topo-fn__title">{{ data.label }}</div>
-    <div class="topo-fn__impl">实现：{{ (data.implementors ?? []).join(', ') }}</div>
-    <Handle type="source" :position="Position.Right" />
+    <Handle
+      type="target"
+      :position="Position.Left"
+    />
+    <div class="topo-fn__title">
+      {{ data.label }}
+    </div>
+    <div class="topo-fn__impl">
+      实现：{{ (data.implementors ?? []).join(', ') }}
+    </div>
+    <Handle
+      type="source"
+      :position="Position.Right"
+    />
   </div>
 </template>
 

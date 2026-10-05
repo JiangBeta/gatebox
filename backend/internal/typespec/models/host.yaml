@@ -1,0 +1,69 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# 对象：主机 Host（多主机管理）
+# 结构：源字段（可编辑，平铺）+ status（自动记录，只读，默认折叠）
+# 归属：设置 → 主机。后端地址由「容器端口 → 宿主端口 → 主机地址」推导。
+# 规则：本机 edge 由系统自动创建（默认填好本机 IP），全局有且只有一个；手动新增只能创建 worker。
+# 参考：glossary §主机 · ADR-042 §13
+# ─────────────────────────────────────────────────────────────────────────────
+
+kind: host                            # 对象类型标识（factKind）
+title: 主机                            # 显示名
+group: 设置                            # 归属一级页面
+list: true                            # 多实例
+
+schema:                               # 源字段（可编辑）
+  - key: role                         # 字段键：角色
+    label: 角色                        # 显示标签
+    type: select                      # 控件：下拉
+    required: true                    # 必填
+    default: worker                   # 默认 worker（edge 由系统预置）
+    exclusive: edge                   # 全局唯一：值 edge 的系统内只能有一个
+    options:                          # 下拉选项
+      - { label: edge（本机 · 运行 Caddy · 全局唯一）, value: edge }     # 本机：系统自动创建
+      - { label: worker（远端 · 后端容器）, value: worker }             # 工作节点：手动新增
+    description: 本机 edge 由系统自动创建（默认填好 IP），全局只能有一个；手动新增只能选 worker
+  - key: host                         # 字段键：主机名（主键，hostname 格式）
+    label: 主机名                      # 显示标签
+    type: text                        # 控件：单行文本
+    required: true                    # 必填
+    placeholder: nas                  # 输入提示
+    pattern: "^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$"   # 限制：hostname（字母数字与连字符）
+    description: hostname 格式（字母数字与连字符）；主键，创建后不可改，被部署 / 服务引用
+  - key: address                      # 字段键：IP / 域名
+    label: 地址                        # 显示标签
+    type: text                        # 控件：单行文本
+    required: true                    # 必填
+    placeholder: 192.168.1.20         # 输入提示
+    description: IP 或域名，手填        # 帮助说明
+  - key: dockerEndpoint               # 字段键：Docker 接入点
+    label: Docker 接入点               # 显示标签
+    type: text                        # 控件：单行文本
+    advanced: true                    # 高级字段
+    placeholder: unix:///var/run/docker.sock   # 输入提示：本机 unix / 远端 tcp
+  - key: remark                       # 字段键：备注
+    label: 备注                        # 显示标签
+    type: textarea                    # 控件：多行文本
+    advanced: true                    # 高级字段
+
+# 自动记录 status（只读，YAML 默认折叠）
+status:
+  - key: online                       # 主机是否在线
+    label: 在线
+    note: 由探测 / 心跳得出
+  - key: lastSeen                     # 最近在线时间
+    label: 最近在线
+    note: 最后一次心跳时间
+
+example:                              # 模拟数据基础（edge 系统预置 + worker 手动）
+  - role: edge                        # 本机（系统自动创建，默认填好 IP）
+    host: edge                        # 主机名
+    address: 192.168.1.10             # 本机局域网地址（默认填好）
+    dockerEndpoint: unix:///var/run/docker.sock   # 本机 socket
+    remark: 本机网关（系统自动创建）    # 备注（多行）
+    status: { online: true, lastSeen: 2026-09-22T10:00:00Z }
+  - role: worker                      # 远端工作节点
+    host: nas                         # 主机名
+    address: 192.168.1.20             # NAS 局域网地址
+    dockerEndpoint: tcp://192.168.1.20:2375        # 远端 Docker API
+    remark: 群晖 NAS                   # 备注（多行）
+    status: { online: true, lastSeen: 2026-09-22T10:00:00Z }

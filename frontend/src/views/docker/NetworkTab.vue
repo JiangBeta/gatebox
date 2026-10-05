@@ -1,18 +1,24 @@
 <script setup lang="ts">
-import { ref, onMounted, h } from 'vue'
+import { ref, onMounted, h, computed } from 'vue'
 import { statCell } from '../../utils/cell'
 import {
   Table, Tag, Button, Space, Modal, Drawer, Input, Select, Switch, Typography,
-  Descriptions, Empty, Alert, message,
+  Descriptions, Empty, Alert, Tooltip, message,
 } from 'ant-design-vue'
 import {
   listNetworks, createNetwork, inspectNetwork, removeNetwork,
   type NetworkView, type NetworkDetail,
 } from '../../api/docker'
+import HostBar from '../../app/components/HostBar.vue'
+import { countByHost, useHostFilter } from '../../app/composables/useHostFilter'
 
 const [messageApi, contextHolder] = message.useMessage()
 
+// 主机维度（V4.1）：网络按主机筛选；离线主机的网络只能看不能删。
+const { match: hostMatch, isOnline: hostIsOnline, setCounts } = useHostFilter()
+
 const networks = ref<NetworkView[]>([])
+const shownNetworks = computed(() => networks.value.filter((n) => hostMatch(n.host)))
 const loading = ref(true)
 const loadError = ref('')
 
@@ -50,6 +56,7 @@ async function load() {
   try {
     networks.value = await listNetworks()
     loadError.value = ''
+    setCounts(countByHost(networks.value))
   } catch (e: any) {
     loadError.value = e.message || '加载失败'
   } finally {
@@ -57,8 +64,26 @@ async function load() {
   }
 }
 
+/** renderHostCell 主机列：在线点 + 主机名。 */
+function renderHostCell(name?: string) {
+  if (!name) return h('span', { style: 'color:#999' }, '—')
+  const on = hostIsOnline(name)
+  return h('div', { style: 'display:flex;align-items:center;gap:6px' }, [
+    h('span', {
+      style: `display:inline-block;width:7px;height:7px;border-radius:50%;background:${on ? '#52c41a' : '#ff4d4f'}`,
+    }),
+    h('span', {}, name),
+  ])
+}
+
 const columns = [
   { title: '名称', dataIndex: 'name', key: 'name', width: 160 },
+  {
+    title: '主机',
+    key: 'host',
+    width: 110,
+    customRender: ({ record }: { record: NetworkView }) => renderHostCell(record.host),
+  },
   {
     title: '驱动',
     dataIndex: 'driver',
@@ -82,20 +107,28 @@ const columns = [
     key: 'actions',
     width: 120,
     fixed: 'right' as const,
-    customRender: ({ record }: { record: NetworkView }) =>
-      h(Space, { size: 4 }, {
+    customRender: ({ record }: { record: NetworkView }) => {
+      const offline = !hostIsOnline(record.host)
+      return h(Space, { size: 4 }, {
         default: () => [
           h(Button, { size: 'small', onClick: () => openDetail(record) }, { default: () => '查看' }),
-          h(Button, {
-            size: 'small',
-            danger: true,
-            ghost: true,
-            // 内置网络(bridge/host/none)由 docker 维护,删除没有意义且易误伤
-            disabled: ['bridge', 'host', 'none'].includes(record.name),
-            onClick: () => (removeTarget.value = record),
-          }, { default: () => '删除' }),
+          h(Tooltip, {
+            title: offline
+              ? `主机 ${record.host} 离线（agent 不可达），无法删除`
+              : '从主机删除该网络',
+          }, {
+            default: () => h(Button, {
+              size: 'small',
+              danger: true,
+              ghost: true,
+              // 内置网络(bridge/host/none)由 docker 维护,删除没有意义且易误伤
+              disabled: offline || ['bridge', 'host', 'none'].includes(record.name),
+              onClick: () => (removeTarget.value = record),
+            }, { default: () => '删除' }),
+          }),
         ],
-      }),
+      })
+    },
   },
 ]
 
@@ -168,12 +201,14 @@ onMounted(load)
     <Button size="small" type="primary" @click="openCreate">+ 创建网络</Button>
   </div>
 
+  <HostBar resource="networks" />
+
   <Table
     :columns="columns"
-    :data-source="networks"
+    :data-source="shownNetworks"
     :loading="loading"
     :row-key="(record: NetworkView) => record.id"
-    :scroll="{ x: 682 }"
+    :scroll="{ x: 792 }"
     size="small"
   />
 

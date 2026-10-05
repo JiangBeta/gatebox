@@ -1,0 +1,58 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# 对象：根域名 Domain
+# 归属：域名。根域名一行一个；二级域名不建实体，内联在路由 / 服务的域名行。
+# 凭证用于 acme DNS-01 签发；证书为派生对象（批次 6）。
+# 参考：ADR-042 §13 · model.Domain · docs/domain.md §1
+# ─────────────────────────────────────────────────────────────────────────────
+
+kind: domain                          # 对象类型标识（factKind）
+title: 根域名                          # 显示名
+group: 域名                            # 归属一级页面
+list: true                            # 多实例
+
+schema:                               # 字段契约
+  - key: name                         # 字段键：根域名（主键）
+    label: 根域名                      # 显示标签
+    type: text                        # 控件：单行文本
+    required: true                    # 必填
+    placeholder: neob.cn              # 输入提示
+    pattern: '^([a-z0-9-]+\.)+[a-z]{2,}$'   # 限制：域名格式（小写字母数字连字符 + 点 + 顶级域）
+    description: 根域名（如 neob.cn）；主键，被路由 / 服务的域名行引用
+  - key: credentialId                 # 字段键：DNS 凭证引用
+    label: DNS 凭证                    # 显示标签
+    type: reference                   # 控件：引用选择
+    reference: { types: [dns-credential] }   # 引用目标：DNS 凭证
+    required: false                   # 非必填（未配则无法 DNS-01 签发）
+    description: 供 acme DNS-01 签发使用；来自域名页 → 凭证
+  - key: remark                       # 字段键：备注
+    label: 备注                        # 显示标签
+    type: textarea                    # 控件：多行文本
+    advanced: true                    # 高级字段
+
+# 自动记录 status：由观测 / 聚合得出，作为 status 的子节点（只读，YAML 中默认折叠）
+status:
+  - key: certCount                    # 该根域下的证书数量
+    label: 证书
+    note: 该根域下的证书数量
+  - key: subdomainCount               # 二级域名数量
+    label: 二级域名
+    note: 引用该根域的路由 / 服务域名行数量
+  - key: createdAt                    # 创建时间
+    label: 创建时间
+    note: 域名登记时间
+
+example:                              # 模拟数据基础（源字段平铺 + status 自动记录）
+  - name: neob.cn                     # 根域名
+    credentialId: dnspod-main         # 使用 DNSPod 凭证
+    remark: 主站根域                   # 备注（多行，可编辑）
+    status:                           # 自动记录（只读，默认折叠）
+      certCount: 2                    # 证书数量
+      subdomainCount: 3               # 二级域名数
+      createdAt: 2026-08-20T10:00:00Z # 创建时间
+  - name: gatebox.cn                  # 根域名
+    credentialId: cf-main             # 使用 Cloudflare 凭证
+    remark: 备用根域                   # 备注（多行）
+    status:                           # 自动记录（只读）
+      certCount: 1                    # 证书数量
+      subdomainCount: 1               # 二级域名数
+      createdAt: 2026-09-10T10:00:00Z # 创建时间

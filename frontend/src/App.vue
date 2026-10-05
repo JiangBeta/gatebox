@@ -1,21 +1,20 @@
 <script setup lang="ts">
 import { ref, computed, h, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { ConfigProvider, Layout, Menu, Tooltip } from 'ant-design-vue'
 import {
-  ConfigProvider, Layout, Menu, Tooltip,
-} from 'ant-design-vue'
-import {
-  DashboardOutlined, ApiOutlined, ContainerOutlined, GlobalOutlined,
-  SettingOutlined, GithubOutlined, BookOutlined, TranslationOutlined,
+  PartitionOutlined, GlobalOutlined, ContainerOutlined, AppstoreOutlined,
+  ClusterOutlined, DashboardOutlined, SettingOutlined, ApiOutlined,
+  GithubOutlined, BookOutlined, TranslationOutlined,
   BulbOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined,
-  ClusterOutlined, AppstoreOutlined, ShareAltOutlined,
 } from '@ant-design/icons-vue'
-import theme from './theme'
+import { useColorScheme } from './app/composables/useColorScheme'
 import { listComponents } from './api/components'
 import { listPlugins } from './api/plugins'
 import { me, logout } from './api/auth'
 import { toolRoute } from './utils/toolRoutes'
-import TaskCenter from './components/TaskCenter.vue'
+import { getSystem } from './api/system'
+import TopActions from './components/TopActions.vue'
 
 interface TabMeta {
   key: string
@@ -27,19 +26,25 @@ interface MenuNode {
   label: string
   icon?: () => unknown
   children?: MenuNode[]
+  type?: 'divider'
 }
 
 const route = useRoute()
 const router = useRouter()
 
+// 亮/暗主题：<html data-theme> 管自定义样式，antdTheme() 管组件。
+const { isDark, antdTheme, toggle: toggleTheme } = useColorScheme()
+
 const collapsed = ref(false)
-const openKeys = ref<string[]>(['/services'])
 
 // 控制面鉴权（可选启用）：登录页不套用主布局。
 const isLogin = computed(() => route.path === '/login')
+/** 开了鉴权才显示「退出」入口：没开鉴权时点了也只是跳登录页，纯误导。 */
+const authOn = ref(false)
 async function checkAuth() {
   try {
     const s = await me()
+    authOn.value = Boolean(s.enabled)
     if (s.enabled && !s.authed && !isLogin.value) router.replace('/login')
   } catch {
     /* 探测失败不阻塞（未启用鉴权时接口也可能异常） */
@@ -53,27 +58,30 @@ async function onLogout() {
   }
 }
 
-// 「服务」子菜单 = 插件 ui.nav 贡献（组件类入口由插件提供）。
+// 「组件」子菜单 = 插件 ui.nav 贡献（组件类入口由插件提供）。
 const serviceItems = ref<MenuNode[]>([])
 const pluginItems = ref<MenuNode[]>([])
 
+// 一级导航与 8091 原型/docs/v4.1/views.md §3 对齐：服务 · 域名 · 容器 ·
+// 应用商店 · 组件 · 监控 · 设置——原型侧栏就是这 7 项，一项不多。
+// V4.0 的「网关运行时」（Caddy 直管旧面）原型没有对应项，挪到侧栏底部的
+// 次级入口区，不再挤在一级目录里。
 const menuItems = computed<MenuNode[]>(() => {
   const items: MenuNode[] = [
-    { key: '/dashboard', label: '仪表盘', icon: () => h(DashboardOutlined) },
-    { key: '/gateway', label: '网关', icon: () => h(ApiOutlined) },
-    { key: '/docker', label: '容器', icon: () => h(ContainerOutlined) },
-    { key: '/domain', label: '域名', icon: () => h(GlobalOutlined) },
+    { key: '/services', label: '服务', icon: () => h(PartitionOutlined) },
+    { key: '/domains', label: '域名', icon: () => h(GlobalOutlined) },
+    { key: '/deploy', label: '容器', icon: () => h(ContainerOutlined) },
+    { key: '/store', label: '应用商店', icon: () => h(AppstoreOutlined) },
   ]
   const children = [...serviceItems.value, ...pluginItems.value]
   items.push({
-    key: '/services',
-    label: '服务',
+    key: '/components',
+    label: '组件',
     icon: () => h(ClusterOutlined),
     ...(children.length ? { children } : {}),
   })
   items.push(
-    { key: '/topology', label: '功能地图', icon: () => h(ShareAltOutlined) },
-    { key: '/extensions', label: '扩展', icon: () => h(AppstoreOutlined) },
+    { key: '/monitor', label: '监控', icon: () => h(DashboardOutlined) },
     { key: '/settings', label: '设置', icon: () => h(SettingOutlined) },
   )
   return items
@@ -111,9 +119,9 @@ async function loadPlugins() {
       if (!ui || (isEsm && !trusted)) continue
       if (registeredPlugins.has(p.id)) continue
       registeredPlugins.add(p.id)
-      const loader = isIframe
-        ? () => import('./components/PluginHost.vue')
-        : () => import('./components/PluginEsmHost.vue')
+      const loader = isEsm
+        ? () => import('./components/PluginEsmHost.vue')
+        : () => import('./components/PluginHost.vue')
       for (const n of nav) {
         items.push({ key: `nav:${n.path}`, label: n.label })
         router.addRoute({
@@ -136,28 +144,51 @@ const footerItems = [
   { name: 'GitHub', icon: () => h(GithubOutlined), href: 'https://github.com/JiangBeta/gatebox' },
   { name: '文档', icon: () => h(BookOutlined), href: 'https://gatebox.cn' },
   { name: '语言', icon: () => h(TranslationOutlined), disabled: true },
-  { name: '主题', icon: () => h(BulbOutlined), disabled: true },
 ]
 
-const activeKey = computed(() => route.path)
-// 服务子页（?component=）或带 meta.component 的专用页（如 /services/mosdns）选中对应子菜单项。
+// 侧栏品牌旁的版本号取后端真实版本（GET /api/v1/system）。
+// 之前硬编码 v0.1.0：构建版本一变它就是假的，比不显示更糟。
+const appVersion = ref('dev')
+async function loadVersion() {
+  try {
+    const s = await getSystem()
+    if (s.version) appVersion.value = String(s.version)
+  } catch {
+    /* 读不到就显示 dev，不阻塞布局 */
+  }
+}
+
+const title = computed(() => (route.meta.title as string) || 'GateBox')
+const tabs = computed<TabMeta[]>(() => (route.meta.tabs as TabMeta[]) || [])
+const activeTab = computed(() => (route.query.tab as string) || tabs.value[0]?.key || '')
+const activeTabLabel = computed(
+  () => tabs.value.find((t) => t.key === activeTab.value)?.label ?? '',
+)
+
 const selectedKeys = computed<string[]>(() => {
   const comp = (route.query.component as string | undefined) || (route.meta.component as string | undefined)
   if (comp) return [`comp:${comp}`]
   if (pluginItems.value.some((n) => n.key === `nav:${route.path}`)) return [`nav:${route.path}`]
-  return [activeKey.value]
+  return [route.path]
 })
-const title = computed(() => (route.meta.title as string) || 'GateBox')
-const tabs = computed<TabMeta[]>(() => (route.meta.tabs as TabMeta[]) || [])
-const activeTab = computed(() => (route.query.tab as string) || tabs.value[0]?.key || '')
+
+// 子菜单展开状态：只跟随当前所在的父级，避免折叠/跳转后一直挂着。
+const openKeys = ref<string[]>([parentKey(route.path)])
+
+function parentKey(path: string): string {
+  for (const p of ['/components', '/services']) {
+    if (path === p || path.startsWith(`${p}/`)) return p
+  }
+  return ''
+}
 
 function onMenu(info: { key: string }) {
   const key = String(info.key)
-  // 服务子菜单：comp:<id> → 该组件的工具页（服务页附带 component 参数用于聚焦）。
+  // 组件子菜单：comp:<id> → 该组件的工具页（组件页附带 component 参数用于聚焦）。
   if (key.startsWith('comp:')) {
     const id = key.slice(5)
     const path = toolRoute(id)
-    if (path === '/services') router.push({ path, query: { component: id } })
+    if (path.startsWith('/components')) router.push({ path: '/components', query: { tab: 'components', component: id } })
     else router.push(path)
     return
   }
@@ -169,13 +200,8 @@ function onMenu(info: { key: string }) {
   router.push(key)
 }
 
-function onOpenChange(keys: string[]) {
-  openKeys.value = keys
-}
-
-// 折叠/展开：折叠时清空已展开子菜单，展开时恢复上次展开项（Ant Design 官方推荐做法）。
-let preOpenKeys: string[] = ['/services']
-watch(openKeys, (_val, oldVal) => { preOpenKeys = oldVal || [] })
+// 折叠/展开：折叠时清空已展开子菜单，展开时恢复（Ant Design 官方推荐做法）。
+let preOpenKeys: string[] = []
 function toggleCollapse() {
   collapsed.value = !collapsed.value
   openKeys.value = collapsed.value ? [] : preOpenKeys
@@ -195,8 +221,17 @@ function onTab(key: string) {
   router.replace({ query: { ...route.query, tab: key } })
 }
 
+watch(
+  () => route.path,
+  (p) => {
+    const parent = parentKey(p)
+    if (parent) openKeys.value = [parent]
+  },
+)
+
 onMounted(() => {
   void checkAuth()
+  void loadVersion()
   void loadServices()
   void loadPlugins()
   window.addEventListener('gatebox:components-changed', onComponentsChanged)
@@ -207,39 +242,24 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <ConfigProvider :theme="theme">
+  <ConfigProvider :theme="antdTheme()">
     <router-view v-if="isLogin" />
-    <Layout v-else style="min-height: 100vh">
+    <Layout
+      v-else
+      class="app-root"
+    >
       <Layout.Sider
         class="app-sider"
-        :width="220"
-        :collapsed-width="56"
+        :width="190"
+        :collapsed-width="64"
         :collapsed="collapsed"
-        :style="{
-          overflow: 'hidden',
-          height: '100vh',
-          position: 'fixed',
-          left: 0,
-          top: 0,
-          bottom: 0,
-          background: '#fff',
-          borderRight: '1px solid #f0f0f0',
-          display: 'flex',
-          flexDirection: 'column',
-        }"
       >
         <div
-          :style="{
-            padding: collapsed ? '16px 0' : '16px 20px',
-            fontSize: '20px',
-            fontWeight: 700,
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textAlign: collapsed ? 'center' : 'left',
-          }"
+          class="app-brand"
+          :class="{ collapsed }"
         >
           <template v-if="!collapsed">
-            GateBox <span :style="{ fontSize: '14px', color: '#999' }">v0.1.0</span>
+            GateBox <span class="app-brand-version">v{{ appVersion }}</span>
           </template>
           <template v-else>G</template>
         </div>
@@ -250,28 +270,17 @@ onUnmounted(() => {
           :open-keys="openKeys"
           :items="menuItems"
           :get-popup-container="getPopupContainer"
+          class="app-menu"
           @click="onMenu"
-          @open-change="onOpenChange"
-          :style="{ flex: 1, overflow: 'auto', borderRight: 0 }"
+          @open-change="(keys: string[]) => { openKeys = keys; preOpenKeys = keys }"
         />
 
-        <!-- 底部功能区:github/文档/语言/主题(icon + hover 提示),置于退出上方 -->
-        <div
-          :style="{
-            borderTop: '1px solid #f0f0f0',
-            padding: collapsed ? '12px 0' : '12px 16px',
-            display: 'flex',
-          }"
-        >
+        <!-- 侧栏底部：次级入口（网关运行时 = V4.0 直管旧面）+ 外链。
+             主题切换在顶栏（原型 .top 的 btnTheme 位置），这里不再重复一份。 -->
+        <div class="app-footer">
           <div
-            :style="{
-              display: 'flex',
-              flex: 1,
-              gap: collapsed ? '12px' : '8px',
-              flexDirection: collapsed ? 'column' : 'row',
-              alignItems: 'center',
-              justifyContent: collapsed ? 'center' : 'space-between',
-            }"
+            class="app-footer-row"
+            :class="{ collapsed }"
           >
             <Tooltip
               v-for="f in footerItems"
@@ -283,83 +292,111 @@ onUnmounted(() => {
                 v-if="f.href"
                 :href="f.href"
                 target="_blank"
-                :style="{ color: '#666', fontSize: '14px', lineHeight: 1, cursor: 'pointer', display: 'inline-flex' }"
+                class="app-footer-link"
               >
                 <component :is="f.icon" />
               </a>
               <span
                 v-else
-                :style="{ color: '#999', fontSize: '14px', lineHeight: 1, cursor: 'not-allowed', display: 'inline-flex' }"
+                class="app-footer-link is-disabled"
               >
                 <component :is="f.icon" />
               </span>
             </Tooltip>
+            <Tooltip
+              title="网关运行时（Caddy 直管 · 旧面）"
+              placement="right"
+            >
+              <button
+                type="button"
+                class="app-footer-link app-footer-btn"
+                :class="{ 'is-on': route.path.startsWith('/gateway') }"
+                aria-label="网关运行时"
+                @click="router.push('/gateway')"
+              >
+                <ApiOutlined />
+              </button>
+            </Tooltip>
           </div>
         </div>
 
-        <!-- 退出按钮:最底部,居下,18px 粗体 -->
+        <!-- 退出：最底部。鉴权未启用时不显示（顶栏已有同款入口时才不至于重复）。 -->
         <div
+          v-if="authOn"
+          class="app-logout"
+          :class="{ collapsed }"
           @click="onLogout"
-          :style="{
-            borderTop: '1px solid #f0f0f0',
-            padding: collapsed ? '14px 0' : '16px 0',
-            fontSize: '18px',
-            color: '#333',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '8px',
-            flexShrink: 0,
-            userSelect: 'none',
-          }"
         >
-          <LogoutOutlined :style="{ fontSize: collapsed ? '14px' : '18px' }" />
+          <LogoutOutlined class="app-logout-icon" />
           <span v-if="!collapsed">退出</span>
         </div>
       </Layout.Sider>
 
-      <Layout :style="{ marginLeft: collapsed ? '56px' : '220px', transition: 'margin-left 0.2s' }">
-        <Layout.Header
-          :style="{
-            padding: '0 24px',
-            height: '80px',
-            lineHeight: '80px',
-            background: '#fff',
-            borderBottom: '1px solid #f0f0f0',
-          }"
-        >
-          <div class="header-row">
-            <div class="header-left">
-              <!-- 折叠/展开切换按钮:位于标题前方,上下居中 -->
-              <Tooltip :title="collapsed ? '展开菜单' : '收起菜单'" placement="bottom">
-                <span
-                  class="collapse-btn"
-                  @click="toggleCollapse"
-                >
-                  <MenuUnfoldOutlined v-if="collapsed" />
-                  <MenuFoldOutlined v-else />
-                </span>
-              </Tooltip>
-              <span class="page-title">{{ title }}</span>
-            </div>
-            <div class="header-right">
-              <div v-if="tabs.length" class="header-tabs">
-                <span
-                  v-for="t in tabs"
-                  :key="t.key"
-                  class="header-tab"
-                  :class="{ active: activeTab === t.key }"
-                  @click="onTab(t.key)"
-                >
-                  {{ t.label }}
-                </span>
-              </div>
-              <TaskCenter class="header-task" />
-            </div>
+      <Layout
+        class="app-main"
+        :class="{ collapsed }"
+      >
+        <Layout.Header class="app-header">
+          <div class="header-left">
+            <Tooltip
+              :title="collapsed ? '展开菜单' : '收起菜单'"
+              placement="bottom"
+            >
+              <span
+                class="collapse-btn"
+                @click="toggleCollapse"
+              >
+                <MenuUnfoldOutlined v-if="collapsed" />
+                <MenuFoldOutlined v-else />
+              </span>
+            </Tooltip>
+            <!-- 面包屑 = 一级页面 / 当前 tab（views.md §4：不再有页面标题）。
+                 原型（index.html .top .crumb）是「页面名 + 次级 tab 名」，
+                 tab 用次级灰字跟在后面，不画成一串 / 分隔的路径。 -->
+            <nav class="app-crumb">
+              <span class="app-crumb-item">{{ title }}</span>
+              <span
+                v-if="tabs.length > 1 && activeTabLabel"
+                class="app-crumb-sub"
+              >{{ activeTabLabel }}</span>
+            </nav>
+          </div>
+<div class="header-right">
+            <TopActions />
+            <Tooltip
+              :title="isDark ? '切到亮色' : '切到暗色'"
+              placement="bottom"
+            >
+              <button
+                type="button"
+                class="app-footer-link app-footer-btn header-icon-btn"
+                :aria-label="isDark ? '切到亮色' : '切到暗色'"
+                @click="toggleTheme()"
+              >
+                <BulbOutlined />
+              </button>
+            </Tooltip>
           </div>
         </Layout.Header>
-        <Layout.Content :style="{ padding: '24px', background: '#f5f5f5' }">
+
+        <Layout.Content class="app-content">
+          <!-- 二级目录：只在内容区顶部（原型 index.html 的 .pagetabs）。
+               顶栏不再重复一份——两个地方都能切 tab 会让人以为有两种状态。 -->
+          <nav
+            v-if="tabs.length > 1"
+            class="page-tabs"
+          >
+            <button
+              v-for="t in tabs"
+              :key="t.key"
+              type="button"
+              class="page-tab"
+              :class="{ active: activeTab === t.key }"
+              @click="onTab(t.key)"
+            >
+              {{ t.label }}
+            </button>
+          </nav>
           <router-view />
         </Layout.Content>
       </Layout>
@@ -368,44 +405,160 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+/* 全部数值走 design/tokens.css 的变量（ADR-032）：换主题只改变量，页面零改动。 */
+
+.app-root {
+  min-height: 100vh;
+}
+
+.app-sider {
+  overflow: hidden;
+  height: 100vh;
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: var(--gb-color-sider-bg);
+  border-right: 1px solid var(--gb-color-border-secondary);
+  display: flex;
+  flex-direction: column;
+}
+
 /* Sider 内层 children 容器也要撑满高度:否则 footer 会贴到菜单下方而不是屏幕底部 */
 :deep(.ant-layout-sider-children) {
   display: flex;
   flex-direction: column;
   height: 100%;
 }
-/* 一级导航与子菜单标题同字号(18px)，保证「服务」与「网关」一致 */
+
+.app-brand {
+  padding: var(--gb-space-md) var(--gb-space-lg);
+  font-size: var(--gb-font-xl);
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-align: left;
+  /* 侧栏是深底（两种主题都是），品牌字跟 --gb-color-sider-text 走。 */
+  color: var(--gb-color-sider-text);
+}
+.app-brand.collapsed {
+  padding: var(--gb-space-md) 0;
+  text-align: center;
+}
+.app-brand-version {
+  font-size: var(--gb-font-sm);
+  color: var(--gb-color-text-tertiary);
+}
+
+.app-menu {
+  flex: 1;
+  overflow: auto;
+  border-right: 0;
+}
+
 :deep(.app-sider .ant-menu-item),
 :deep(.app-sider .ant-menu-submenu-title) {
-  font-size: 18px;
+  font-size: var(--gb-font-base);
 }
 /* 二级子菜单项字号更小 */
 :deep(.app-sider .ant-menu-sub.ant-menu-inline .ant-menu-item) {
-  font-size: 14px;
+  font-size: var(--gb-font-sm);
   height: 34px;
   line-height: 34px;
 }
-/* 增强已选中的子菜单项：主色底 + 左侧强调条 + 加粗 */
 :deep(.app-sider .ant-menu-sub .ant-menu-item-selected) {
   font-weight: 600;
-  background: #e6f4ff;
-  box-shadow: inset 3px 0 0 #1677ff;
+  background: var(--gb-color-primary-bg);
+  box-shadow: inset 3px 0 0 var(--gb-color-primary);
 }
-.header-row {
+
+.app-footer {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding: var(--gb-space-sm) var(--gb-space-md);
+}
+.app-footer-row {
   display: flex;
-  align-items: stretch;
+  flex: 1;
+  gap: var(--gb-space-sm);
+  flex-direction: row;
+  align-items: center;
   justify-content: space-between;
-  height: 100%;
 }
+.app-footer-row.collapsed {
+  gap: var(--gb-space-sm);
+  flex-direction: column;
+  justify-content: center;
+}
+.app-footer-link {
+  color: var(--gb-color-sider-text);
+  font-size: var(--gb-font-sm);
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+.app-footer-link:hover {
+  color: #ffffff;
+}
+.app-footer-link.is-disabled {
+  color: var(--gb-color-text-tertiary);
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.app-logout {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding: var(--gb-space-md) 0;
+  font-size: var(--gb-font-lg);
+  color: var(--gb-color-sider-text);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--gb-space-sm);
+  flex-shrink: 0;
+  user-select: none;
+}
+.app-logout.collapsed {
+  padding: var(--gb-space-sm) 0;
+}
+.app-logout-icon {
+  font-size: var(--gb-font-lg);
+}
+.app-logout.collapsed .app-logout-icon {
+  font-size: var(--gb-font-sm);
+}
+
+.app-main {
+  margin-left: 190px;
+  transition: margin-left var(--gb-dur-base, 0.2s);
+  background: var(--gb-color-bg-layout);
+}
+.app-main.collapsed {
+  margin-left: 64px;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--gb-space-lg);
+  height: 56px;
+  background: var(--gb-color-bg-container);
+  border-bottom: 1px solid var(--gb-color-border-secondary);
+}
+
 .header-left {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--gb-space-sm);
 }
 .header-right {
   display: flex;
-  align-items: stretch;
-  gap: 16px;
+  align-items: center;
+  gap: var(--gb-space-md);
 }
 .header-task {
   align-self: center;
@@ -416,40 +569,85 @@ onUnmounted(() => {
   justify-content: center;
   width: 32px;
   height: 32px;
-  border-radius: 6px;
-  font-size: 16px;
-  color: #666;
+  border-radius: var(--gb-radius-base);
+  font-size: var(--gb-font-lg);
+  color: var(--gb-color-text-secondary);
   cursor: pointer;
 }
 .collapse-btn:hover {
-  background: #f0f0f0;
-  color: #333;
+  background: var(--gb-color-hover);
+  color: var(--gb-color-text);
 }
-.page-title {
-  font-size: 24px;
-  font-weight: 700;
-}
-.header-tabs {
+
+/* 面包屑替代页面标题（views.md §4）：页面名 + 次级 tab 名，原型 .top .crumb */
+.app-crumb {
   display: flex;
-  gap: 24px;
-  align-items: flex-end;
-  height: 100%;
+  align-items: baseline;
+  gap: var(--gb-space-sm);
+  font-size: var(--gb-font-xl);
+  font-weight: 600;
+  color: var(--gb-color-text);
 }
-.header-tab {
+.app-crumb-sub {
+  font-size: var(--gb-font-sm);
+  font-weight: 400;
+  color: var(--gb-color-text-tertiary);
+}
+
+.app-content {
+  padding: var(--gb-space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--gb-space-md);
+}
+
+/* 顶栏右侧图标按钮：原型 .icon-btn（32×30、描边、圆角 6）。
+   不能复用侧栏底部的 .app-footer-link——那套颜色是给深色侧栏设计的。 */
+.header-icon-btn {
+  width: 32px;
+  height: 30px;
+  border: 1px solid var(--gb-color-border);
+  border-radius: var(--gb-radius-base, 6px);
+  background: var(--gb-color-bg-container);
+  color: var(--gb-color-text-secondary);
+  font-size: var(--gb-font-lg);
+  justify-content: center;
+}
+.header-icon-btn:hover {
+  border-color: var(--gb-color-primary);
+  color: var(--gb-color-primary);
+}
+/* 侧栏底部次级入口的选中态（网关运行时） */
+.app-footer-btn.is-on {
+  color: var(--gb-color-primary);
+}
+
+/* 二级目录条：原型 index.html 的 .pagetabs —— 内容区顶部的通栏 tab 条
+   （背景同面板色、贴边、按压线在底部），不是顶栏里的一排按钮。 */
+.page-tabs {
+  display: flex;
+  gap: 2px;
+  margin: calc(-1 * var(--gb-space-lg)) calc(-1 * var(--gb-space-lg)) var(--gb-space-md);
+  padding: 0 var(--gb-space-lg);
+  background: var(--gb-color-bg-container);
+  border-bottom: 1px solid var(--gb-color-border-secondary);
+}
+.page-tab {
+  border: 0;
+  background: transparent;
+  padding: 11px 14px;
+  margin-bottom: -1px;
   cursor: pointer;
-  display: flex;
-  align-items: flex-end;
-  padding: 0 4px 10px;
-  font-size: 16px;
-  line-height: 1;
-  color: #666;
+  font-size: var(--gb-font-base);
+  color: var(--gb-color-text-secondary);
   border-bottom: 2px solid transparent;
 }
-.header-tab:hover {
-  color: #333;
+.page-tab:hover {
+  color: var(--gb-color-primary);
 }
-.header-tab.active {
-  color: #1677ff;
-  border-bottom-color: #1677ff;
+.page-tab.active {
+  color: var(--gb-color-primary);
+  font-weight: 500;
+  border-bottom-color: var(--gb-color-primary);
 }
 </style>

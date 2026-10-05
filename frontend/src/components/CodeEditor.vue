@@ -43,6 +43,15 @@ let cmCache: any = null
 const editorTheme = ref<'dark' | 'light'>('dark')
 const editorFontSize = ref(13)
 const editorFontFamily = ref('Maple Mono')
+/**
+ * 图标前景色。
+ *
+ * 写成 computed 而不是在模板里三元：v-if 收窄了 editorTheme 的类型，
+ * 再在同一分支里 `editorTheme === 'dark'` 会被 TS 判成永假（TS2367），
+ * 于是这个分支永远拿不到正确颜色。
+ */
+const iconColor = computed(() => (editorTheme.value === 'dark' ? '#abb2bf' : '#333'))
+
 const fontSizeOptions = [12, 13, 14, 16, 18].map((n) => ({ label: `${n}px`, value: n }))
 const fontFamilyOptions = [
   { label: 'Maple Mono', value: 'Maple Mono' },
@@ -307,31 +316,31 @@ const editorStyle = computed(() => {
       style="display: flex; align-items: center; gap: 6px; padding: 4px 8px; flex-shrink: 0">
       <Tooltip title="撤销">
         <Button size="small" type="text" @click="undoEdit">
-          <UndoOutlined :style="{ color: editorTheme === 'dark' ? '#abb2bf' : '#333' }" />
+          <UndoOutlined :style="{ color: iconColor }" />
         </Button>
       </Tooltip>
       <Tooltip title="重做">
         <Button size="small" type="text" @click="redoEdit">
-          <RedoOutlined :style="{ color: editorTheme === 'dark' ? '#abb2bf' : '#333' }" />
+          <RedoOutlined :style="{ color: iconColor }" />
         </Button>
       </Tooltip>
       <Tooltip title="查找">
         <Button size="small" type="text" @click="openSearch">
-          <SearchOutlined :style="{ color: editorTheme === 'dark' ? '#abb2bf' : '#333' }" />
+          <SearchOutlined :style="{ color: iconColor }" />
         </Button>
       </Tooltip>
       <Tooltip :title="editorTheme === 'dark' ? '切换到浅色' : '切换到深色'">
         <Button size="small" type="text" @click="toggleTheme">
-          <BulbOutlined v-if="editorTheme === 'dark'" :style="{ color: editorTheme === 'dark' ? '#abb2bf' : '#333' }" />
-          <BulbFilled v-else :style="{ color: editorTheme === 'dark' ? '#abb2bf' : '#333' }" />
+          <BulbOutlined v-if="editorTheme === 'dark'" :style="{ color: iconColor }" />
+          <BulbFilled v-else :style="{ color: iconColor }" />
         </Button>
       </Tooltip>
-      <Select :value="editorFontSize" :options="fontSizeOptions" size="small" style="width: 72px" @update:value="(v: number) => setFontSize(v)" />
-      <Select :value="editorFontFamily" :options="fontFamilyOptions" size="small" style="width: 120px" @update:value="(v: string) => setFontFamily(v)" />
+      <Select :value="editorFontSize" :options="fontSizeOptions" size="small" style="width: 72px" @update:value="(v) => setFontSize(Number(v))" />
+      <Select :value="editorFontFamily" :options="fontFamilyOptions" size="small" style="width: 120px" @update:value="(v) => setFontFamily(String(v))" />
       <div style="flex: 1"></div>
       <Tooltip title="复制">
         <Button size="small" type="text" @click="copyCode">
-          <CopyOutlined :style="{ color: editorTheme === 'dark' ? '#abb2bf' : '#333' }" />
+          <CopyOutlined :style="{ color: iconColor }" />
         </Button>
       </Tooltip>
     </div>

@@ -8,6 +8,7 @@ const props = defineProps<{ field: ConfigField; options?: FieldOption[] }>()
 const prefix = computed(() => props.field.reference?.prefix ?? '')
 const allowInvert = computed(() => props.field.reference?.allowInvert ?? false)
 const hasOptions = computed(() => (props.options?.length ?? 0) > 0)
+const targetHint = computed(() => (props.field.reference?.types ?? []).join('/'))
 
 const inverted = computed(() => (model.value ?? '').startsWith('!'))
 const tag = computed(() => {
@@ -41,12 +42,16 @@ function rebuild(inv: boolean, nextTag: string) {
       style="flex: 1"
       @change="(v: unknown) => rebuild(inverted, String(v ?? ''))"
     />
+    <!--
+      没有候选对象时**不能**退回自由文本输入：那等于允许手敲一个裸 id，
+      会写出悬空引用（引用了不存在的对象），而且用户根本不知道该敲什么。
+    -->
     <a-input
       v-else
       :value="tag"
-      :placeholder="field.placeholder"
+      disabled
+      :placeholder="`暂无可选的 ${targetHint || '目标对象'}（尚未创建或该类型界面未开放）`"
       style="flex: 1"
-      @change="(e: { target: { value: string } }) => rebuild(inverted, e.target.value)"
     />
   </div>
 </template>

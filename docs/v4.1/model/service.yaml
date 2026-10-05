@@ -1,0 +1,87 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# 对象：服务 Service（编排中的一项；对外发布时被路由引用的「后端」）
+# 结构：源字段（可编辑，平铺）+ status（自动记录，只读，默认折叠）
+# 归属：服务。层级：项目 → 服务 → 路由。
+# 参考：ADR-042 §9.1 / §13 · docs/v4.1/views.md §5
+# ─────────────────────────────────────────────────────────────────────────────
+
+kind: service                         # 对象类型标识（factKind）
+title: 服务                            # 显示名
+group: 服务                            # 归属一级页面
+list: true                            # 多实例
+
+schema:                               # 源字段（可编辑）
+  - key: name                         # 字段键：服务名
+    label: 服务名
+    type: text
+    required: true
+    placeholder: aria-web
+  - key: type                         # 字段键：类型（来自类型目录）
+    label: 类型
+    type: select
+    required: true
+    dynamic: true                     # 选项来自 catalog.service_types
+    description: caddy 内置 reverse_proxy / file_server / redirect / respond；l4_proxy（caddy-l4 插件，未装时置灰）
+  - key: backend                      # 字段键：后端（反代/转发）
+    label: 后端
+    type: object
+    full: true
+    description: 'host（主机名）+ deployment（部署名，可选）+ port；后端地址由「容器端口 → 宿主端口 → 主机地址」推导。route.backend 是路由自持的同一形状。类型专属参数（upstreamProto / root / healthUri…）不在此重复声明，一律由 catalog.service_types 按 type 追加'
+    fields:
+      - key: host                     # 主机名（引用 host 对象）
+        label: 主机
+        type: text
+        required: true
+        placeholder: nas
+      - key: deployment               # 部署名（引用：docker compose project / app）
+        label: 部署
+        type: text
+        advanced: true
+        description: 留空表示「宿主直连」（无编排）；填了则从该部署的端口映射里解析宿主端口
+      - key: port                     # 端口
+        label: 端口
+        type: number
+        required: true
+        placeholder: 6880
+  - key: enabled                      # 字段键：启用
+    label: 启用
+    type: switch
+    default: true
+
+status:                               # 自动记录（只读）· kind: observed 观测 / derived 派生 / linked 关联
+  - key: state                        # 运行状态
+    label: 状态
+    kind: observed
+    enum: [运行中, 未运行, 依赖缺失]
+    tone: { 运行中: ok, 未运行: off, 依赖缺失: err }
+    note: 运行中 / 未运行 / 依赖缺失
+  - key: upstreamAddr                 # 解析出的上游地址
+    label: 上游地址
+    kind: derived
+    note: 由 host + 端口推导（如 192.168.1.20:6880）
+  - key: host                         # 系统关联的主机（仅呈现）
+    label: 主机
+    kind: linked
+    note: 系统自动关联，不进表单
+  - key: container                    # 系统关联的容器（仅呈现）
+    label: 容器
+    kind: linked
+    note: 系统自动关联，不进表单
+
+example:
+  - name: aria-web                    # 手动反代（宿主直连）
+    type: reverse_proxy
+    backend: { host: nas, port: 6880 }
+    upstreamProto: http
+    enabled: true
+    status: { state: 运行中, upstreamAddr: 192.168.1.20:6880 }
+  - name: router-web
+    type: reverse_proxy
+    backend: { host: edge, port: 80 }
+    enabled: true
+    status: { state: 运行中, upstreamAddr: 192.168.1.10:80 }
+  - name: flare-home                  # 由部署派生（deployment）
+    type: reverse_proxy
+    backend: { host: nas, deployment: flare-home, port: 5005 }
+    enabled: true
+    status: { state: 运行中, upstreamAddr: 192.168.1.20:5005 }

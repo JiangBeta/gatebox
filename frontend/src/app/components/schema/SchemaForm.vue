@@ -46,17 +46,20 @@ watch(
     <SchemaField
       v-for="f in regular"
       :key="f.key"
+      v-model="values[f.key]"
       :field="f"
       :reference-options="referenceOptions"
-      v-model="values[f.key]"
     />
-    <SchemaAdvancedSection v-if="advanced.length > 0" v-model:open="advancedOpen">
+    <SchemaAdvancedSection
+      v-if="advanced.length > 0"
+      v-model:open="advancedOpen"
+    >
       <SchemaField
         v-for="f in advanced"
         :key="f.key"
+        v-model="values[f.key]"
         :field="f"
         :reference-options="referenceOptions"
-        v-model="values[f.key]"
       />
     </SchemaAdvancedSection>
   </a-form>

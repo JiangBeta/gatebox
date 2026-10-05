@@ -206,7 +206,8 @@
 | **入口点（EntryPoint）** | **协议 → 端口（一对多）** 的监听定义（`http: [80,8080]` / `https: [443,9443]` / `tcp` / `udp`）。对应 Traefik EntryPoints（ADR-042 §13） |
 | **项目（Project）** | 多个服务组成的**组合**（一份 compose / 一份编排），可含多个服务。以 docker 项目为基础，泛化到其他项目 |
 | **服务（Service）** | 编排中的**一项**（一个容器 / compose 的一个 service）；可有多个端口发布 → **包含多条路由** |
-| **路由（Route）** | **一个转发，后端为 1 个端口**；含 域名 / 入口点+端口 / 中间件 / TLS / 类型 / 后端。六类型 `reverse_proxy / file_server / redirect / respond / tcp_proxy / udp_proxy`（后两者依赖 caddy-l4） |
+| **路由（Route）** | **一个转发，目标为 1 个 `host:端口`**；含 域名 / 入口点+端口 / 中间件 / TLS / 后端 `backend{host,port}`。**自足对象**：后端地址随路由保存；`service` 为可选引用，仅用于展示与健康关联（ADR-043 §2） |
+| **服务类型（ServiceType）** | 类型目录里的服务类型。caddy 内置 4 个：`reverse_proxy` / `file_server` / `redirect` / `respond`；插件提供 `l4_proxy`（四层转发合一，`network` 参数区分 tcp/udp，依赖 caddy-l4）。**类型属于服务，不属于路由** |
 
 > 层级：**项目 → 服务 → 路由**。网关页列的是**路由**。
 | **中间件（Middleware）** | 请求/响应处理；结构化（encode/basic_auth/headers/websocket/rewrite）+ 自由文本逃生舱 `code`。对应 Traefik Middlewares |

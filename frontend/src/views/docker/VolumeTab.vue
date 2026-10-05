@@ -5,10 +5,17 @@ import {
   Table, Tag, Button, Space, Modal, Drawer, Typography, Tooltip, Input, Select, Popover, Alert, Empty, message,
 } from 'ant-design-vue'
 import { listVolumes, removeVolume, pruneVolumes, createVolume, type VolumeView } from '../../api/docker'
+import HostBar from '../../app/components/HostBar.vue'
+import { countByHost, useHostFilter } from '../../app/composables/useHostFilter'
 
 const [messageApi, contextHolder] = message.useMessage()
 
+// 主机维度（V4.1）：卷按主机筛选；「清理未使用」是 daemon 级操作，
+// 只能落在本机（role=edge），筛到别的主机时按钮禁用。
+const { filter: hostFilter, match: hostMatch, isOnline: hostIsOnline, setCounts, localName, isLocal } = useHostFilter()
+
 const volumes = ref<VolumeView[]>([])
+const shownVolumes = computed(() => volumes.value.filter((v) => hostMatch(v.host)))
 const loading = ref(true)
 const loadError = ref('')
 const warnings = ref<string[]>([])
@@ -44,7 +51,17 @@ function fmtTime(s: string): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
-const unusedCount = computed(() => volumes.value.filter((v) => !v.inUse).length)
+const unusedCount = computed(() => shownVolumes.value.filter((v) => !v.inUse).length)
+
+/**
+ * pruneTarget 清理实际会作用到哪台主机。
+ *
+ * prune 是 daemon 级 API（POST /docker/volumes/prune），当前只连本机 daemon。
+ * 所以筛到别的主机时它并不会清那台——按钮必须禁用并说明，
+ * 不能让文案写着「主机 X」实际删本机的卷。
+ */
+const pruneTarget = computed(() => (hostFilter.value === 'all' ? localName.value : hostFilter.value))
+const pruneAllowed = computed(() => isLocal(pruneTarget.value) && hostIsOnline(pruneTarget.value))
 
 async function load() {
   loading.value = true
@@ -53,6 +70,7 @@ async function load() {
     volumes.value = res.volumes
     warnings.value = res.warnings || []
     loadError.value = ''
+    setCounts(countByHost(res.volumes))
   } catch (e: any) {
     loadError.value = e.message || '加载失败'
   } finally {
@@ -61,10 +79,27 @@ async function load() {
 }
 
 function renderUsage(row: VolumeView) {
+  // 主机离线 → 用量判不出来（要遍历容器）。显示「未知」，别显示「未使用」：
+  // 后者会让「清理未使用」把在用卷当成孤儿卷删掉。
+  if (!hostIsOnline(row.host)) {
+    return h(Tag, { size: 'small' }, { default: () => '未知' })
+  }
   if (!row.inUse) return h(Tag, { size: 'small' }, { default: () => '未使用' })
   return h(Tooltip, { title: '被容器使用: ' + (row.containers || []).join(', ') }, {
     default: () => h(Tag, { size: 'small', color: 'warning' }, { default: () => '使用中' }),
   })
+}
+
+/** renderHostCell 主机列：在线点 + 主机名。 */
+function renderHostCell(name?: string) {
+  if (!name) return h('span', { style: 'color:#999' }, '—')
+  const on = hostIsOnline(name)
+  return h('div', { style: 'display:flex;align-items:center;gap:6px' }, [
+    h('span', {
+      style: `display:inline-block;width:7px;height:7px;border-radius:50%;background:${on ? '#52c41a' : '#ff4d4f'}`,
+    }),
+    h('span', {}, name),
+  ])
 }
 
 const columns = [
@@ -75,6 +110,12 @@ const columns = [
     width: 160,
     customRender: ({ record }: { record: VolumeView }) =>
       h('div', { style: 'font-weight: 500; overflow:hidden;text-overflow:ellipsis;white-space:nowrap' }, record.displayName || '—'),
+  },
+  {
+    title: '主机',
+    key: 'host',
+    width: 110,
+    customRender: ({ record }: { record: VolumeView }) => renderHostCell(record.host),
   },
   {
     title: 'ID',
@@ -116,17 +157,23 @@ const columns = [
     key: 'actions',
     width: 90,
     fixed: 'right' as const,
-    customRender: ({ record }: { record: VolumeView }) =>
-      h(Tooltip, { title: record.inUse ? '被容器使用: ' + (record.containers || []).join(', ') : '' }, {
+    customRender: ({ record }: { record: VolumeView }) => {
+      const offline = !hostIsOnline(record.host)
+      return h(Tooltip, {
+        title: offline
+          ? `主机 ${record.host} 离线（agent 不可达），无法删除`
+          : record.inUse ? '被容器使用: ' + (record.containers || []).join(', ') : '',
+      }, {
         default: () =>
           h(Button, {
             size: 'small',
             danger: true,
             ghost: true,
-            disabled: record.inUse,
+            disabled: record.inUse || offline,
             onClick: () => (removeTarget.value = record),
           }, { default: () => '删除' }),
-      }),
+      })
+    },
   },
 ]
 
@@ -197,22 +244,37 @@ onMounted(load)
 
   <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px">
     <div style="font-size: 13px; color: #666">
-      共 {{ volumes.length }} 个卷 · {{ unusedCount }} 个未使用
+      共 {{ shownVolumes.length }} 个卷 · {{ unusedCount }} 个未使用
     </div>
     <Space>
-      <Button size="small" type="default" ghost danger :disabled="unusedCount === 0" @click="pruneShow = true">
-        清理未使用
-      </Button>
+      <Tooltip
+        :title="pruneAllowed ? '' : `清理由本机 Docker（${localName}）执行，${hostFilter === 'all' ? '' : `当前筛选的是 ${hostFilter}，`}远端主机接入 Agent 后才支持按主机清理`"
+      >
+        <span>
+          <Button
+            size="small"
+            type="default"
+            ghost
+            danger
+            :disabled="unusedCount === 0 || !pruneAllowed"
+            @click="pruneShow = true"
+          >
+            清理未使用
+          </Button>
+        </span>
+      </Tooltip>
       <Button size="small" type="primary" @click="openCreate">+ 创建卷</Button>
     </Space>
   </div>
 
+  <HostBar resource="volumes" />
+
   <Table
     :columns="columns"
-    :data-source="volumes"
+    :data-source="shownVolumes"
     :loading="loading"
     :row-key="(record: VolumeView) => record.name"
-    :scroll="{ x: 940 }"
+    :scroll="{ x: 1050 }"
     size="small"
   />
 
@@ -229,8 +291,11 @@ onMounted(load)
   >
     <div style="display: flex; flex-direction: column; gap: 10px">
       <span>
-        将删除全部 <b>{{ unusedCount }}</b> 个未被任何容器使用的卷，释放被占用的磁盘空间。
+        将删除主机 <b>{{ pruneTarget }}</b> 上全部 <b>{{ unusedCount }}</b> 个未被任何容器使用的卷，释放被占用的磁盘空间。
       </span>
+      <Typography.Text type="secondary" style="font-size: 12px">
+        清理由本机 Docker（{{ localName }}）执行；远端主机接入 Agent 后才支持按主机下发。
+      </Typography.Text>
       <Typography.Text type="secondary" style="font-size: 12px">
         孤儿卷是 HomeLab 磁盘被吃满的常见原因。已使用中的卷不会被删除。
       </Typography.Text>

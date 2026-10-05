@@ -42,6 +42,18 @@ function validateField(f: ConfigFieldChild, v: FormValue, errs: string[]): void 
       return
     }
     default:
-      if (f.required && isEmpty(v)) errs.push(`${f.label} 必填`)
+      if (f.required && isEmpty(v)) {
+        errs.push(`${f.label} 必填`)
+        return
+      }
+      if (isEmpty(v)) return
+      // 模型里声明的约束（pattern / minLength）在这里兑现，
+      // 免得前端放过、后端 422，来回一趟才发现。
+      if (f.minLength && String(v).length < f.minLength) {
+        errs.push(`${f.label} 至少 ${f.minLength} 位`)
+      }
+      if (f.pattern && !new RegExp(f.pattern).test(String(v))) {
+        errs.push(`${f.label} 格式不合法`)
+      }
   }
 }

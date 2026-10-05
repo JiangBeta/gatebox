@@ -2,21 +2,105 @@
  * 设计 token 的 CSS 变量形态（`tokens.ts` 的镜像）。
  *
  * module 层 `.vue` 的样式禁止字面量（ADR-032 / docs/architecture.md §9.3），
- * 一律引用这里的变量。数值与 tokens.ts 保持一致。
+ * 一律引用这里的变量。数值与 tokens.ts 保持一致，并且与 8091 原型
+ * （docs/v4.1/prototype/index.html 的 `:root` / `[data-theme=light]`）逐条对齐。
+ *
+ * 暗色：`<html data-theme="dark">` 覆盖语义变量。antd 组件自身的配色由
+ * ConfigProvider 的 darkAlgorithm 负责，本文件只管自定义样式那部分——
+ * 两者同源（tokens.ts），所以切主题不需要改任何页面。
  */
-:root {
+:root,
+[data-theme='dark'] {
+  /* 间距 */
   --gb-space-xs: 4px;
   --gb-space-sm: 8px;
   --gb-space-md: 16px;
   --gb-space-lg: 24px;
   --gb-space-xl: 32px;
+  --gb-space-xxl: 48px;
 
+  /* 字号 */
   --gb-font-xs: 12px;
   --gb-font-sm: 14px;
+  --gb-font-base: 14px;
   --gb-font-lg: 16px;
   --gb-font-xl: 20px;
+  --gb-font-xxl: 24px;
 
+  /* 圆角 */
   --gb-radius-sm: 4px;
   --gb-radius-base: 6px;
   --gb-radius-lg: 8px;
+  --gb-radius-xl: 12px;
+
+  /* 暗色语义色（原型默认主题） */
+  --gb-color-primary: #4096ff;
+  --gb-color-primary-bg: rgba(64, 150, 255, 0.16);
+  --gb-color-primary-active: #6cb0ff;
+  --gb-color-success: #3fb950;
+  --gb-color-success-bg: rgba(63, 185, 80, 0.16);
+  --gb-color-warning: #d29922;
+  --gb-color-warning-bg: rgba(210, 153, 34, 0.16);
+  --gb-color-error: #f85149;
+  --gb-color-error-bg: rgba(248, 81, 73, 0.16);
+
+  --gb-color-text: #e6e9ef;
+  --gb-color-text-secondary: #98a2b3;
+  --gb-color-text-tertiary: rgba(230, 233, 239, 0.45);
+  --gb-color-border: #2a3342;
+  --gb-color-border-secondary: #2a3342;
+  --gb-color-bg-layout: #12161d;
+  --gb-color-bg-container: #1b212c;
+  --gb-color-bg-elevated: #202836;
+  --gb-color-bg-header: #171d27;
+  --gb-color-bg-soft: #202836;
+  --gb-color-field: #12161d;
+  --gb-color-sider-bg: #0b0f16;
+  --gb-color-sider-text: #c9d1d9;
+  --gb-color-hover: #1d2635;
+
+  /* 状态徽标（对象 status.state） */
+  --gb-state-applied: #3fb950;
+  --gb-state-pending: #d29922;
+  --gb-state-error: #f85149;
+  --gb-state-disabled: rgba(230, 233, 239, 0.45);
+
+  --gb-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --gb-shadow-base: 0 6px 16px rgba(0, 0, 0, 0.5);
+}
+
+[data-theme='light'] {
+  --gb-color-primary: #1677ff;
+  --gb-color-primary-bg: #e6f4ff;
+  --gb-color-primary-active: #0958d9;
+  --gb-color-success: #22c55e;
+  --gb-color-success-bg: #f0fdf4;
+  --gb-color-warning: #f59e0b;
+  --gb-color-warning-bg: #fffbeb;
+  --gb-color-error: #ef4444;
+  --gb-color-error-bg: #fef2f2;
+
+  --gb-color-text: #1f2329;
+  --gb-color-text-secondary: #6b7280;
+  --gb-color-text-tertiary: rgba(0, 0, 0, 0.25);
+  --gb-color-border: #dfe3e8;
+  --gb-color-border-secondary: #e3e6eb;
+  --gb-color-bg-layout: #f5f6f8;
+  --gb-color-bg-container: #ffffff;
+  --gb-color-bg-elevated: #ffffff;
+  --gb-color-bg-header: #fafbfc;
+  --gb-color-bg-soft: #f6f8fa;
+  --gb-color-field: #ffffff;
+  /* 原型亮色主题的侧栏也是深底。 */
+  --gb-color-sider-bg: #001529;
+  --gb-color-sider-text: #c9d1d9;
+  --gb-color-hover: #f7f9ff;
+
+  --gb-state-applied: #22c55e;
+  --gb-state-pending: #f59e0b;
+  --gb-state-error: #ef4444;
+  --gb-state-disabled: rgba(0, 0, 0, 0.38);
+
+  --gb-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --gb-shadow-base: 0 6px 16px rgba(0, 0, 0, 0.12);
 }

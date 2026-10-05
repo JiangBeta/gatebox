@@ -10,10 +10,16 @@ import {
   type ImageView, type PullProgress,
 } from '../../api/docker'
 import RegistryModal from '../../components/RegistryModal.vue'
+import HostBar from '../../app/components/HostBar.vue'
+import { countByHost, useHostFilter } from '../../app/composables/useHostFilter'
 
 const [messageApi, contextHolder] = message.useMessage()
 
+// 主机维度（V4.1）：镜像按主机筛选；离线主机的「是否使用」不可判，删除禁用。
+const { match: hostMatch, isOnline: hostIsOnline, setCounts } = useHostFilter()
+
 const images = ref<ImageView[]>([])
+const shownImages = computed(() => images.value.filter((i) => hostMatch(i.host)))
 const loading = ref(true)
 const loadError = ref('')
 const infoArch = ref('')
@@ -51,13 +57,14 @@ function fmtTime(s: string): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
-const totalSize = computed(() => images.value.reduce((a, i) => a + i.size, 0))
+const totalSize = computed(() => shownImages.value.reduce((a, i) => a + i.size, 0))
 
 async function load() {
   loading.value = true
   try {
     images.value = await listImages()
     loadError.value = ''
+    setCounts(countByHost(images.value))
   } catch (e: any) {
     loadError.value = e.message || '加载失败'
   } finally {
@@ -80,14 +87,32 @@ function renderName(row: ImageView) {
 }
 
 function renderUsage(row: ImageView) {
+  // 主机离线 → 「是否使用」判不出来（要逐个 inspect 容器）。显示「未知」而不是
+  // 「未使用」：后者会让用户以为删了镜像没事，实际删不掉。
+  if (!hostIsOnline(row.host)) {
+    return h(Tag, { bordered: false, color: 'default' }, { default: () => '未知' })
+  }
   if (!row.inUse) return h(Tag, { bordered: false }, { default: () => '未使用' })
   return h(Tooltip, { title: '被容器使用: ' + (row.containers || []).join(', ') }, {
     default: () => h(Tag, { color: 'warning', bordered: false }, { default: () => '使用中' }),
   })
 }
 
+/** renderHostCell 主机列：在线点 + 主机名，离线时附提示。 */
+function renderHostCell(name?: string) {
+  if (!name) return h('span', { style: 'color:#999' }, '—')
+  const on = hostIsOnline(name)
+  return h('div', { style: 'display:flex;align-items:center;gap:6px' }, [
+    h('span', {
+      style: `display:inline-block;width:7px;height:7px;border-radius:50%;background:${on ? '#52c41a' : '#ff4d4f'}`,
+    }),
+    h('span', {}, name),
+  ])
+}
+
 const columns = computed(() => [
   { title: '名称', dataIndex: 'name', key: 'name', width: 240, customRender: ({ record }: { record: ImageView }) => renderName(record) },
+  { title: '主机', key: 'host', width: 120, customRender: ({ record }: { record: ImageView }) => renderHostCell(record.host) },
   { title: '架构', dataIndex: 'arch', key: 'arch', width: 120, customRender: ({ record }: { record: ImageView }) => statCell(record.arch || '-') },
   { title: '大小', dataIndex: 'size', key: 'size', width: 90, customRender: ({ record }: { record: ImageView }) => statCell(fmtBytes(record.size)) },
   { title: '是否使用', key: 'usage', width: 100, customRender: ({ record }: { record: ImageView }) => renderUsage(record) },
@@ -97,17 +122,22 @@ const columns = computed(() => [
     key: 'actions',
     width: 90,
     fixed: 'right' as const,
-    customRender: ({ record }: { record: ImageView }) =>
-      h(Tooltip, { title: record.inUse ? '被容器使用: ' + (record.containers || []).join(', ') : '' }, {
+    customRender: ({ record }: { record: ImageView }) => {
+      const offline = !hostIsOnline(record.host)
+      const tip = offline
+        ? `主机 ${record.host} 离线（agent 不可达），无法删除`
+        : record.inUse ? '被容器使用: ' + (record.containers || []).join(', ') : ''
+      return h(Tooltip, { title: tip }, {
         default: () =>
           h(Button, {
             size: 'small',
             danger: true,
             ghost: true,
-            disabled: record.inUse,
+            disabled: record.inUse || offline,
             onClick: () => (removeTarget.value = record),
           }, { default: () => '删除' }),
-      }),
+      })
+    },
   },
 ])
 
@@ -238,7 +268,7 @@ onMounted(async () => {
 
   <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px">
     <div style="font-size: 13px; color: #666">
-      共 {{ images.length }} 个镜像 · 合计 {{ fmtBytes(totalSize) }}
+      共 {{ shownImages.length }} 个镜像 · 合计 {{ fmtBytes(totalSize) }}
     </div>
     <Space>
       <Button size="small" @click="importShow = true">导入镜像</Button>
@@ -247,12 +277,14 @@ onMounted(async () => {
     </Space>
   </div>
 
+  <HostBar resource="images" />
+
   <Table
     :columns="columns"
-    :data-source="images"
+    :data-source="shownImages"
     :loading="loading"
     :row-key="(record: ImageView) => record.id"
-    :scroll="{ x: 792 }"
+    :scroll="{ x: 912 }"
     size="small"
   />
 

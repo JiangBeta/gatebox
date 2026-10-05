@@ -23,6 +23,10 @@ func RegisterObserve(mux *http.ServeMux, bus *observe.Bus, reg *component.CoreRe
 	mux.HandleFunc("GET /api/v1/events", func(w http.ResponseWriter, r *http.Request) {
 		serveEvents(w, r, bus)
 	})
+	// 任务中心专用别名（ADR-043 §6）：同一个 bus、同一份事件，只是路径语义更准。
+	mux.HandleFunc("GET /api/v1/runs/stream", func(w http.ResponseWriter, r *http.Request) {
+		serveEvents(w, r, bus)
+	})
 
 	// 组件级观测。
 	mux.HandleFunc("GET /api/v1/components/{id}/status", func(w http.ResponseWriter, r *http.Request) {

@@ -14,6 +14,7 @@ import (
 	"github.com/JiangBeta/gatebox/internal/adapter/docker/compose"
 	"github.com/JiangBeta/gatebox/internal/adapter/docker/hostprobe"
 	"github.com/JiangBeta/gatebox/internal/adapter/docker/stats"
+	"github.com/JiangBeta/gatebox/internal/objects"
 	"github.com/JiangBeta/gatebox/internal/repository"
 )
 
@@ -155,6 +156,12 @@ const (
 	sourceLoose    = "loose"    // docker run 起的游离容器
 )
 
+// localHostName 本轮后端只连本机 daemon，所有 docker 资源都归本机 edge。
+//
+// 恒量而非留空：前端主机条要按 host 名做筛选与计数，留空会让「按主机筛选」
+// 永远匹配不到（所有资源看起来都不属于任何主机）。
+const localHostName = objects.EdgeHostID
+
 type portView struct {
 	IP        string `json:"ip,omitempty"`
 	Host      uint16 `json:"host,omitempty"`
@@ -163,12 +170,17 @@ type portView struct {
 }
 
 type containerView struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Image   string `json:"image"`
-	State   string `json:"state"`
-	Status  string `json:"status"`
-	Source  string `json:"source"`
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Image  string `json:"image"`
+	State  string `json:"state"`
+	Status string `json:"status"`
+	Source string `json:"source"`
+	// Host 资源所在主机名（V4.1 主机维度，ADR-042 §13）。
+	//
+	// 本轮后端只连本机 daemon，所以恒为本机 edge 名——但字段必须给出来：
+	// 前端据此渲染「主机」列与主机条筛选，等接上 agent 时无需改列表契约。
+	Host    string `json:"host"`
 	Project string `json:"project,omitempty"`
 	Service string `json:"service,omitempty"`
 
@@ -188,7 +200,11 @@ type containerView struct {
 	MemoryLimit   uint64  `json:"memoryLimit"`
 	MemoryPercent float64 `json:"memoryPercent"`
 
-	Host hostprobe.Host `json:"host"` // 宿主机资源快照(每核 CPU/频率/内存)
+	// HostStats 宿主机资源快照(每核 CPU/频率/内存)。
+	//
+	// 键名从 host 改成 hostStats：V4.1 把 host 用作「资源所在主机名」
+	// （主机维度，ADR-042 §13），资源快照改走 hostStats，两者不再抢同一个键。
+	HostStats hostprobe.Host `json:"hostStats"`
 }
 
 // --- 处理器 ---
@@ -354,7 +370,8 @@ func buildView(ct client.Container, det *client.ContainerDetail, sample stats.Sa
 		Service:   ct.ComposeService(),
 		CreatedAt: ct.CreatedAt(),
 		Ports:     make([]portView, 0, len(ct.Ports)),
-		Host:      host,
+		Host:      localHostName,
+		HostStats: host,
 	}
 
 	v.Source = sourceLoose

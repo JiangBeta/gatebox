@@ -46,7 +46,9 @@ export interface ContainerView {
   memoryUsage: number
   memoryLimit: number
   memoryPercent: number
-  host?: HostStats
+  /** 资源所在主机名(V4.1 主机维度)。本轮后端只连本机 daemon,恒为 edge。 */
+  host?: string
+  hostStats?: HostStats
 }
 
 export interface DockerInfo {
@@ -111,9 +113,19 @@ export interface LogMessage {
   error?: string
 }
 
+/**
+ * 资源所在主机名（V4.1 主机维度，ADR-042 §13）。
+ *
+ * 所有 docker 资源类型都带它：容器 / 编排 / 镜像 / 网络 / 卷在同一批主机上，
+ * 主机条筛选与「主机」列需要统一的字段名。本轮后端只连本机 daemon，故恒为 edge。
+ */
+export interface ResourceHost {
+  host?: string
+}
+
 // --- 镜像 ---
 
-export interface ImageView {
+export interface ImageView extends ResourceHost {
   id: string
   names: string[]
   digests: string[]
@@ -122,6 +134,7 @@ export interface ImageView {
   createdAt: string
   inUse: boolean
   containers?: string[]
+  host?: string
 }
 
 export interface PullProgress {
@@ -135,7 +148,7 @@ export interface PullProgress {
 
 // --- 网络 ---
 
-export interface NetworkView {
+export interface NetworkView extends ResourceHost {
   id: string
   name: string
   driver: string
@@ -146,7 +159,6 @@ export interface NetworkView {
   gateway?: string
   createdAt: string
 }
-
 export interface NetworkDetail {
   id: string
   name: string
@@ -162,7 +174,7 @@ export interface NetworkDetail {
 
 // --- 存储卷 ---
 
-export interface VolumeView {
+export interface VolumeView extends ResourceHost {
   name: string
   displayName: string
   driver: string
@@ -294,7 +306,7 @@ export async function updateDaemon(input: {
 
 // --- 编排(docs §3.2) ---
 
-export interface ComposeView {
+export interface ComposeView extends ResourceHost {
   projectName: string
   displayName: string
   source: 'managed' | 'external'

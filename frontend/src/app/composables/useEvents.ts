@@ -3,7 +3,8 @@ import { subscribeEvents } from '@/api/events'
 import type { ObserveEvent, Run } from '@/shared/observe'
 
 /**
- * 单一 SSE 订阅（应用级单例）：把 state/activity/run 事件分发到响应式状态。
+ * 单一 SSE 订阅（应用级单例）：把 state/activity/run 事件分发到响应式状态，
+ * 并把事件转播给其他订阅者（顶部横幅、任务角标等）。
  * 避免每个组件各开一条 EventSource。
  */
 const states = ref<Record<string, string>>({})
@@ -11,6 +12,9 @@ const activities = ref<Record<string, { task?: string; step?: string }>>({})
 const runSteps = ref<Record<string, string>>({})
 const activeRun = ref<Run | null>(null)
 let started = false
+
+type RunListener = (runId: string | null, state: string) => void
+const runListeners = new Set<RunListener>()
 
 export function useEvents() {
   if (!started) {
@@ -36,8 +40,30 @@ export function useEvents() {
           // run 结束：保留高亮直到下一次 run。
           activeRun.value = data as unknown as Run
         }
+        notifyRun(String(ev.runId ?? ''), String(data?.state ?? ''))
       }
     })
   }
-  return { states, activities, runSteps, activeRun }
+  return { states, activities, runSteps, activeRun, onRun }
+}
+
+/**
+ * onRun 订阅 run 生命周期事件（开始 / 结束），返回退订函数。
+ *
+ * 供任务角标重拉列表用。透传事件而非轮询：轮询会在无任务时空转，
+ * 而 run 的开始与结束本来就有事件可挂。
+ */
+export function onRun(fn: RunListener): () => void {
+  runListeners.add(fn)
+  return () => { runListeners.delete(fn) }
+}
+
+function notifyRun(runId: string, state: string) {
+  for (const fn of runListeners) {
+    try {
+      fn(runId, state)
+    } catch {
+      /* 单个订阅者出错不影响其他订阅者 */
+    }
+  }
 }

@@ -1,0 +1,79 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# 对象：用户 User（basic_auth 的用户库）
+# 结构：源字段（可编辑，平铺）+ status（自动记录，只读，默认折叠）
+# 归属：设置。密码为「只写」字段：不回显、不进对象文本，保存时生成 bcrypt 哈希。
+# 关联：服务 · 中间件（type=basic_auth）的 users 字段以 id 引用本对象。
+# 参考：ADR-020 §basic_auth · ADR-033（frag-basic-auth 待接入用户库）
+# ─────────────────────────────────────────────────────────────────────────────
+
+kind: user                           # 对象类型标识（factKind）
+title: 用户                           # 显示名
+group: 设置                           # 归属一级页面
+list: true                           # 多实例
+
+schema:                              # 源字段（可编辑）
+  - key: name                        # 用户名（Caddy basic_auth 的登录名）
+    label: 用户名
+    type: text
+    required: true
+    pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+    placeholder: admin
+    description: 主键，被 basic_auth 中间件引用；重命名须级联更新引用
+  - key: displayName                 # 显示名 / 备注
+    label: 显示名
+    type: text
+    placeholder: 系统管理员
+  - key: enabled                     # 启用
+    label: 启用
+    type: switch
+    default: true
+    description: 停用后不再允许登录（哈希仍随 basic_auth 下发）
+
+# 只写字段（不进对象文本 / 交换文件 / 抽屉 YAML）
+writeOnly:
+  - key: password                    # 密码：仅写入，保存时 bcrypt(cost 14)
+    label: 密码
+    type: password
+    required: true                    # 新建必填；编辑时留空表示不修改
+    confirm: true                     # 表单需二次输入「确认密码」，两次一致才可保存
+    minLength: 8
+    description: 不回显、不落对象文本；basic_auth 解析引用时取该哈希
+
+status:                              # 自动记录 status（只读，YAML 默认折叠）
+  - key: passwordSet                 # 是否已设置密码
+    label: 密码
+    note: 只写字段，前端仅得「是否已设置」
+  - key: hashAlgorithm               # 哈希算法
+    label: 哈希算法
+    kind: derived
+    note: bcrypt（cost 14）；写 Caddyfile 时解析为 basic_auth 账户
+  - key: refCount                    # 引用数
+    label: 引用数
+    kind: derived
+    note: 引用该用户的 basic_auth 中间件数量；删除前须做引用检查
+  - key: lastUsedAt                  # 最近使用
+    label: 最近使用
+    note: basic_auth 校验命中该账户的最近时间
+  - key: passwordUpdatedAt           # 密码更新时间
+    label: 密码更新
+    note: 最近一次设置 / 重置密码的时间
+
+example:
+  - name: admin                      # 用户名（主键）
+    displayName: 系统管理员
+    enabled: true
+    status:
+      passwordSet: true
+      hashAlgorithm: bcrypt(cost 14)
+      refCount: 1
+      lastUsedAt: 2026-09-21T22:10:00Z
+      passwordUpdatedAt: 2026-08-20T10:00:00Z
+  - name: beta
+    displayName: 自用（局域网）
+    enabled: true
+    status:
+      passwordSet: true
+      hashAlgorithm: bcrypt(cost 14)
+      refCount: 1
+      lastUsedAt: 2026-09-21T20:41:00Z
+      passwordUpdatedAt: 2026-09-20T10:00:00Z

@@ -1,0 +1,122 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# 对象：插件 Plugin（可独立安装 / 升级、独立运行的工具，黑盒）
+# 结构：源字段（可编辑，平铺）+ status（自动记录，只读，默认折叠）
+# 系统插件默认自带（caddy / acme.sh / docker）；外部插件后续安装（ddns-go / caddy-l4 …）。
+# GateBox 对插件只做三件事：配置 / 触发 / 观测。归属：组件 → 插件商店。
+# 参考：ADR-042 §2 · model.PluginState
+# ─────────────────────────────────────────────────────────────────────────────
+
+kind: plugin                          # 对象类型标识（factKind）
+title: 插件                            # 显示名
+group: 组件                            # 归属一级页面
+list: true                            # 多实例
+
+schema:                               # 源字段（可编辑）
+  - key: id                           # 字段键：标识
+    label: 标识                        # 显示标签
+    type: text                        # 控件：单行文本
+    readonly: true                    # 只读（身份）
+    description: 唯一标识，如 caddy / caddy-l4
+  - key: name                         # 字段键：名称
+    label: 名称
+    type: text
+    readonly: true
+  - key: type                         # 字段键：类型
+    label: 类型
+    type: select
+    readonly: true
+    options:                          # 下拉选项
+      - { label: 系统（默认自带）, value: 系统 }   # 系统插件
+      - { label: 外部（后续安装）, value: 外部 }   # 外部插件
+  - key: form                         # 字段键：形态
+    label: 形态
+    type: select
+    readonly: true
+    options:                          # 形态决定安装方式
+      - { label: caddy 模块（需重建）, value: caddy-module }
+      - { label: sidecar 进程, value: process }
+      - { label: 纯配置, value: config-only }
+    description: 决定安装方式与是否需要重建 caddy
+  - key: channel                      # 字段键：发布通道
+    label: 通道
+    type: select
+    readonly: true
+    options:
+      - { label: stable, value: stable }
+      - { label: beta, value: beta }
+  - key: description                  # 字段键：说明
+    label: 说明
+    type: textarea                    # 控件：多行文本
+
+# 自动记录 status（只读，YAML 默认折叠）
+status:
+  - key: state                        # 安装 / 运行状态（观测）
+    label: 状态
+    note: 未安装 / 已安装 / 已启用 / 已停用 / 错误
+  - key: version                      # 当前版本（观测）
+    label: 版本
+    note: 已安装版本；来自安装记录 / 探测
+  - key: installedAt                  # 安装时间（观测）
+    label: 安装时间
+    note: 未安装则为空
+
+example:                              # 模拟数据基础
+  - id: caddy                         # 标识
+    name: Caddy                       # 名称
+    type: 系统                         # 系统插件（默认自带）
+    form: caddy-module                # caddy 模块
+    channel: stable                   # 通道
+    description: HTTP 服务器与反向代理（系统核心）
+    status:                           # 自动记录（只读）
+      state: 已启用                    # 运行中
+      version: v2.10.0                # 当前版本
+      installedAt: 2026-09-14T10:00:00Z
+  - id: acme.sh                       # 标识
+    name: acme.sh                     # 名称
+    type: 系统                         # 系统插件
+    form: process                     # sidecar 进程
+    channel: stable
+    description: ACME 证书签发与续期
+    status: { state: 已启用, version: v3.0.7, installedAt: 2026-09-14T10:00:00Z }
+  - id: docker                        # 标识
+    name: Docker                      # 名称
+    type: 系统                         # 系统插件
+    form: process                     # 通过 API 调用
+    channel: stable
+    description: 容器运行时（编排 / 容器）
+    status: { state: 已启用, version: "27.3", installedAt: 2026-09-14T10:00:00Z }
+  - id: coraza                        # 标识
+    name: Coraza                      # 名称
+    type: 外部                         # 外部插件
+    form: caddy-module                # caddy WAF 模块
+    channel: stable
+    description: WAF（ModSecurity 规则）
+    status: { state: 已启用, version: v1.0.0, installedAt: 2026-09-16T10:00:00Z }
+  - id: ddns-go                       # 标识
+    name: ddns-go                     # 名称
+    type: 外部                         # 外部插件
+    form: process                     # sidecar 进程
+    channel: stable
+    description: 动态 DNS 解析更新
+    status: { state: 已启用, version: v6.7.0, installedAt: 2026-09-16T10:00:00Z }
+  - id: caddy-l4                      # 标识
+    name: caddy-l4                    # 名称
+    type: 外部                         # 外部插件
+    form: caddy-module                # caddy 模块（需重建）
+    channel: stable
+    description: 四层转发（TCP / UDP）
+    status: { state: 未安装, version: "", installedAt: "" }   # 未安装
+  - id: frankenphp                    # 标识
+    name: FrankenPHP                  # 名称
+    type: 外部                         # 外部插件
+    form: caddy-module                # 整包覆盖型（变体）
+    channel: beta
+    description: PHP 应用运行时（整包覆盖 caddy）
+    status: { state: 未安装, version: "", installedAt: "" }
+  - id: caddy-ssh                     # 标识
+    name: caddy-ssh                   # 名称
+    type: 外部                         # 外部插件（模拟）
+    form: caddy-module                # caddy 模块
+    channel: beta
+    description: SSH 反向代理（模拟插件，用于演示插件插入）
+    status: { state: 未安装, version: "", installedAt: "" }

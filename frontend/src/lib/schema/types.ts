@@ -18,6 +18,8 @@ export type ConfigType =
 export interface FieldOption {
   label: string
   value: string | number
+  /** 看得见但选不了（如未安装组件提供的类型）。a-select 原生支持。 */
+  disabled?: boolean
 }
 
 export interface ReferenceSpec {
@@ -37,6 +39,10 @@ export interface ConfigField {
   description?: string
   docs?: string
   options?: FieldOption[]
+  /** 文本正则约束（typespec pattern），校验时生效。 */
+  pattern?: string
+  /** 最小长度（typespec minLength），密码/文本用。 */
+  minLength?: number
   reference?: ReferenceSpec
   item?: ConfigFieldChild
   fields?: ConfigField[]

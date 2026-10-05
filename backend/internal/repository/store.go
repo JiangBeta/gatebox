@@ -39,6 +39,11 @@ var (
 	bucketDerivedDisabled = []byte("derived_disabled")
 	// bucketRuns 调和的 Run/Step 记录（ADR-041 §7，v4）。
 	bucketRuns = []byte("runs")
+	// bucketObjects V4.1 通用对象层（ADR-043 §2），键为 "<kind> NUL <id>"。
+	bucketObjects = []byte("objects_v41")
+	// bucketSecrets V4.1 只写字段（如 user 密码的 bcrypt 哈希），
+	// 刻意与 bucketObjects 分开：对象文本经 API 回前端，密码绝不能进那里。
+	bucketSecrets = []byte("secrets_v41")
 )
 
 // ErrNotFound 记录不存在。
@@ -61,7 +66,7 @@ func Open(dataDir string) (*Store, error) {
 		return nil, err
 	}
 	if err := db.Update(func(tx *bolt.Tx) error {
-		for _, b := range [][]byte{bucketDomains, bucketCredentials, bucketRegistries, bucketCompose, bucketApps, bucketServices, bucketFragments, bucketVariables, bucketFragToggles, bucketMeta, bucketPlugins, bucketRuns} {
+		for _, b := range [][]byte{bucketDomains, bucketCredentials, bucketRegistries, bucketCompose, bucketApps, bucketServices, bucketFragments, bucketVariables, bucketFragToggles, bucketMeta, bucketPlugins, bucketRuns, bucketObjects, bucketSecrets} {
 			if _, err := tx.CreateBucketIfNotExists(b); err != nil {
 				return err
 			}

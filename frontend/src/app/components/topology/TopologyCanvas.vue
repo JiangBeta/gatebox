@@ -58,7 +58,10 @@ const edges = computed<Edge[]>(() =>
     class="topo-canvas"
     @node-click="(p: { node: { id: string } }) => emit('select', p.node.id)"
   >
-    <Background :gap="20" pattern-color="#e2e8f0" />
+    <Background
+      :gap="20"
+      pattern-color="#e2e8f0"
+    />
     <Controls :show-interactive="false" />
     <template #node-component="p">
       <ComponentNode v-bind="p" />

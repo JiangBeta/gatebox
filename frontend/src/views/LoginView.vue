@@ -18,7 +18,7 @@ async function submit() {
   try {
     await login(password.value)
     messageApi.success('已登录')
-    router.replace('/dashboard')
+    router.replace('/services')
   } catch (e) {
     messageApi.error((e as Error).message)
   } finally {

@@ -1,0 +1,129 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# 对象：路由 Route（一个转发，后端 = 1 个端口；网关页列的就是它）
+# 结构：源字段（可编辑，平铺）+ status（自动记录，只读，默认折叠）
+# 归属：服务。层级：项目 → 服务 → 路由。
+# 关键决策（A2）：路由自持后端地址（backend.host + backend.port），路由因此是自足对象；
+#   service 为可选引用，仅用于「后端列第二行显示主机名 · 服务名」与健康检查关联。
+#   L4 转发 / 固定响应等类型没有上游服务，service 留空。
+# 参考：ADR-042 §13 · docs/v4.1/views.md §5/§6
+# ─────────────────────────────────────────────────────────────────────────────
+
+kind: route                           # 对象类型标识（factKind）
+title: 路由                            # 显示名
+group: 服务                            # 归属一级页面
+list: true                            # 多实例
+
+schema:                               # 源字段（可编辑）
+  - key: name                         # 字段键：路由名
+    label: 路由名
+    type: text
+    required: true
+    placeholder: aria
+  - key: service                      # 字段键：服务（引用，可选）
+    label: 服务
+    type: reference
+    reference: { types: [service] }
+    description: 后端服务（一个服务可被多条路由引用）。L4 转发 / 固定响应等类型无上游服务时留空
+  - key: backend                      # 字段键：后端（自足：路由自持目标地址）
+    label: 后端
+    type: object
+    full: true
+    required: true
+    description: 目标地址（host + port）。由「主机地址 + 端口」构成，与 service 无关
+    fields:
+      - key: host
+        label: 主机
+        type: text
+        required: true
+        placeholder: 192.168.1.20
+      - key: port
+        label: 端口
+        type: number
+        required: true
+        placeholder: 6880
+  - key: subdomain                    # 字段键：二级域名
+    label: 二级域名
+    type: text
+    placeholder: aria                 # 留空则用根域名主域
+  - key: roots                        # 字段键：根域名（引用）
+    label: 根域名
+    type: array
+    reference: { types: [domain] }
+    description: 引用一个或多个根域名（如 neob.cn）
+  - key: entrypoint                   # 字段键：入口点（引用）
+    label: 入口点
+    type: reference
+    reference: { types: [entrypoint] }
+    required: true
+    description: 协议（http/https/tcp/udp…），端口来自入口点
+  - key: port                         # 字段键：入口端口（覆盖）
+    label: 端口
+    type: number
+    advanced: true
+    description: 留空则用入口点的端口（入口点自带多端口时，路由可指定其一）
+  - key: middlewares                  # 字段键：中间件（引用）
+    label: 中间件
+    type: array
+    reference: { types: [middleware] }
+    advanced: true
+  - key: tls                          # 字段键：TLS
+    label: TLS
+    type: select
+    default: auto
+    options:
+      - { label: 自动签发（acme）, value: auto }
+      - { label: 关闭, value: off }
+  - key: remark                       # 字段键：备注
+    label: 备注
+    type: textarea
+    advanced: true
+  - key: enabled                      # 字段键：启用
+    label: 启用
+    type: switch
+    default: true
+
+status:                               # 自动记录（只读）· kind: observed 观测 / derived 派生 / linked 关联
+  - key: state                        # 生效状态
+    label: 状态
+    kind: observed
+    enum: [已生效, 证书告警, 未生效, 已停用, 错误]
+    tone: { 已生效: ok, 证书告警: warn, 未生效: err, 已停用: off, 错误: err }
+    note: 已生效 / 证书告警 / 未生效 / 已停用 / 错误
+  - key: source                       # 来源
+    label: 来源
+    kind: linked
+    enum: [caddy, docker]
+    note: caddy（手动）/ docker（编排派生）
+
+example:
+  - name: aria                        # 路由名
+    service: aria-web                 # 引用服务（可选，仅用于展示与健康关联）
+    backend: { host: 192.168.1.20, port: 6880 }   # 自持后端地址
+    subdomain: aria
+    roots: [neob-cn]           # 引用根域名（存稳定 id）
+    entrypoint: https
+    port: 443
+    middlewares: [gzip, websocket]   # 引用中间件（存稳定 id，非显示名）
+    tls: auto
+    enabled: true
+    status: { state: 已生效, source: caddy }
+  - name: flare
+    service: flare-home
+    backend: { host: 192.168.1.20, port: 5005 }
+    subdomain: flare
+    roots: [gatebox-cn]        # 引用根域名（存稳定 id）
+    entrypoint: https
+    port: 443
+    middlewares: [gzip]           # 引用中间件（存稳定 id，非显示名）
+    tls: auto
+    enabled: true
+    status: { state: 证书告警, source: docker }
+  - name: ssh-fwd                     # L4 转发：无上游服务，service 留空
+    backend: { host: 192.168.1.10, port: 22 }
+    subdomain: ''
+    roots: []
+    entrypoint: tcp                     # L4 走 caddy-l4 的 tcp 协议（未装时该路由置灰）
+    middlewares: []
+    tls: off
+    enabled: false
+    status: { state: 已停用, source: caddy }

@@ -1,0 +1,34 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# 对象：变量 Variable（命名值）
+# 同一份 key→value 供网关 Caddyfile（<%KEY%>）与容器 compose（${KEY}）共用。
+# 归属：设置 → 变量。参考：ADR-035 · model.Variable · docs/v4/L1-03-schema.md
+# ─────────────────────────────────────────────────────────────────────────────
+
+kind: variable                        # 对象类型标识（factKind）
+title: 变量                            # 显示名
+group: 设置                            # 归属一级页面
+list: true                            # 多实例
+
+schema:                               # 字段契约
+  - key: key                          # 字段键：键名（主键）
+    label: 键                          # 显示标签
+    type: text                        # 控件：单行文本
+    required: true                    # 必填
+    placeholder: DOCKER_HOST_PORT     # 输入提示
+    description: 首字符字母/下划线，仅字母数字下划线，不得以 GB_ 开头   # 帮助说明
+  - key: value                        # 字段键：值
+    label: 值                          # 显示标签
+    type: text                        # 控件：单行文本
+    required: false                   # 非必填
+  - key: description                  # 字段键：说明
+    label: 说明                        # 显示标签
+    type: textarea                    # 控件：多行文本（备注 / 说明统一多行）
+    advanced: true                    # 高级字段
+
+example:                              # 模拟数据基础
+  - key: TZ                           # 时区变量
+    value: Asia/Shanghai              # 值
+    description: 容器时区              # 说明（多行）
+  - key: DOCKER_HOST_PORT             # 面板宿主端口变量
+    value: "8443"                     # 值（字符串，避免数字歧义）
+    description: 面板宿主端口          # 说明（多行）

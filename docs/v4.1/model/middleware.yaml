@@ -1,0 +1,79 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# 对象：中间件 Middleware（原 Caddy 片段 Fragment）
+# 结构：源字段（可编辑，平铺）+ status（自动记录，只读，默认折叠）
+# 归属：服务。结构化类型（encode/basic_auth/…）+ 自由文本逃生舱 code。
+# 关联：basic_auth 的 users 引用「设置 · 用户」（model/user.yaml）；密码哈希只在解析时展开。
+# 参考：ADR-042 §13 · model.Fragment · docs/v4.1/views.md
+# ─────────────────────────────────────────────────────────────────────────────
+
+kind: middleware                       # 对象类型标识（factKind）
+title: 中间件                          # 显示名
+group: 服务                            # 归属一级页面
+list: true                            # 多实例
+
+# 类型参数（来自 catalog.middleware_types，表单按所选类型追加；下列为内置类型的参数）
+typeParams:
+  - type: basic_auth                  # basic_auth：账户来自「设置 · 用户」用户库
+    fields:
+      - key: users                    # 引用数组（存 id，展示用 name）
+        label: 用户
+        type: array
+        reference: { types: [user] }
+        required: true
+        full: true
+        description: 勾选「设置 · 用户」中的账户；渲染 Caddyfile 时解析为 bcrypt 账户
+
+schema:                               # 源字段（可编辑）
+  - key: name                         # 字段键：名称
+    label: 名称
+    type: text
+    required: true
+    placeholder: gzip
+  - key: type                         # 字段键：类型（来自类型目录）
+    label: 类型
+    type: select
+    required: true
+    dynamic: true                     # 选项来自 catalog.middleware_types
+    description: 选项来自类型目录（encode/basic_auth/websocket/code…）；用户自建固定为 code
+  - key: description                  # 字段键：说明
+    label: 说明
+    type: textarea
+    advanced: true
+  - key: code                         # 字段键：自由文本（逃生舱）
+    label: 代码
+    type: textarea
+    description: type=code 时直接写 Caddy 片段体（可含 <%VAR%>）；与「参数」互斥
+  - key: defaultEnabled               # 字段键：默认启用
+    label: 默认启用
+    type: switch
+    default: false
+
+status:                               # 自动记录（只读）· kind: derived 派生
+  - key: refCount                     # 被多少路由引用
+    label: 引用数
+    kind: derived
+    note: 引用该中间件的路由数量
+
+example:
+  - name: GZIP
+    type: encode
+    formats: [gzip, zstd]             # 参数来自类型目录（平铺，非 config 嵌套）
+    description: 压缩响应
+    defaultEnabled: true
+  - name: WEBSOCKET
+    type: websocket
+    description: WebSocket 升级
+    defaultEnabled: false
+  - name: auth
+    type: basic_auth
+    users: ["usr-admin", "usr-beta"]  # 引用「设置 · 用户」（存 id，展示用 name）
+    description: 基础认证
+    defaultEnabled: false
+  - name: my-headers
+    type: code
+    code: |                           # type=code：自由片段体（与「参数」互斥）
+      header {
+        X-Frame-Options DENY
+      }
+    description: 自定义响应头
+    defaultEnabled: false

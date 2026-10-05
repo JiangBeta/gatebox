@@ -47,10 +47,6 @@
   .app.nav-min .side a .ico{width:40px;height:40px;flex:0 0 40px;border-radius:8px}
   .app.nav-min .side a:hover .ico{background:#112a45}
   .app.nav-min .side a.on:hover .ico{background:var(--primary)}
-  .app.nav-min .side a::after{content:attr(data-tip);position:absolute;left:calc(100% + 10px);top:50%;transform:translateY(-50%);
-    background:var(--head);color:var(--text);font-size:12px;padding:5px 9px;border-radius:5px;border:1px solid var(--line);
-    white-space:nowrap;opacity:0;pointer-events:none;z-index:30;transition:opacity .12s;box-shadow:var(--shadow)}
-  .app.nav-min .side a:hover::after{opacity:1}
   .main{flex:1;min-width:0;display:flex;flex-direction:column}
   .top{background:var(--panel);border-bottom:1px solid var(--line);padding:9px 20px;display:flex;align-items:center;gap:12px}
   .top .crumb{font-size:15px;font-weight:600}
@@ -59,10 +55,21 @@
   .btn{border:1px solid var(--line);background:var(--panel);color:var(--text);border-radius:6px;padding:5px 12px;cursor:pointer;font-size:13px}
   .btn:hover{border-color:var(--primary);color:var(--primary)}
   .btn.p{background:var(--primary);border-color:var(--primary);color:#fff}
+  .btn.add{background:#22c55e;border-color:#22c55e;color:#fff;font-weight:600}
+  .btn.add:hover{background:#16a34a;border-color:#16a34a;color:#fff}
   .btn[disabled]{opacity:.5;cursor:not-allowed}
   .icon-btn{border:1px solid var(--line);background:var(--panel);color:var(--sub);width:32px;height:30px;border-radius:6px;
     cursor:pointer;display:inline-flex;align-items:center;justify-content:center;position:relative}
   .icon-btn:hover{border-color:var(--primary);color:var(--primary)}
+  /* 顶栏动作组：任务 / 升级 / 重启（角标 + 悬浮文字提示） */
+  .topacts{display:flex;align-items:center;gap:6px;margin-right:8px}
+  .topacts .icon-btn.on{color:var(--primary);border-color:var(--primary)}
+  .ibadge{position:absolute;top:-6px;right:-6px;min-width:16px;height:16px;padding:0 4px;border-radius:9px;
+    background:var(--primary);color:#fff;font-size:10px;font-weight:700;line-height:16px;text-align:center;
+    box-shadow:0 0 0 2px var(--panel);pointer-events:none}
+  .ibadge.hide{display:none}
+  .ibadge.ring{background:var(--ok)}
+  .ibadge.warn{background:#ef4444;min-width:8px;width:8px;height:8px;padding:0;top:-3px;right:-3px}
   /* 操作列：仿网关页的无边框彩色 icon 按钮 */
   .act-btn{border:0;background:transparent;width:28px;height:28px;border-radius:6px;cursor:pointer;
     display:inline-flex;align-items:center;justify-content:center;position:relative}
@@ -76,7 +83,7 @@
   .pagetabs button:hover{color:var(--primary)}
   .pagetabs button.on{color:var(--primary);border-bottom-color:var(--primary);font-weight:500}
   .hint{color:var(--sub);font-size:12px;margin:14px 0 12px}
-  .statcards{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:18px}
+  .statcards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:16px;margin-bottom:18px}
   .scard{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:10px;
     padding:16px 18px;box-shadow:var(--shadow);cursor:pointer;transition:border-color .15s,box-shadow .15s,transform .15s}
   .scard:hover{border-color:var(--primary);box-shadow:0 6px 18px rgba(0,0,0,.12);transform:translateY(-1px)}
@@ -103,6 +110,7 @@
   .vline{font-size:12px;color:var(--sub);word-break:break-all}
   #mask5{z-index:41}
   #mask6{z-index:41}
+  #mask7{z-index:41}
   .logtabs{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;margin-right:8px}
   .logtabs button{border:0;background:transparent;padding:4px 12px;cursor:pointer;color:var(--sub);font-size:12.5px}
   .logtabs button.on{background:var(--primary);color:#fff}
@@ -165,7 +173,9 @@
   .cday{color:var(--sub);font-size:12px}
   .cday b{font-weight:700}
   .rname{font-weight:600;cursor:default}
-  .route .rsub{font-size:12px;color:var(--sub);display:flex;align-items:center;gap:5px;margin-top:3px}
+  .rsub{font-size:12px;color:var(--sub);display:flex;align-items:center;gap:6px;margin-top:4px;line-height:1.4}
+  .rsub svg{display:block}
+  .dlist{display:flex;flex-direction:column;gap:2px}
   .bic{width:14px;height:14px;display:inline-flex;align-items:center;justify-content:center;flex:0 0 14px}
   .grp{background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow);margin-bottom:16px;overflow:hidden}
   .grp.nocut{overflow:visible}
@@ -189,7 +199,7 @@
   #mask2{z-index:20}
   #mask3{z-index:41}
   /* 弹窗（Modal，仿 Ant Design） */
-  .mdl{position:fixed;z-index:42;top:100px;left:50%;transform:translateX(-50%);width:520px;max-width:94vw;max-height:86vh;
+  .mdl{position:fixed;z-index:42;top:100px;left:50%;transform:translateX(-50%);width:640px;max-width:94vw;max-height:86vh;
     background:var(--panel);border-radius:8px;display:none;flex-direction:column;overflow:hidden;
     box-shadow:0 6px 16px rgba(0,0,0,.12),0 9px 28px 8px rgba(0,0,0,.08)}
   .mdl.on{display:flex}
@@ -218,9 +228,81 @@
   .field .desc{font-size:11.5px;color:var(--sub);margin-top:4px;line-height:1.6}
   .field input[type=text],.field input[type=password],.field input[type=number],.field select,.field textarea{
     width:100%;border:1px solid var(--line);border-radius:6px;padding:7px 10px;font:inherit;background:var(--field);color:var(--text)}
+  /* select 自定义箭头（不贴右） */
+  .field select{appearance:none;-webkit-appearance:none;padding-right:30px;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238b95a7' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+    background-repeat:no-repeat;background-position:right 10px center}
+  /* 聚焦：蓝色描边 */
+  .field input:focus,.field select:focus,.field textarea:focus,.msel-box:focus-within{
+    outline:none;border-color:var(--primary);box-shadow:0 0 0 2px color-mix(in srgb, var(--primary) 20%, transparent)}
   .field textarea{font-family:ui-monospace,Menlo,monospace;font-size:12.5px;line-height:1.6;min-height:84px;resize:vertical}
+  .field select[multiple]{padding:4px 6px}
+  .field select[multiple] option{padding:2px 6px}
   .ref{display:flex;gap:8px;align-items:center}
   .ref select{flex:1}
+  .radios{display:flex;gap:16px;padding:2px 0}
+  .radio{display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer}
+  /* 开关按钮（toggle） */
+  input.sw{appearance:none;-webkit-appearance:none;width:38px;height:22px;border-radius:11px;background:var(--line);position:relative;cursor:pointer;transition:background .15s;flex:0 0 38px;margin:0}
+  input.sw:checked{background:var(--primary)}
+  input.sw::after{content:'';position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;transition:left .15s;box-shadow:0 1px 2px rgba(0,0,0,.3)}
+  input.sw:checked::after{left:18px}
+  .ms{display:flex;flex-wrap:wrap;gap:6px}
+  /* 下拉多选（Ant Select 风格） */
+  .mselect{position:relative}
+  .msel-box{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-height:34px;border:1px solid var(--line);border-radius:6px;padding:4px 10px;background:var(--field);cursor:pointer}
+  .msel-box:hover{border-color:var(--primary)}
+  .msel-tags{display:flex;flex-wrap:wrap;gap:4px;flex:1}
+  .msel-tag{display:inline-flex;align-items:center;gap:4px;background:var(--soft);border-radius:4px;padding:1px 6px;font-size:12px}
+  .msel-tag i{cursor:pointer;font-style:normal;color:var(--sub)}
+  .msel-tag i:hover{color:var(--err)}
+  .msel-ph{color:var(--sub);font-size:13px}
+  .msel-caret{color:var(--sub);font-size:11px}
+  .msel-drop{display:none;margin-top:4px;max-height:200px;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:4px}
+  .mselect.open .msel-drop{display:block}
+  .msel-opt{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:4px;font-size:13px;cursor:pointer}
+  .msel-opt:hover{background:var(--hover)}
+  .msc{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:6px;padding:4px 10px;font-size:13px;cursor:pointer;background:var(--panel);color:var(--sub)}
+  .msc:hover{border-color:var(--primary)}
+  .msc.on{border-color:var(--primary);color:var(--primary);background:color-mix(in srgb, var(--primary) 12%, transparent)}
+  .msc input{display:none}
+  .typetabs{display:flex;flex-wrap:wrap;gap:2px;border-bottom:1px solid var(--line)}
+  .typetabs .tt{border:0;background:transparent;color:var(--sub);padding:8px 14px;cursor:pointer;font-size:13px;border-bottom:2px solid transparent;margin-bottom:-1px}
+  .typetabs .tt:hover{color:var(--primary)}
+  .typetabs .tt.on{color:var(--primary);border-bottom-color:var(--primary);font-weight:500}
+  .typetabs .tt[disabled]{opacity:.5;cursor:not-allowed}
+  .fsec:has(.typetabs){margin-bottom:0}         /* 类型组紧接内容框 */
+  .tabcontent{border:1px solid var(--line);border-top:0;border-radius:0 0 6px 6px;padding:12px 12px 6px}
+  .rp-hint{font-size:12px;color:var(--sub);margin-top:6px}
+  .rp-hint b{color:var(--text)}
+  /* 表单分组 */
+  .fsec{margin-bottom:18px}
+  .fsec-h{font-size:12px;color:var(--sub);font-weight:600;margin:0 0 10px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+  .dr-notice{margin:0 0 12px;padding:8px 12px;border:1px solid rgba(210,153,34,.4);background:rgba(210,153,34,.1);color:#d29922;border-radius:6px;font-size:12.5px;line-height:1.5}
+  .export-yaml{margin:0;padding:12px;background:var(--soft);border:1px solid var(--line);border-radius:6px;font-family:ui-monospace,Menlo,monospace;font-size:12.5px;line-height:1.6;color:var(--text);white-space:pre;overflow:auto;max-height:60vh}
+  .obs-list{border:1px dashed var(--line);border-radius:6px;background:var(--soft);padding:8px 12px}
+  .obs-row{display:flex;justify-content:space-between;gap:12px;padding:4px 0;font-size:12.5px}
+  .obs-row .k{color:var(--sub)}
+  .obs-row .v{color:var(--text);font-family:ui-monospace,Menlo,monospace}
+  .fgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px 16px}
+  .field.full{grid-column:1/-1}
+  .mdl .fgrid{grid-template-columns:1fr}          /* 弹窗：一列 */
+  .fgrid>.field{margin-bottom:0}
+  .objgrp{border-left:2px solid var(--line);padding-left:10px;margin-top:2px}
+  .objgrp .field{margin-bottom:8px}
+  /* Caddyfile 片段编辑器（行号 + 高亮 + 工具栏 + 变量） */
+  .ce{border:1px solid var(--line);border-radius:6px;overflow:hidden;background:var(--field)}
+  .ce-bar{display:flex;align-items:center;gap:2px;padding:4px 8px;background:var(--soft);border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .ce-btn{border:0;background:transparent;width:26px;height:24px;border-radius:5px;cursor:pointer;color:var(--sub);display:inline-flex;align-items:center;justify-content:center}
+  .ce-btn:hover{background:var(--hover);color:var(--primary)}
+  .ce-vars{display:flex;flex-wrap:wrap;gap:4px;margin-left:8px}
+  .ce-wrap{display:flex;height:180px}
+  .ce-gutter{flex:0 0 38px;padding:8px 6px 8px 0;text-align:right;overflow:hidden;font-family:ui-monospace,Menlo,monospace;font-size:12px;line-height:20.4px;color:var(--sub);background:var(--soft);border-right:1px solid var(--line);user-select:none;opacity:.75}
+  .ce-gutter div{height:20.4px;line-height:20.4px}
+  .ce-body{position:relative;flex:1;min-width:0}
+  .ce .ce-ta{position:absolute;inset:0;width:100%;height:100%;border:0;border-radius:0;outline:0;resize:none;margin:0;padding:8px 10px;font-family:ui-monospace,Menlo,monospace;font-size:12px;line-height:20.4px;background:transparent;color:transparent;white-space:pre;overflow:auto;caret-color:var(--primary);z-index:1;min-height:0}
+  .ce-hl{position:absolute;inset:0;margin:0;padding:8px 10px;font-family:ui-monospace,Menlo,monospace;font-size:12px;line-height:20.4px;white-space:pre;overflow:hidden;pointer-events:none;z-index:2;color:var(--text)}
+  .ce-hl .c-com{color:#8b95a7}.ce-hl .c-var{color:#d29922}.ce-hl .c-env{color:#c586c0}.ce-hl .c-str{color:#98c379}.ce-hl .c-brace{color:#e5a15a}
   /* ── YAML 编辑器（复刻 CodeEditor.vue）── */
   .ed{display:flex;flex-direction:column;flex:1;min-height:0;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:var(--field)}
   .ed-bar{display:flex;align-items:center;gap:4px;padding:5px 8px;border-bottom:1px solid var(--line);background:var(--soft);color:var(--sub)}
@@ -229,13 +311,17 @@
   .ed-btn{border:0;background:transparent;width:28px;height:26px;border-radius:5px;cursor:pointer;color:var(--sub);
     display:inline-flex;align-items:center;justify-content:center;position:relative}
   .ed-btn:hover{background:var(--hover);color:var(--primary)}
-  /* icon 悬浮提示 */
+  /* 悬浮提示：单例 fixed 浮层，定位由文件末尾 tipbox 脚本负责。
+     原 .tip::after 用 position:absolute，会被 .body / .dr-left / .ed / .ce / .mdl-bd 的
+     overflow 裁剪，且 z-index 无法跨出裁剪祖先，故改为脱离文档流的单例节点。 */
   .tip{position:relative}
-  .tip::after{content:attr(data-tip);position:absolute;top:calc(100% + 6px);left:50%;transform:translateX(-50%);
-    background:var(--text);color:var(--panel);font-size:11px;line-height:1;padding:4px 7px;border-radius:4px;
-    white-space:nowrap;opacity:0;pointer-events:none;transition:opacity .12s;z-index:1000;font-family:-apple-system,sans-serif}
-  .tip:hover{z-index:1000}
-  .tip:hover::after{opacity:1}
+  .tipbox{position:fixed;left:0;top:0;z-index:60;display:none;max-width:min(340px,88vw);
+    background:var(--text);color:var(--panel);font-size:11.5px;line-height:1.5;padding:5px 8px;border-radius:5px;
+    white-space:pre-wrap;overflow-wrap:anywhere;pointer-events:none;box-shadow:var(--shadow);
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;opacity:0;transition:opacity .12s}
+  .tipbox.on{display:block;opacity:1}
+  /* 侧栏折叠态提示：贴导航右侧展开，样式与正文提示区分 */
+  .tipbox.nav{background:var(--head);color:var(--text);border:1px solid var(--line);font-size:12px;padding:5px 9px}
   .ed-wrap{display:flex;flex:1;min-height:0}
   .gutter{flex:0 0 58px;padding:10px 4px 10px 0;overflow:hidden;font-family:ui-monospace,Menlo,monospace;
     font-size:12.5px;line-height:21.25px;color:var(--sub);background:var(--soft);border-right:1px solid var(--line);user-select:none;opacity:.75}
@@ -273,6 +359,104 @@
   .picker .row .tx{color:var(--sub)}
   .picksearch{padding:2px 18px 10px}
   .picksearch input{width:100%;border:1px solid var(--line);border-radius:6px;padding:7px 10px;font:inherit;background:var(--field);color:var(--text)}
+  /* ── 部署：工具栏 / 模板卡片 / 指标 ── */
+  .bar-row{display:flex;align-items:center;gap:8px;margin:0 0 14px}
+  .bar-row .cday{font-size:12.5px}
+  .tplgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px}
+  .tplcard{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;box-shadow:var(--shadow);
+    display:flex;flex-direction:column;gap:10px;transition:border-color .15s,transform .15s}
+  .tplcard:hover{border-color:var(--primary);transform:translateY(-1px)}
+  .tplhd{display:flex;align-items:center;gap:10px}
+  .tplico{width:34px;height:34px;flex:0 0 34px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;
+    background:color-mix(in srgb,var(--primary) 14%,transparent);color:var(--primary)}
+  .tplmeta{display:flex;flex-direction:column;min-width:0;flex:1}
+  .tplmeta b{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tplmeta span{font-size:11.5px;color:var(--sub)}
+  .tpldesc{font-size:12.5px;color:var(--sub);line-height:1.6;min-height:32px}
+  .tpltags{display:flex;flex-wrap:wrap;gap:4px}
+  .tplft{display:flex;align-items:center;gap:8px;border-top:1px solid var(--line);padding-top:10px;margin-top:auto}
+  .code-prev{background:var(--field);border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-family:ui-monospace,Menlo,monospace;
+    font-size:11.5px;line-height:1.6;color:var(--text);white-space:pre;overflow:auto;max-height:200px;margin:0}
+  .cpuwrap{display:inline-flex;align-items:center;gap:6px}
+  .cpubar{width:56px;height:6px;border-radius:3px;background:var(--line);overflow:hidden;display:inline-block}
+  .cpubar i{display:block;height:100%;background:#22c55e;border-radius:3px}
+  .memwrap{display:inline-flex;align-items:center;gap:6px}
+  /* ── 编排抽屉（仿 ComposeEditorModal.vue）── */
+  .cmp-svctabs{display:flex;align-items:flex-end;gap:4px;padding:6px 0 0;border-bottom:1px solid var(--line);margin-bottom:10px;flex-wrap:wrap}
+  .cmp-tab{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border:1px solid var(--line);border-bottom:none;border-radius:4px 4px 0 0;cursor:pointer;font-size:13px;color:var(--sub);background:var(--soft);margin-bottom:-1px}
+  .cmp-tab.on{background:var(--panel);color:var(--text);font-weight:600;border-bottom:1px solid var(--panel)}
+  .cmp-tab.add{border:1px dashed var(--line);color:var(--sub)}
+  .cmp-tab i{font-style:normal;font-size:11px;opacity:.7}
+  .cmp-tab i:hover{color:var(--err)}
+  .cmp-scroll{display:flex;flex-direction:column}
+  .cmp-sec{margin-bottom:14px}
+  .cmp-h{display:flex;align-items:center;gap:8px;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+  .cmp-h .nm{font-size:12px;font-weight:600;color:var(--sub)}
+  .cmp-h .btn{padding:3px 9px;font-size:12px}
+  .cmp-rows{display:flex;flex-direction:column;gap:6px}
+  .cmp-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .cmp-row input[type=text],.cmp-row select{border:1px solid var(--line);border-radius:6px;padding:6px 9px;font:inherit;font-size:13px;background:var(--field);color:var(--text);min-width:0}
+  .cmp-row input[type=text]:focus,.cmp-row select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 2px color-mix(in srgb, var(--primary) 20%, transparent)}
+  .cmp-row .idx{width:18px;text-align:right;font-family:ui-monospace,monospace;font-size:11px;color:var(--sub);flex:0 0 18px}
+  .cmp-row .sep{color:var(--sub);flex:0 0 auto}
+  .cmp-row .rm{border:0;background:transparent;color:var(--sub);cursor:pointer;font-size:12px;padding:2px 4px;flex:0 0 auto}
+  .cmp-row .rm:hover{color:var(--err)}
+  .cmp-lbl{font-size:12px;color:var(--sub);flex:0 0 auto}
+  .cmp-note{font-size:11.5px;color:var(--sub);margin-top:4px;line-height:1.6}
+  .cmp-droute{padding:8px 10px;background:var(--soft);border:1px solid var(--line);border-radius:6px}
+  .cmp-imgbtn{white-space:nowrap;flex:0 0 auto}
+  /* 容器变量框（仿 ComposeEditorModal：系统变量 + 项目变量 chips） */
+  .cvars{border:1px solid var(--line);border-radius:6px;padding:6px 10px 8px;margin-bottom:8px;flex-shrink:0;background:var(--panel)}
+  .cvars-h{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+  .cvars-h .nm{font-size:12px;font-weight:600;color:var(--text)}
+  .cvars-h .btn{padding:2px 8px;font-size:11.5px}
+  .cvars-line{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-bottom:3px}
+  .cvars-line .lb{font-size:12px;color:var(--sub);flex:0 0 auto}
+  .cvars-sep{border-top:1px dashed var(--line);margin:6px 0}
+  .cvar{display:inline-flex;align-items:center;border-radius:4px;padding:1px 7px;font-family:ui-monospace,Menlo,monospace;font-size:12px;cursor:pointer;
+    background:var(--soft);color:var(--text)}
+  .cvar:hover{border-color:var(--primary)}
+  .cvar.sys{background:var(--soft);color:var(--text)}
+  .cvar.usr{background:var(--soft);color:var(--text)}
+  .cvar.proj{background:color-mix(in srgb, var(--primary) 14%, transparent);color:var(--primary)}
+  /* ── 多主机：主机条 / 主机列 / 离线横幅 ── */
+  .hostbar{display:flex;align-items:center;gap:6px;margin:0 0 10px;flex-wrap:wrap}
+  .hostbar .hb-lb{font-size:12px;color:var(--sub);margin-right:2px}
+  .hostchip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--panel);color:var(--sub);
+    border-radius:16px;padding:4px 12px;cursor:pointer;font-size:12.5px}
+  .hostchip:hover{border-color:var(--primary)}
+  .hostchip.on{background:var(--primary);border-color:var(--primary);color:#fff}
+  .hostchip .hc-n{font-size:11px;opacity:.8;border-left:1px solid currentColor;padding-left:6px;margin-left:2px}
+  .hdot{width:8px;height:8px;border-radius:50%;flex:0 0 8px;display:inline-block;background:#8b95a7}
+  .hdot.on{background:#22c55e}
+  .hdot.off{background:#ef4444}
+  .hostcell{display:inline-flex;align-items:center;gap:6px}
+  .hcmeta{display:flex;flex-direction:column;line-height:1.25}
+  .hostwarn{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.35);color:var(--err);border-radius:6px;
+    padding:7px 12px;font-size:12.5px;margin:0 0 12px;line-height:1.6}
+  .hostoff{opacity:.55}
+  /* 状态 icon（健康列前）/ CPU·内存合并列 */
+  .stico{display:inline-flex;align-items:center;vertical-align:middle}
+  .healthcell{display:inline-flex;align-items:center;gap:6px}
+  .rescell{display:flex;flex-direction:column;gap:2px;line-height:1.4}
+  .resrow{display:inline-flex;align-items:center;gap:6px}
+  .resico{display:inline-flex;align-items:center;flex:0 0 16px}
+  /* 多行提示（服务 / 路由 / 资源明细） */
+  .tip.ml::after{white-space:pre-line;text-align:left;min-width:140px;line-height:1.5}
+  /* 任务面板（顶栏「任务」） */
+  .tsec{font-size:12px;color:var(--sub);padding:10px 2px 6px}
+  .trow{border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:8px;background:var(--soft)}
+  .tr-h{display:flex;align-items:center;gap:8px;font-size:13px}
+  .tr-h .sp{flex:1}
+  .tr-i{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:6px;
+    background:rgba(64,150,255,.14);color:var(--primary);flex:0 0 22px}
+  .tr-t{color:var(--sub);font-size:12px}
+  .tr-p{height:4px;border-radius:2px;background:var(--line);margin:8px 0 6px;overflow:hidden}
+  .tr-p i{display:block;height:100%;background:var(--primary);border-radius:2px}
+  .trow.done .tr-p i{background:var(--ok)} .trow.failed .tr-p i{background:var(--err)}
+  .tr-d{color:var(--sub);font-size:12px;word-break:break-all}
+  /* 升级面板 */
+  .upg-notes{margin:6px 0 0;padding-left:20px;color:var(--text);font-size:13px;line-height:1.9}
 </style>
 </head>
 <body>
@@ -286,6 +470,11 @@
       <button class="icon-btn tip" id="btnNav" data-tip="切换导航栏" onclick="toggleNav()"></button>
       <div class="crumb" id="crumb"></div>
       <div class="sp"></div>
+      <div class="topacts">
+        <button class="icon-btn tip" id="btnTask" data-tip="任务" onclick="openTasks()"></button>
+        <button class="icon-btn tip" id="btnUpgrade" data-tip="升级" onclick="openUpgrade()"></button>
+        <button class="icon-btn tip" id="btnRestart" data-tip="重启 GateBox 服务" onclick="restartGateBox()"></button>
+      </div>
       <button class="icon-btn tip" id="btnTheme" data-tip="切换主题" onclick="toggleTheme()"></button>
       <button class="btn" onclick="reloadMock()">重载 mock</button>
     </div>
@@ -302,10 +491,11 @@
     <button class="btn" onclick="closeAll()">关闭</button>
   </div>
   <div class="dr-cols" id="drCols">
-    <div class="dr-left" id="drLeft"><p class="hint" style="margin-top:0">表单（由对象 schema 生成）</p><div id="drForm"></div></div>
+    <div class="dr-left" id="drLeft"><p class="hint" style="margin-top:0">表单（由对象 schema 生成）</p><div id="drForm"></div><div id="drObs"></div></div>
     <div class="splitter" id="splitter" title="拖动调整大小"></div>
     <div class="dr-right">
       <p class="hint" style="margin-top:0">YAML（同一对象的等价文本 · 复刻 CodeEditor.vue）</p>
+      <div id="drVars" class="cvars" style="display:none"></div>
       <div class="ed">
         <div class="ed-bar">
           <button class="ed-btn tip" data-tip="撤销" onclick="edUndo()" id="ic-undo"></button>
@@ -327,7 +517,9 @@
     </div>
   </div>
   <div class="dr-ft"><span class="ok" id="drValid">✓ 校验通过</span><span class="sp"></span>
-    <button class="btn" onclick="closeAll()">取消</button><button class="btn p">保存</button></div>
+    <button class="btn" id="drValidate" onclick="drValidate()" style="display:none">校验</button>
+    <button class="btn" onclick="closeAll()">取消</button><button class="btn" onclick="drSave()">保存</button>
+    <button class="btn p" id="drSaveDeploy" onclick="drSaveDeploy()" style="display:none">保存并部署</button></div>
 </div>
 
 <div class="mask" id="mask2" onclick="closeAll()"></div>
@@ -345,7 +537,7 @@
 
 <div class="mask" id="mask4" onclick="closeView()"></div>
 <div class="mdl" id="viewModal" style="width:820px">
-  <div class="mdl-hd"><b>查看证书</b><button class="x" onclick="closeView()">✕</button></div>
+  <div class="mdl-hd"><b id="viewTitle">查看证书</b><button class="x" onclick="closeView()">✕</button></div>
   <div class="mdl-bd" id="viewBody"></div>
 </div>
 
@@ -368,13 +560,63 @@
   <div class="mdl-ft"><button class="btn" onclick="closeConfirm()">取消</button><button class="btn p" id="confirmOk">确认</button></div>
 </div>
 
-<script src="data/mock.js?v=3"></script>
+<div class="mask" id="mask7" onclick="closeAct()"></div>
+<div class="mdl" id="actModal" style="width:580px">
+  <div class="mdl-hd"><b id="actTitle"></b><button class="x" onclick="closeAct()">✕</button></div>
+  <div class="mdl-bd" id="actBody"></div>
+  <div class="mdl-ft" id="actFoot"><button class="btn" id="actCancel" onclick="closeAct()">取消</button><button class="btn p" id="actOk" onclick="actOk()">确定</button></div>
+</div>
+
+<script src="data/mock.js?v=4"></script>
 <script src="data/brands.js?v=1"></script>
 <script>
 window.onerror = (m, s, l, c) => { try { let b = document.getElementById('jserr'); if (!b) { b = document.createElement('div'); b.id = 'jserr'; b.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#ef4444;color:#fff;padding:6px 12px;font:12px/1.5 monospace;z-index:9999;white-space:pre-wrap'; document.body.appendChild(b); } b.textContent = 'JS 错误: ' + m + ' @' + l + ':' + c; } catch (e) {} };
+
+/* ── 悬浮提示：单例 fixed 浮层（统一 74 处 data-tip）──
+   原实现是每处 .tip::after + position:absolute，会被 .body / .dr-left / .ed / .ce /
+   .mdl-bd 的 overflow 裁掉；z-index 再高也跨不出裁剪祖先。改为 body 单例节点后由
+   脚本按 getBoundingClientRect() 定位，与 Ant Design Tooltip 行为一致。 */
+(() => {
+  const GAP = 8, EDGE = 8, SIDE_GAP = 10;
+  let box = null, cur = null;
+  const hide = () => { cur = null; if (box) box.classList.remove('on'); };
+  const place = (el, r, isSide) => {
+    if (!box) { box = document.createElement('div'); box.className = 'tipbox'; document.body.appendChild(box); }
+    box.textContent = el.getAttribute('data-tip') || '';
+    box.classList.toggle('nav', isSide);
+    box.classList.add('on');
+    const w = box.offsetWidth, h = box.offsetHeight, vw = innerWidth, vh = innerHeight;
+    let x, y;
+    if (isSide) { x = r.right + SIDE_GAP; y = r.top + r.height / 2 - h / 2; }   // 侧栏：贴右侧展开
+    else        { x = r.left + r.width / 2 - w / 2; y = r.bottom + GAP; }        // 其余：下方居中
+    if (isSide) { if (x + w > vw - EDGE) x = r.left - w - SIDE_GAP; }            // 右侧放不下则翻到左侧
+    else {
+      if (x + w > vw - EDGE) x = r.right - w + GAP;                             // 横向贴边翻转
+      if (y + h > vh - EDGE) y = r.top - h - GAP;                               // 下方放不下则翻到上方
+    }
+    box.style.left = Math.max(EDGE, Math.min(x, vw - w - EDGE)) + 'px';
+    box.style.top = Math.max(EDGE, Math.min(y, vh - h - EDGE)) + 'px';
+  };
+  document.addEventListener('mouseover', e => {
+    const t = e.target, el = t && t.closest ? t.closest('[data-tip]') : null;
+    if (!el || el === cur) return;
+    const isSide = !!(el.closest && el.closest('.side a'));
+    if (isSide && !(document.querySelector('.app') || {}).classList.contains('nav-min')) return;  // 仅折叠态显示
+    cur = el; place(el, el.getBoundingClientRect(), isSide);
+  });
+  document.addEventListener('mouseout', e => {
+    const t = e.target, el = t && t.closest ? t.closest('[data-tip]') : null;
+    if (!el || el !== cur) return;
+    if (e.relatedTarget && el.contains(e.relatedTarget)) return;
+    hide();
+  });
+  document.addEventListener('scroll', hide, true);   // 捕获阶段：任意祖先滚动即收起
+})();
+
 const $ = s => document.querySelector(s);
 const PAGES = window.V41.pages, OBJ = window.V41.objects, CATALOG = window.V41.catalog || {};
 let page = 'settings', tab = 'system', cur = null, showWs = true;
+let hostFilter = 'all';                                   // 容器页：主机维度筛选（全部 / 单主机）
 
 /* ── 图标 ── */
 const ICONS = {
@@ -403,12 +645,23 @@ const ICONS = {
   minus:  '<line x1="5" y1="12" x2="19" y2="12"/>',
   x:      '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
   pluscircle:'<circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/>',
+  lock:   '<rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>',
   share:  '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.6" y1="13.5" x2="15.4" y2="17.5"/><line x1="15.4" y1="6.5" x2="8.6" y2="10.5"/>',
   globe:  '<circle cx="12" cy="12" r="9"/><line x1="3" y1="12" x2="21" y2="12"/><path d="M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18z"/>',
   box:    '<path d="M21 16V8a2 2 0 0 0-1-1.7l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.7l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.3 7 12 12 20.7 7"/><line x1="12" y1="22" x2="12" y2="12"/>',
   grid:   '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>',
   activity:'<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>',
   gear:   '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+  play:   '<polygon points="6 3 20 12 6 21 6 3"/>',
+  pause:  '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>',
+  terminal:'<polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>',
+  swap:   '<polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>',
+  dot:    '<circle cx="12" cy="12" r="6" fill="currentColor" stroke="none"/>',
+  server: '<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><line x1="7" y1="7.5" x2="7.01" y2="7.5"/><line x1="7" y1="16.5" x2="7.01" y2="16.5"/>',
+  cpu:    '<rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9.5" y="9.5" width="5" height="5"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/>',
+  memory: '<rect x="3" y="7" width="18" height="10" rx="2"/><path d="M7 17v3M12 17v3M17 17v3M7 11v2M12 11v2M17 11v2"/>',
+  clock:  '<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/>',
+  upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>',
 };
 function svg(k){ return `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[k]}</svg>`; }
 function paintIcons(){
@@ -418,6 +671,11 @@ function paintIcons(){
   const theme = document.documentElement.dataset.theme;
   $('#btnTheme').innerHTML = svg(theme === 'dark' ? 'sun' : 'moon');
   $('#btnLayout').innerHTML = svg($('#drCols').classList.contains('col') ? 'row' : 'col');
+  /* 顶栏三枚动作按钮：图标 + 角标 */
+  const bt = $('#btnTask');   if (bt) bt.innerHTML = svg('clock') + '<span class="ibadge hide" id="taskBadge">0</span>';
+  const bu = $('#btnUpgrade'); if (bu) bu.innerHTML = svg('upload') + '<span class="ibadge warn hide" id="upgBadge"></span>';
+  const br = $('#btnRestart'); if (br) br.innerHTML = svg('refresh');
+  updateTopActs();
 }
 function toggleTheme(){
   const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
@@ -427,6 +685,97 @@ function toggleTheme(){
 }
 function toggleLayout(){ $('#drCols').classList.toggle('col'); paintIcons(); }
 function toggleNav(){ document.querySelector('.app').classList.toggle('nav-min'); }
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 顶栏动作：任务（执行中） / 升级（有新版本提醒） / 重启（控制面自身）
+ * ══════════════════════════════════════════════════════════════════════════ */
+const TASK_ICON = { deploy: 'box', cert: 'shield', ddns: 'globe', sync: 'refresh', backup: 'server', upgrade: 'upload', restart: 'refresh' };
+function sysInfo(){ return window.V41.system || {}; }
+function allTasks(){ return (window.V41.tasks || []); }
+function runningTasks(){ return allTasks().filter(t => t.state === 'running'); }
+function hasUpgrade(){ const s = sysInfo(); return !!(s.latestVersion && s.latestVersion !== s.version); }
+/* 角标 + 悬浮文字（图标含义 → 实时状态） */
+function updateTopActs(){
+  const run = runningTasks(), s = sysInfo(), up = hasUpgrade();
+  const tb = $('#taskBadge');
+  if (tb) { tb.textContent = run.length; tb.classList.toggle('hide', !run.length); tb.classList.toggle('ring', run.length > 0); }
+  const ub = $('#upgBadge'); if (ub) ub.classList.toggle('hide', !up);
+  const bT = $('#btnTask'), bU = $('#btnUpgrade');
+  if (bT) { bT.dataset.tip = run.length ? `任务 · ${run.length} 个执行中` : '任务 · 空闲'; bT.classList.toggle('on', run.length > 0); }
+  if (bU) { bU.dataset.tip = up ? `升级 · 有新版本 v${s.latestVersion}` : '升级 · 已是最新版本'; bU.classList.toggle('on', up); }
+}
+/* 任务面板：执行中（含进度）+ 最近完成 */
+function openTasks(){
+  const list = allTasks().slice().sort((a, b) => (a.state === 'running' ? 0 : 1) - (b.state === 'running' ? 0 : 1));
+  const run = list.filter(t => t.state === 'running'), hist = list.filter(t => t.state !== 'running');
+  const tagOf = s => ({
+    running: '<span class="tag" style="background:rgba(64,150,255,.16);color:var(--primary)">执行中</span>',
+    done:    '<span class="tag" style="background:rgba(63,185,80,.16);color:var(--ok)">已完成</span>',
+    failed:  '<span class="tag" style="background:rgba(248,81,73,.16);color:var(--err)">失败</span>',
+  }[s] || '');
+  const row = t => `<div class="trow ${t.state}">
+      <div class="tr-h"><span class="tr-i">${svg(TASK_ICON[t.kind] || 'activity')}</span><b>${esc(t.title)}</b>
+        <span class="sp"></span>${tagOf(t.state)}<span class="tr-t">${esc(t.elapsed || '')}${t.eta ? ' · ' + esc(t.eta) : ''}</span></div>
+      <div class="tr-p"><i style="width:${Math.max(0, Math.min(100, t.progress || 0))}%"></i></div>
+      <div class="tr-d">${esc(t.detail || '')}</div>
+    </div>`;
+  $('#viewTitle').textContent = `任务 · 执行中 ${run.length} · 历史 ${hist.length}`;
+  $('#viewBody').innerHTML =
+    (run.length ? `<div class="tsec">执行中</div>${run.map(row).join('')}` : '<p class="hint">当前没有执行中的任务</p>') +
+    `<div class="tsec">最近完成</div>${hist.map(row).join('') || '<p class="hint">暂无历史任务</p>'}`;
+  $('#mask4').classList.add('on'); $('#viewModal').classList.add('on');
+}
+/* 升级面板：有新版本才可升级 */
+function openUpgrade(){
+  const s = sysInfo(), up = hasUpgrade();
+  const body = up
+    ? `<div class="vline">当前版本 <b>v${esc(s.version)}</b> → 最新版本 <b style="color:var(--primary)">v${esc(s.latestVersion)}</b>　<span style="color:var(--sub)">发布于 ${esc(s.releasedAt)}</span></div>
+       <div class="tsec">更新内容</div>
+       <ul class="upg-notes">${(s.upgradeNotes || []).map(n => `<li>${esc(n)}</li>`).join('')}</ul>
+       <div class="vline" style="margin-top:10px;color:var(--sub)">升级只重启控制面，容器与 Agent 不受影响。</div>`
+    : `<p class="hint">当前已是最新版本 <b>v${esc(s.version)}</b>，无需升级。</p>`;
+  openAct('升级 GateBox', body, up ? '立即升级' : '知道了', up ? doUpgrade : null);
+}
+/* 升级 / 重启：登记一个执行中任务，模拟完成后回收 */
+function startTask(t){
+  const task = Object.assign({ id: 'tsk-' + Math.random().toString(16).slice(2, 6), state: 'running', progress: 0, elapsed: '刚刚' }, t);
+  allTasks().unshift(task);
+  updateTopActs();
+  return task;
+}
+function finishTask(id, ok, detail){
+  const t = allTasks().find(x => x.id === id);
+  if (!t) return;
+  t.state = ok ? 'done' : 'failed'; t.progress = 100; t.detail = detail || t.detail; t.eta = '';
+  t.elapsed = '完成'; t.endedAt = new Date(NOW.getTime() + 60e3).toISOString().slice(0, 19) + 'Z';
+  updateTopActs();
+}
+function doUpgrade(){
+  const s = sysInfo(), from = s.version;
+  const task = startTask({ kind: 'upgrade', title: `升级 GateBox v${from} → v${s.latestVersion}`, progress: 8, detail: '下载新版本…' });
+  setTimeout(() => {
+    finishTask(task.id, true, `已升级到 v${s.latestVersion}，控制面已重启`);
+    s.version = s.latestVersion;
+    render();
+    alert(`GateBox 已升级到 v${s.version}（模拟）· 控制面已重启`);
+  }, 1800);
+}
+/* 重启控制面：确认 → 任务 → 完成 */
+function restartGateBox(){
+  const s = sysInfo();
+  confirmDialog('重启 GateBox 服务', `
+    <div class="vline">当前版本 <b>v${esc(s.version)}</b>，运行中 <b>${runningTasks().length}</b> 个任务、<b>${(window.V41.containers || []).length}</b> 个容器。</div>
+    <div class="vline" style="margin-top:8px;color:var(--warn)">重启期间控制面不可访问（${esc(s.restart ? s.restart.estimate : '约 3 秒')}）；容器由 Agent 托管，会继续运行。</div>`,
+    () => {
+      const task = startTask({ kind: 'restart', title: '重启 GateBox 服务', progress: 5, detail: '优雅停止：先停插件 sidecar…' });
+      setTimeout(() => {
+        finishTask(task.id, true, '配置与数据库加载完成，服务已恢复');
+        render();
+        alert('GateBox 已重启（模拟）· 服务已恢复访问');
+      }, 2000);
+    });
+  $('#confirmOk').textContent = '重启';
+}
 
 /* ── 值格式化 ── */
 function esc(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
@@ -441,8 +790,12 @@ function toYaml(v, ind){
   return p + scalar(v);
 }
 function scalar(x){ if (x === null || x === undefined) return ''; if (typeof x === 'string') return /[:#\[\]{},]|^\s|\s$/.test(x) ? JSON.stringify(x) : x; return String(x); }
+function idOf(kind, x){ return (x && x.id) || (kind + ':' + ((x || {})[(OBJ[kind] || {}).keyField || 'name'])); }   // 稳定 id（缺省由 kind+keyField 派生）
+function byId(kind, id){ const d = (OBJ[kind] || {}).data || []; return d.find(x => idOf(kind, x) === id); }
 function providerLabel(id){ const p = (window.V41.dnsProviders || []).find(x => x.id === id); return p ? p.label : id; }
 function cell(f, val){
+  if (f.optionsFrom) { const t = (CATALOG[f.optionsFrom] || []).find(x => x.id === val); return t ? esc(t.label) : esc(val); }
+  if (f.type === 'reference') { const t = f.reference && f.reference.types && f.reference.types[0]; const to = t ? (OBJ[t] || {}) : {}; const x = t ? byId(t, val) : null; const kf = to.keyField || 'name'; return x ? esc(x[kf]) : (val === '' || val === undefined || val === null ? '—' : esc(val)); }
   if (f.key === 'provider') return esc(providerLabel(val));
   if (f.type === 'switch') return val ? '<span class="yes">✓</span>' : '<span class="no">✗</span>';
   if (f.type === 'array') return (val || []).map(v => `<span class="chip">${esc(v)}</span>`).join('') || '—';
@@ -456,7 +809,12 @@ function inlineCell(kind, i, c, val){
   return cell(c, val);
 }
 function toggleInline(kind, i, key, val){ OBJ[kind].data[i][key] = val; render(); }
-function derivedCell(key, val, item){
+const TONE = { ok: '#22c55e', warn: '#d29922', err: '#ef4444', off: '#8b95a7', info: '#1677ff' };
+function toneColor(d, val){ return (d && d.tone && d.tone[val]) ? (TONE[d.tone[val]] || 'var(--sub)') : 'var(--sub)'; }
+function statusTag(d, val){ const c = toneColor(d, val); return `<span class="tag" style="background:${c}22;color:${c}">${esc(val)}</span>`; }
+function derivedCell(d, val, item){
+  const key = d.key;
+  if (d.tone && d.tone[val]) return statusTag(d, val);           // 模型声明的枚举色（status.enum/tone）
   if (key === 'builtin') return val ? '<span class="tag b-on">内置</span>' : '<span class="tag">自定义</span>';
   if (key === 'installed') return val ? '<span class="yes">✓</span>' : '<span class="tag b-off">未安装</span>';
   if (key === 'hookInstalled') return val ? '<span class="yes">✓</span>' : '<span class="tag b-off">未安装</span>';
@@ -492,6 +850,29 @@ function runAction(kind, i, id){
     item.status.version = item.status.latestVersion;   // 升级到最新版本
     alert(`已升级 ${item.id} 到 ${item.status.version}（模拟）`);
     render();
+  } else if (id === 'reset-pwd') {                     // 用户：重置密码（只写 → 只更新哈希状态）
+    const used = mwUsingUser(idOf('user', item));
+    openAct('重置密码 · ' + item.name,
+      `<div class="fgrid tabcontent">` +
+      `<div class="field"><label>新密码<span class="req">*</span></label><input type="password" id="npPwd" placeholder="至少 8 位"></div>` +
+      `<div class="field"><label>确认密码<span class="req">*</span></label><input type="password" id="npPwd2" placeholder="再次输入"><div class="desc" id="npHint">两次输入一致才可提交</div></div>` +
+      `</div>` +
+      `<div class="desc" style="margin-top:6px">保存后立即生效：生成 bcrypt（cost 14）哈希，不回显明文。</div>` +
+      (used.length ? `<div class="vline" style="margin-top:8px">引用该账户的中间件：${used.map(m => `<span class="chip">${esc(m.name)}</span>`).join(' ')}</div>` : ''),
+      '重置', () => {
+        item.status = item.status || {};
+        item.status.passwordSet = true;
+        item.status.hashAlgorithm = 'bcrypt(cost 14)';
+        item.status.passwordUpdatedAt = NOW.toISOString().slice(0, 19) + 'Z';
+        render();
+        alert(`${item.name} · 密码已重置（模拟）${used.length ? '，' + used.map(m => m.name).join('、') + ' 的 basic_auth 哈希已更新' : ''}`);
+      },
+      () => {                                              // 提交前置校验：两次输入一致才关闭弹窗
+        const r = pwdPairCheck($('#npPwd'), $('#npPwd2'), { onMsg: (ok, msg) => {
+          const h = $('#npHint'); if (h) { h.textContent = msg || '两次输入一致才可提交'; h.style.color = msg ? 'var(--err)' : ''; }
+        }});
+        return r.ok;
+      });
   }
 }
 function checkUpdate(){
@@ -504,7 +885,7 @@ function checkUpdate(){
 }
 
 /* ── 侧栏 ── */
-const PAGE_ICON = { services: 'share', domains: 'globe', deploy: 'box', components: 'grid', market: 'store', monitor: 'activity', settings: 'gear' };
+const PAGE_ICON = { services: 'share', domains: 'globe', deploy: 'box', store: 'store', components: 'grid', monitor: 'activity', settings: 'gear' };
 function renderNav(){
   $('#nav').innerHTML = Object.entries(PAGES).map(([k, p]) => {
     const n = (p.tabs || []).reduce((a, t) => a + (t.kinds || []).reduce((b, kind) => b + (OBJ[kind] ? (OBJ[kind].list ? OBJ[kind].data.length : 1) : 0), 0), 0);
@@ -521,16 +902,24 @@ function renderNav(){
 /* ── 主区 ── */
 function render(){
   renderNav();
+  updateTopActs();
   const p = PAGES[page], tabs = p.tabs || [];
   const ct = tabs.find(t => t.key === tab) || tabs[0] || {};
-  $('#crumb').innerHTML = `设置 / ${p.label}` + (tabs.length > 1 ? `<span class="sub">${ct.label || ''}</span>` : '');
+  $('#crumb').innerHTML = `${p.label}` + (tabs.length > 1 ? `<span class="sub">${ct.label || ''}</span>` : '');
   if (!tabs.length) { $('#body').innerHTML = `<p class="hint">该页在后续批次实现（见 docs/v4.1/model/_naming.yaml 批次表）</p>`; return; }
   if (!tabs.find(t => t.key === tab)) tab = tabs[0].key;
   const curTab = tabs.find(t => t.key === tab);
-  const inner = curTab.render === 'cert-page'
-    ? certPageHTML()
-    : cardsHTML(curTab.cards) + (curTab.kinds || []).map(renderGroup).join('');
-  $('#body').innerHTML = `<div class="pagetabs">` + tabs.map(t => `<button data-tab="${t.key}" class="${t.key === tab ? 'on' : ''}">${t.label}</button>`).join('') + `</div>` + inner;
+  const inner = curTab.render === 'cert-page' ? certPageHTML()
+    : curTab.render === 'route-page' ? routePageHTML()
+    : curTab.render === 'template-page' ? templatePageHTML()
+    : curTab.render === 'compose-page' ? composePageHTML()
+    : curTab.render === 'container-page' ? containerPageHTML()
+    : curTab.render === 'image-page' ? imagePageHTML()
+    : curTab.render === 'network-page' ? networkPageHTML()
+    : curTab.render === 'volume-page' ? volumePageHTML()
+    : (curTab.kinds || []).map(renderGroup).join('');
+  const tabsBar = tabs.length > 1 ? `<div class="pagetabs">` + tabs.map(t => `<button data-tab="${t.key}" class="${t.key === tab ? 'on' : ''}">${t.label}</button>`).join('') + `</div>` : '';
+  $('#body').innerHTML = tabsBar + cardsHTML(curTab.cards) + inner;
   document.querySelectorAll('.pagetabs button').forEach(b => b.onclick = () => { tab = b.dataset.tab; render(); });
   document.querySelectorAll('tr.clk').forEach(tr => tr.onclick = () => openDrawer(tr.dataset.kind, +tr.dataset.i));
 }
@@ -540,8 +929,36 @@ const SOON = 30 * 864e5;                                  // 即将过期：≤3
 let certFilter = 'all';                                   // 域名页证书状态筛选
 let rootFilter = 'all';                                   // 域名页根域名筛选
 function computeCards(key){
-  if (key !== 'domain-overview') return [];
   const V = window.V41;
+  if (key === 'deploy-overview') {                            // 容器页统计（Agent / 编排 / 容器 / 路由；跟随主机筛选）
+    const cs = (V.containers || []).filter(c => hostMatch(c.host));
+    const running = cs.filter(c => c.state === 'running').length;
+    const ds = ((V.objects.deployment || {}).data || []).filter(d => hostMatch(d.host));
+    const depRunning = ds.filter(d => d.status && d.status.state === '运行中').length;
+    const depOff = ds.length - depRunning;
+    const hs = hosts(), agentsOn = hs.filter(h => h.status && h.status.online).length;
+    const routes = (V.objects.route || {}).data || [];
+    const rtOk = routes.filter(r => r.status && r.status.state === '已生效').length;
+    return [
+      { title: 'Agent', main: hs.length, subHTML: `在线 <b style="color:#22c55e">${agentsOn}</b> · 离线 <b style="color:#ef4444">${hs.length - agentsOn}</b>`, icon: 'server', tone: '#722ed1', link: { page: 'settings', tab: 'host' } },
+      { title: '编排',  main: ds.length, subHTML: `运行中 <b style="color:#22c55e">${depRunning}</b> · 未运行 <b style="color:#8b95a7">${depOff}</b>`, icon: 'grid', tone: '#13c2c2', link: { page: 'deploy', tab: 'compose' } },
+      { title: '容器',  main: cs.length, subHTML: `运行中 <b style="color:#22c55e">${running}</b> · 未运行 <b style="color:#8b95a7">${cs.length - running}</b>`, icon: 'box', tone: '#1677ff', link: { page: 'deploy', tab: 'overview' } },
+      { title: '路由',  main: routes.length, subHTML: `已生效 <b style="color:#22c55e">${rtOk}</b> · 告警 <b style="color:#d29922">${routes.length - rtOk}</b>`, icon: 'share', tone: '#fa8c16', link: { page: 'services', tab: 'route' } },
+    ];
+  }
+  if (key === 'compose-overview') {                           // 部署 · 编排页统计（跟随主机筛选）
+    const ds = ((V.objects.deployment || {}).data || []).filter(d => hostMatch(d.host));
+    const running = ds.filter(d => d.status && d.status.state === '运行中').length;
+    const undeployed = ds.filter(d => !d.status || d.status.state === '未部署').length;
+    const dockerRoutes = ((V.objects.route || {}).data || []).filter(r => r.status && r.status.source === 'docker').length;
+    return [
+      { title: '编排项目', main: ds.length,  sub: '部署单元', icon: 'box',      tone: '#1677ff', link: { page: 'deploy', tab: 'compose' } },
+      { title: '运行中',   main: running,    sub: '',         icon: 'activity', tone: '#22c55e', link: { page: 'deploy', tab: 'compose' } },
+      { title: '未部署',   main: undeployed, sub: '',         icon: 'minus',    tone: '#8b95a7', link: { page: 'deploy', tab: 'compose' } },
+      { title: '派生路由', main: dockerRoutes, sub: '来自编排', icon: 'share',  tone: '#13c2c2', link: { page: 'services', tab: 'route' } },
+    ];
+  }
+  if (key !== 'domain-overview') return [];
   const domains = (V.objects.domain || {}).data || [];
   const subTotal = domains.reduce((a, d) => a + ((d.status && d.status.subdomainCount) || 0), 0);
   const certs = V.certificates || [];
@@ -604,6 +1021,7 @@ function fakePem(type, seed){
 }
 function fmtTime(s){ return s ? String(s).replace('T', ' ').slice(0, 19) : '—'; }
 function viewCert(s){
+  $('#viewTitle').textContent = '查看证书';
   $('#viewBody').innerHTML =
     `<div class="vwrap">` +
     `<div class="vfld"><div class="dw-label">公钥（fullchain.pem）</div>` +
@@ -616,6 +1034,14 @@ function viewCert(s){
   $('#mask4').classList.add('on'); $('#viewModal').classList.add('on');
 }
 function closeView(){ $('#viewModal').classList.remove('on'); $('#mask4').classList.remove('on'); }
+function exportObj(kind){                                      // 交换文件：envelope = kind + revision + items[]（引用用稳定 id）
+  const o = OBJ[kind], items = o.list ? o.data : [o.data];
+  const rawSpec = it => { const out = {}; Object.keys(it).forEach(k => { if (k !== 'status') out[k] = it[k]; }); return out; };
+  const env = { kind, revision: 1042, items: items.map(rawSpec) };
+  $('#viewTitle').textContent = '导出 · ' + o.title + '（交换文件）';
+  $('#viewBody').innerHTML = `<div class="vwrap"><p class="hint" style="margin-top:0">envelope：<code>kind + revision + items[]</code>；引用为稳定 id（如 <code>svc-aria-web</code>），导入时校验引用完整。</p><pre class="export-yaml">${esc(toYaml(env))}</pre></div>`;
+  $('#mask4').classList.add('on'); $('#viewModal').classList.add('on');
+}
 
 /* ── 日志（最后一份 Run）：地图视图 / 文本视图 ── */
 let logKey = null, logView = 'map';
@@ -739,6 +1165,508 @@ function bindCanvas(){
 }
 /* 品牌图标（simple-icons path，源自 data/brands.js）*/
 function brandSVG(kind, size){ const b = (window.BRANDS || {})[kind]; if (!b) return ''; return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="${b.color}" style="display:block"><path d="${b.path}"/></svg>`; }
+/* 路由页（网关页，参照 views.md §6）：列 = 路由 / TLS / 类型 / 域名 / 入口 / 后端 / 中间件 / 状态 / 操作 */
+function routePageHTML(){
+  const V = window.V41;
+  const routes = (V.objects.route || {}).data || [];
+  const services = (V.objects.service || {}).data || [];
+  const svcOf = n => byId('service', n) || {};
+  const caddyVer = (((V.objects['caddy-global'] || {}).data || {}).status || {}).version || '-';
+  const ok = routes.filter(r => r.status.state === '已生效').length;
+  const warn = routes.filter(r => r.status.state === '证书告警').length;
+  const stateDef = ((V.objects.route || {}).status || []).find(x => x.key === 'state');
+  const typeLabel = { reverse_proxy: '反向代理', file_server: '静态文件', redirect: '重定向', respond: '固定响应', l4_proxy: '四层转发' };
+  const rows = routes.map((r, i) => {
+    const svc = svcOf(r.service);
+    const svcName = svc.name || r.service;
+    const up = (svc.status && svc.status.upstreamAddr) || `${(svc.backend || {}).host || '-'}:${(svc.backend || {}).port || '-'}`;
+    const st = svc.status || {};
+    const beHint = (st.host ? st.host + ' · ' : '') + svcName;
+    const domains = (r.roots || []).map(rt => { const dm = byId('domain', rt); const dn = dm ? dm.name : rt; return r.subdomain ? r.subdomain + '.' + dn : dn; });
+    const domCell = domains.length ? `<div class="dlist">${domains.slice(0, 2).map(d => `<code>${esc(d)}</code>`).join('')}</div>` + (domains.length > 2 ? `<span class="tip" data-tip="${esc(domains.join(' , '))}"> +${domains.length - 2}</span>` : '') : '—';
+    const mws = (r.middlewares || []).map(m => { const mw = byId('middleware', m); return `<span class="chip tip" data-tip="${esc((mw && mw.description) || '')}">${esc((mw && mw.name) || m)}</span>`; }).join('') || '—';
+    const sc = toneColor(stateDef, r.status.state);
+    const ops = [
+      `<button class="act-btn tip" data-tip="编辑" style="color:#722ed1" onclick="event.stopPropagation();openDrawer('route',${i})">${svg('filetext')}</button>`,
+      r.enabled
+        ? `<button class="act-btn tip" data-tip="停止" style="color:#fa8c16" onclick="event.stopPropagation();routeAct('${esc(r.name)}','stop')">${svg('minus')}</button>`
+        : `<button class="act-btn tip" data-tip="启动" style="color:#52c41a" onclick="event.stopPropagation();routeAct('${esc(r.name)}','start')">${svg('check')}</button>`,
+      `<button class="act-btn tip" data-tip="重启" style="color:#13c2c2" onclick="event.stopPropagation();routeAct('${esc(r.name)}','restart')">${svg('refresh')}</button>`,
+      `<button class="act-btn tip" data-tip="日志" style="color:#1677ff" onclick="event.stopPropagation();routeAct('${esc(r.name)}','logs')">${svg('filetext')}</button>`,
+      `<button class="act-btn tip" data-tip="删除" style="color:#ef4444" onclick="event.stopPropagation();routeAct('${esc(r.name)}','del')">${svg('trash')}</button>`,
+    ].join('');
+    return `<tr class="clk" data-kind="route" data-i="${i}">
+      <td><b>${esc(r.name)}</b><div class="rsub"><span class="bic">${brandSVG(r.status.source === 'docker' ? 'docker' : 'caddy', 12)}</span><span style="color:var(--ws)">·</span>${esc(svcName)}</div></td>
+      <td>${r.tls === false || r.tls === 'off' ? '<span class="no">—</span>' : `<span style="color:#22c55e">${svg('lock')}</span>`}</td>
+      <td>${esc(typeLabel[svc.type] || svc.type || '—')}</td>
+      <td>${domCell}</td>
+      <td><b>${esc(((byId('entrypoint', r.entrypoint) || {}).protocol || r.entrypoint || '').toUpperCase())}</b> ${(function(){ const ep = byId('entrypoint', r.entrypoint); return ep && ep.port ? `<span class="chip">${esc(ep.port)}</span>` : ''; })()}</td>
+      <td><code>${esc(up)}</code><div class="cday">${esc(beHint)}</div></td>
+      <td>${mws}</td>
+      <td><span class="tip" data-tip="${esc(r.status.state)}" style="color:${sc};display:inline-flex;vertical-align:middle">${svg(r.enabled ? 'check' : 'minus')}</span> <span class="cday">${esc(r.status.state)}</span></td>
+      <td class="ops">${ops}</td></tr>`;
+  }).join('');
+  return `<div class="lstats" style="position:static;margin-bottom:12px">
+      <span class="tag">Caddy ${esc(caddyVer)}</span><span class="tag">路由 ${routes.length}</span><span class="tag">已生效 ${ok}</span><span class="tag">证书告警 ${warn}</span>
+    </div>
+    <div class="grp nocut"><div class="hd"><span class="nm">路由</span><span class="tag">${routes.length} 项</span><span class="sp"></span>
+      <button class="btn add" onclick="openDrawer('route',-1)">＋ 新增</button></div>
+    <table><thead><tr><th>路由</th><th>TLS</th><th>类型</th><th>域名</th><th>入口</th><th>后端</th><th>中间件</th><th>状态</th><th class="ops">操作</th></tr></thead>
+    <tbody>${rows || '<tr><td colspan="9" class="empty">暂无路由</td></tr>'}</tbody></table></div>`;
+}
+function routeAct(name, act){
+  if (act === 'logs') return openLog('acme');
+  if (act === 'del') return confirmDialog('删除路由', `确定删除路由 <b>${esc(name)}</b>？`, () => alert(`${name} · 已删除（模拟）`));
+  alert(`${name} · ${act}（模拟）`);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 部署（批次 5）：应用商店 · 编排 · 容器 · 镜像 · 网络 · 存储卷
+ * 模型依据：ADR-042 §9.1（部署单元 = docker 内容 + GateBox 声明）· blueprint.md §6（模板）
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── 通用动作弹窗（表单 / 预览 / 日志共用）── */
+let actCb = null, actGuard = null;                       // actGuard：提交前置校验（不通过则不关闭，如密码两次输入）
+function openAct(title, body, okText, onOk, guard){
+  $('#actTitle').textContent = title;
+  $('#actBody').innerHTML = body;
+  const ok = $('#actOk');
+  if (okText === null) { ok.style.display = 'none'; } else { ok.style.display = ''; ok.textContent = okText || '确定'; }
+  $('#actCancel').textContent = okText === null ? '关闭' : '取消';
+  actCb = onOk || null;
+  actGuard = guard || null;
+  $('#mask7').classList.add('on'); $('#actModal').classList.add('on');
+}
+function closeAct(){ $('#actModal').classList.remove('on'); $('#mask7').classList.remove('on'); actCb = null; actGuard = null; }
+function actOk(){ if (actGuard && !actGuard()) return; const cb = actCb; closeAct(); cb && cb(); }
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 主机维度（多主机 · 通过 gatebox-agent 查看 / 控制各主机 docker）
+ * 原则：主机是「维度」不是「页面」——顶部主机条 + 每表主机列 + 离线降级。
+ * ══════════════════════════════════════════════════════════════════════════ */
+function hosts(){ return (window.V41.objects.host || {}).data || []; }
+function hostOf(name){ return hosts().find(h => h.host === name) || null; }
+function hostOnline(name){ const h = hostOf(name); return h ? !!(h.status && h.status.online) : true; }
+function hostMatch(name){ return hostFilter === 'all' || name === hostFilter; }
+function setHostFilter(h){ hostFilter = h; render(); }
+function hostDot(name){
+  const h = hostOf(name);
+  const on = h ? !!(h.status && h.status.online) : true;
+  return `<span class="hdot ${on ? 'on' : 'off'} tip" data-tip="${on ? 'agent 在线' : 'agent 不可达（主机离线）'}"></span>`;
+}
+function hostCell(name){
+  if (!name) return '—';
+  const h = hostOf(name) || {};
+  const ip = h.address || '';
+  return `<span class="hostcell">${hostDot(name)}<span class="hcmeta"><b>${esc(name)}</b>${ip ? `<span class="cday">${esc(ip)}</span>` : ''}</span></span>`;
+}
+/* 顶部主机条：全部 + 各主机（在线点 / 计数）；离线主机给出横幅 */
+function hostBarHTML(counts){
+  const hs = hosts();
+  const online = hs.filter(h => h.status && h.status.online).length;
+  const chip = (key, label, dot, n) => `<button class="hostchip${hostFilter === key ? ' on' : ''}" onclick="setHostFilter('${esc(key)}')">${dot}${esc(label)}${n !== '' && n != null ? `<span class="hc-n">${n}</span>` : ''}</button>`;
+  const items = [ chip('all', '全部主机', '', hs.length) ];
+  hs.forEach(h => {
+    const on = h.status && h.status.online;
+    const c = counts && counts[h.host] != null ? counts[h.host] : '';
+    items.push(chip(h.host, h.host, `<span class="hdot ${on ? 'on' : 'off'}"></span>`, c));
+  });
+  const offline = hs.filter(h => !(h.status && h.status.online));
+  const banner = offline.length
+    ? `<div class="hostwarn">主机 ${offline.map(h => esc(h.host)).join('、')} 离线（agent 不可达，最后在线 ${esc(fmtTime(offline[0].status && offline[0].status.lastSeen))}）—— 其资源标「未知」，操作已禁用</div>`
+    : '';
+  return `<div class="hostbar"><span class="hb-lb">主机</span>${items.join('')}<span class="sp"></span><span class="cday">agent 在线 ${online}/${hs.length}</span></div>${banner}`;
+}
+/* 离线主机的操作按钮：统一禁用并说明原因 */
+function hostActAttr(name){
+  return hostOnline(name) ? '' : ` disabled title="主机 ${esc(name)} 离线（agent 不可达），无法操作"`;
+}
+
+/* ── 应用商店（模板 = 预制部署单元；卡片 / 列表 两视图）── */
+let storeView = 'card';
+function setStoreView(v){ storeView = v; render(); }
+function templatePageHTML(){
+  const tpls = window.V41.templates || [];
+  const toolbar = `<div class="bar-row">
+    <span class="cday">共 ${tpls.length} 个模板 · 来自 GateBoxStore / 社区</span><span class="sp"></span>
+    <span class="logtabs"><button class="${storeView === 'card' ? 'on' : ''}" onclick="setStoreView('card')">卡片</button><button class="${storeView === 'list' ? 'on' : ''}" onclick="setStoreView('list')">列表</button></span>
+  </div>`;
+  const head = `<p class="hint">应用商店 · 模板 = 预制「部署单元」：封装 docker 内容（compose）与 GateBox 声明（服务 / 路由）默认值。部署后生成标准对象，走同一条发布链。</p>`;
+  if (storeView === 'list') {
+    const rows = tpls.map(t => {
+      const decl = (t.service ? `<span class="chip">${esc(t.service.type)}</span>` : '') + (t.router ? `<span class="chip">${esc(t.router.protocol)}:${esc(t.router.port)}</span>` : '') || '—';
+      return `<tr class="trow" onclick="openTemplate('${esc(t.id)}')">
+        <td><b>${esc(t.name)}</b><div class="rsub">${esc(t.id)}</div></td>
+        <td><code>v${esc(t.version)}</code></td>
+        <td><span class="cday">${esc(t.publisher)}</span></td>
+        <td><span class="tag">${esc(t.category || '应用')}</span></td>
+        <td>${decl}</td>
+        <td>${(t.inputs || []).length} 项</td>
+        <td class="ops"><button class="act-btn tip" data-tip="部署" style="color:#52c41a" onclick="event.stopPropagation();openTemplate('${esc(t.id)}')">${svg('play')}</button></td>
+      </tr>`;
+    }).join('');
+    return head + toolbar + `<div class="grp nocut"><div class="hd"><span class="nm">模板</span><span class="tag">${tpls.length} 项</span><span class="sp"></span></div>
+      <table><thead><tr><th>名称</th><th>版本</th><th>发布者</th><th>分类</th><th>声明</th><th>输入</th><th class="ops">操作</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="7" class="empty">暂无模板</td></tr>'}</tbody></table></div>`;
+  }
+  return head + toolbar + `<div class="tplgrid">` + tpls.map(t => `
+      <div class="tplcard">
+        <div class="tplhd">
+          <span class="tplico">${svg('box')}</span>
+          <div class="tplmeta"><b>${esc(t.name)}</b><span>${esc(t.publisher)} · v${esc(t.version)}</span></div>
+          <span class="tag">${esc(t.category || '应用')}</span>
+        </div>
+        <div class="tpldesc">${esc(t.summary)}</div>
+        <div class="tpltags">${(t.tags || []).map(x => `<span class="chip">${esc(x)}</span>`).join('') || '<span class="cday">—</span>'}</div>
+        <div class="tplft"><span class="cday">输入 ${(t.inputs || []).length} 项</span><span class="sp"></span>
+          <button class="btn" onclick="openTemplate('${esc(t.id)}')">详情</button>
+          <button class="btn add" onclick="openTemplate('${esc(t.id)}')">部署</button></div>
+      </div>`).join('') + `</div>`;
+}
+function tplPreviewText(t){
+  const s = t.service, r = t.router, lines = ['services:'];
+  if (s) lines.push(`  - { name: ${t.id}-web, type: ${s.type}, backend: { host: <选择>, deployment: ${t.id}, port: ${s.containerPort} } }`);
+  else lines.push('  # 该模板不含对外服务声明');
+  lines.push('routers:');
+  if (r) lines.push(`  - { name: ${t.id}, entrypoint: ${r.protocol}, port: ${r.port}, tls: ${r.tls === false ? 'off' : 'auto'}, middlewares: [${(r.middlewares || []).join(', ')}] }`);
+  else lines.push('  # 该模板不发布路由');
+  return lines.join('\n');
+}
+/* 模板 → 结构化 compose 状态（新建编排时用；与手工 compose 同构） */
+function tplServices(t){
+  const s = t.service, r = t.router, name = t.id;
+  const imgMatch = /image:\s*([^\s'"]+)/.exec(t.compose || '');
+  const svc = {
+    image: imgMatch ? imgMatch[1] : '', container_name: name, restart: 'unless-stopped',
+    environment: [], volumes: [], ports: [],
+    caddyRoutes: r ? [ { subdomain: name, roots: ['neob.cn'], entrypoint: r.protocol || 'https', upstream: s ? String(s.containerPort || '') : '', middlewares: r.middlewares || [] } ] : [],
+    logging: { driver: 'json-file', options: { 'max-size': '2m', 'max-file': '5' } },
+    healthcheck: {}, user: '', pid: '', command: [], cap_add: [], depends_on: [], networks: [], extra_hosts: [], devices: [], network_mode: '',
+  };
+  if (s && s.containerPort) svc.ports = [ { host: String(s.containerPort), container: String(s.containerPort), protocol: 'tcp' } ];
+  return { [name]: svc };
+}
+function openTemplate(id){
+  const t = (window.V41.templates || []).find(x => x.id === id); if (!t) return;
+  const inputs = (t.inputs || []).map(f => `<div class="field"><label>${esc(f.label)}${f.required ? '<span class="req">*</span>' : ''}</label>
+    <input type="text" data-tkey="${esc(f.key)}" value="${esc(f.default || '')}" placeholder="${esc(f.placeholder || '')}"></div>`).join('') || '<div class="cday">该模板无需输入</div>';
+  openAct('从模板部署 · ' + t.name,
+    `<div class="fsec"><div class="fsec-h">模板参数</div>${inputs}</div>
+     <div class="fsec"><div class="fsec-h">将生成的声明（GateBox 对象）</div><pre class="code-prev">${esc(tplPreviewText(t))}</pre></div>
+     <div class="fsec"><div class="fsec-h">docker-compose.yaml（docker 内容）</div><pre class="code-prev">${esc(t.compose || '')}</pre></div>`,
+    '部署', () => {
+      const inputsObj = {}; document.querySelectorAll('#actBody [data-tkey]').forEach(el => inputsObj[el.dataset.tkey] = el.value);
+      const name = t.id + '-' + Math.random().toString(36).slice(2, 6);
+      OBJ.deployment.data.push({ name, displayName: t.name, host: 'nas', source: 'managed', template: t.id, inputs: inputsObj,
+        compose: t.compose || '', services: tplServices(t),
+        status: { state: '未部署', serviceCount: t.service ? 1 : 0, runningCount: 0, routeCount: t.router ? 1 : 0, lastDeployedAt: '', createdAt: NOW.toISOString() } });
+      alert(`已从模板「${t.name}」创建编排 ${name}（模拟）；点击「部署」即可发布。`);
+      page = 'deploy'; tab = 'compose'; render();
+    });
+}
+
+/* ── 编排（部署单元）── */
+function depServiceNames(d){ return Object.keys(d.services || {}).map(k => (d.services[k].container_name || k)); }
+function depRoutes(d){
+  const out = [];
+  Object.keys(d.services || {}).forEach(k => (d.services[k].caddyRoutes || []).forEach(r => {
+    if (!r.subdomain || !(r.roots || []).length) return;
+    r.roots.forEach(root => out.push({ name: r.subdomain, domain: r.subdomain + '.' + root, proto: r.entrypoint || 'https' }));
+  }));
+  return out;
+}
+function composePageHTML(){
+  const ds = (window.V41.objects.deployment || {}).data || [];
+  const counts = {}; ds.forEach(d => { counts[d.host] = (counts[d.host] || 0) + 1; });
+  const stateColor = { '运行中': '#22c55e', '已停止': '#8b95a7', '未部署': '#8b95a7', '错误': '#ef4444', '部署中': '#1677ff' };
+  const rows = ds.map((d, i) => {
+    if (!hostMatch(d.host)) return '';
+    const on = hostOnline(d.host);
+    const st = d.status || {};
+    const deployed = st.state && st.state !== '未部署';
+    const src = d.source === 'external' ? '<span class="tag">外部</span>' : '<span class="tag b-on">托管</span>';
+    const svcNames = depServiceNames(d);
+    const svc = deployed && on
+      ? `<span class="tip ml" data-tip="${esc(svcNames.join('\n') || '（无服务）')}">${st.runningCount || 0}/${st.serviceCount || 0}</span>`
+      : '—';
+    const routes = depRoutes(d);
+    const routeTip = routes.map(r => `名称: ${r.name}\n域名: ${r.domain}\n协议: ${r.proto}`).join('\n\n');
+    const routeCell = routes.length ? `<span class="tip ml" data-tip="${esc(routeTip)}"><span class="chip">${routes.length}</span></span>` : (st.routeCount ? `<span class="chip">${st.routeCount}</span>` : '—');
+    const stateLabel = on ? (st.state || '未部署') : '未知';
+    const sc = on ? (stateColor[st.state] || 'var(--sub)') : '#8b95a7';
+    const da = hostActAttr(d.host);
+    const ops = [
+      `<button class="act-btn tip" data-tip="部署" style="color:#52c41a"${da} onclick="event.stopPropagation();composeAct('${esc(d.name)}','deploy')">${svg('play')}</button>`,
+      st.state === '运行中' && on ? `<button class="act-btn tip" data-tip="停止" style="color:#fa8c16" onclick="event.stopPropagation();composeAct('${esc(d.name)}','stop')">${svg('pause')}</button>` : '',
+      `<button class="act-btn tip" data-tip="重启" style="color:#13c2c2"${da} onclick="event.stopPropagation();composeAct('${esc(d.name)}','restart')">${svg('refresh')}</button>`,
+      d.source === 'external'
+        ? `<button class="act-btn tip" data-tip="接管" style="color:#fa8c16"${da} onclick="event.stopPropagation();composeAct('${esc(d.name)}','adopt')">${svg('swap')}</button>`
+        : `<button class="act-btn tip" data-tip="编辑" style="color:#722ed1" onclick="event.stopPropagation();openDrawer('deployment',${i})">${svg('filetext')}</button>`,
+      `<button class="act-btn tip" data-tip="删除" style="color:#ef4444"${da} onclick="event.stopPropagation();composeAct('${esc(d.name)}','del')">${svg('trash')}</button>`,
+    ].join('');
+    return `<tr class="clk ${on ? '' : 'hostoff'}" data-kind="deployment" data-i="${i}">
+      <td><b>${esc(d.displayName || d.name)}</b></td>
+      <td><code>${esc(d.name)}</code></td>
+      <td>${src}</td>
+      <td>${hostCell(d.host)}</td>
+      <td>${svc}</td>
+      <td><span class="tip" data-tip="${esc(stateLabel)}" style="color:${sc};display:inline-flex;vertical-align:middle">${svg(on && st.state === '运行中' ? 'check' : on && st.state === '错误' ? 'x' : 'minus')}</span> <span class="cday">${esc(stateLabel)}</span></td>
+      <td>${routeCell}</td>
+      <td><span class="cday">${esc(fmtTime(st.lastDeployedAt))}</span></td>
+      <td class="ops">${ops}</td></tr>`;
+  }).join('');
+  const shown = ds.filter(d => hostMatch(d.host)).length;
+  return hostBarHTML(counts) + `<div class="grp nocut"><div class="hd"><span class="nm">编排项目</span><span class="tag">${shown} 项</span><span class="sp"></span>
+      <button class="btn" onclick="goto('store','store')">应用商店</button>
+      <button class="btn" onclick="composeAct('__all__','sync')">同步到网关</button>
+      <button class="btn add" onclick="openDrawer('deployment',-1)">＋ 新建</button></div>
+    <table><thead><tr><th>应用名</th><th>项目名</th><th>来源</th><th>主机</th><th>服务</th><th>状态</th><th>路由</th><th>上次部署</th><th class="ops">操作</th></tr></thead>
+    <tbody>${rows || '<tr><td colspan="9" class="empty">该主机暂无编排</td></tr>'}</tbody></table></div>`;
+}
+function composeAct(name, act){
+  if (act === 'sync') return alert('已同步运行中容器到网关（模拟：重新聚合 + 刷新派生路由）');
+  const d = (OBJ.deployment.data || []).find(x => x.name === name);
+  if (act === 'del') return confirmDialog('删除编排', `确定删除 <b>${esc(d ? (d.displayName || d.name) : name)}</b>？将停止并删除其所有容器。`, () => alert(`${name} · 已删除（模拟）`));
+  if (act === 'deploy') { if (d) { d.status = d.status || {}; d.status.state = '运行中'; d.status.runningCount = d.status.serviceCount || 1; d.status.lastDeployedAt = NOW.toISOString(); } alert(`${name} · 已部署（模拟）`); return render(); }
+  if (act === 'stop') { if (d) { d.status.state = '已停止'; d.status.runningCount = 0; } alert(`${name} · 已停止（模拟）`); return render(); }
+  if (act === 'adopt') { if (d) d.source = 'managed'; alert(`${name} · 已接管（模拟）`); return render(); }
+  if (act === 'restart') { alert(`${name} · 已重启（模拟）`); return; }
+  alert(`${name} · ${act}（模拟）`);
+}
+
+/* ── 容器 ── */
+function fmtBytes(n){
+  if (!n) return '—';
+  const mib = n / 1048576;
+  if (mib >= 1024) return (mib / 1024).toFixed(2) + ' GiB';
+  return mib.toFixed(1) + ' MiB';
+}
+function fmtAgo(s){
+  if (!s) return '—';
+  const ms = NOW.getTime() - new Date(s).getTime();
+  if (isNaN(ms) || ms < 0) return '—';
+  const sec = Math.floor(ms / 1000), d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600), m = Math.floor((sec % 3600) / 60);
+  if (d > 0) return `${d} 天 ${h} 小时`;
+  if (h > 0) return `${h} 小时 ${m} 分`;
+  if (m > 0) return `${m} 分`;
+  return `${sec} 秒`;
+}
+function fakeContainerLog(c){
+  const t = '2026-09-22 10:00:0';
+  return [
+    `${t}1  [INFO] starting ${c.name} (${c.image})`,
+    `${t}2  [INFO] listening on :${(c.portMaps && c.portMaps[0] && c.portMaps[0].container) || 80}`,
+    `${t}3  [INFO] ready`,
+    `${t}4  [WARN] upstream slow (${c.name})`,
+  ].join('\n');
+}
+/* 容器状态 icon：绿勾=运行中 / 橙点=启动·重启·故障等 / 灰杠=未启动 */
+function cStateIcon(c, on){
+  const map = { running: ['ok', '运行中'], exited: ['off', '已停止'], created: ['off', '已创建'],
+    paused: ['warn', '已暂停'], restarting: ['warn', '重启中'], starting: ['warn', '启动中'], dead: ['warn', '异常（故障）'] };
+  const [kind, label] = on ? (map[c.state] || ['warn', c.state]) : ['off', '未知（主机离线）'];
+  const [icon, color] = { ok: ['check', '#22c55e'], warn: ['dot', '#d29922'], off: ['minus', '#8b95a7'] }[kind];
+  return `<span class="tip stico" data-tip="${esc(label)}" style="color:${color}">${svg(icon)}</span>`;
+}
+/* CPU / 内存合并列：各占一行，数字前 icon 区分；悬停看明细 */
+function cResourceCell(c, on){
+  const run = on && c.state === 'running';
+  if (!run) return '<span class="cday">—</span>';
+  if (!c.hasStats) return '<span class="cday">采集中</span>';
+  const hs = c.hostStats || {};
+  const cpuLines = [`CPU 使用 ${c.cpuPercent.toFixed(2)}%`];
+  if (hs.cpuFreqGHz) cpuLines.push(`频率 ${hs.cpuFreqGHz.toFixed(2)} GHz`);
+  if (hs.corePercents && hs.corePercents.length) cpuLines.push('各核 ' + hs.corePercents.map((p, i) => `C${i} ${p.toFixed(1)}%`).join('  '));
+  const memLines = [`内存使用 ${fmtBytes(c.memUsage)}`];
+  if (c.memLimit) memLines.push(`容器上限 ${fmtBytes(c.memLimit)}`);
+  if (hs.memTotalGiB != null) memLines.push(`宿主 总 ${hs.memTotalGiB.toFixed(1)} / 用 ${hs.memUsedGiB.toFixed(1)} / 可用 ${hs.memAvailGiB.toFixed(1)} GiB`);
+  return `<div class="rescell">
+    <span class="tip ml resrow" data-tip="${esc(cpuLines.join('\n'))}"><span class="resico" style="color:#1677ff">${svg('cpu')}</span><span style="color:#1677ff">${c.cpuPercent.toFixed(2)}%</span></span>
+    <span class="tip ml resrow" data-tip="${esc(memLines.join('\n'))}"><span class="resico" style="color:#722ed1">${svg('memory')}</span><span style="color:#722ed1">${fmtBytes(c.memUsage)}</span></span>
+  </div>`;
+}
+function containerPageHTML(){
+  const all = window.V41.containers || [];
+  const cs = all.filter(c => hostMatch(c.host));
+  const counts = {}; all.forEach(c => { counts[c.host] = (counts[c.host] || 0) + 1; });
+  const healthColor = { healthy: '#22c55e', unhealthy: '#ef4444', starting: '#1677ff' };
+  const rows = cs.map(c => {
+    const on = hostOnline(c.host);
+    const srcTag = c.source === 'managed' ? '<span class="tag b-on">托管</span>' : c.source === 'external' ? '<span class="tag">外部</span>' : '<span class="tag">游离</span>';
+    const ports = c.portMaps || [];
+    const portCell = ports.length
+      ? `<span class="tip ml" data-tip="${esc(ports.map(p => (p.host ? `${p.ip || '0.0.0.0'}:${p.host} → ${p.container}/${p.protocol}` : `未映射 → ${p.container}/${p.protocol}`)).join('\n'))}"><span class="chip">端口：${ports.length}</span></span>`
+      : '—';
+    const run = on && c.state === 'running';
+    const health = c.health ? `<span class="tag" style="background:${(healthColor[c.health] || '#1677ff')}22;color:${healthColor[c.health] || '#1677ff'}">${esc(c.health)}</span>` : '<span class="tag">未检测</span>';
+    const da = hostActAttr(c.host);
+    const ops = [
+      `<button class="act-btn tip" data-tip="日志" style="color:#1677ff"${da} onclick="event.stopPropagation();containerAct('${esc(c.id)}','logs')">${svg('filetext')}</button>`,
+      `<button class="act-btn tip" data-tip="${run ? '控制台' : '容器未运行，无法进入控制台'}" style="color:${run ? '#722ed1' : '#8b95a7'}" ${run ? '' : 'disabled'} onclick="event.stopPropagation();containerAct('${esc(c.id)}','exec')">${svg('terminal')}</button>`,
+      run ? `<button class="act-btn tip" data-tip="停止" style="color:#ef4444" onclick="event.stopPropagation();containerAct('${esc(c.id)}','stop')">${svg('pause')}</button>`
+          : `<button class="act-btn tip" data-tip="启动" style="color:#52c41a"${da} onclick="event.stopPropagation();containerAct('${esc(c.id)}','start')">${svg('play')}</button>`,
+      `<button class="act-btn tip" data-tip="${run ? '重启' : '容器未运行'}" style="color:${run ? '#13c2c2' : '#8b95a7'}" ${run ? '' : 'disabled'} onclick="event.stopPropagation();containerAct('${esc(c.id)}','restart')">${svg('refresh')}</button>`,
+      c.source === 'loose' ? `<button class="act-btn tip" data-tip="转为编排" style="color:#fa8c16"${da} onclick="event.stopPropagation();containerAct('${esc(c.id)}','convert')">${svg('swap')}</button>` : '',
+      `<button class="act-btn tip" data-tip="升级（比对镜像 tag）" style="color:#1677ff"${da} onclick="event.stopPropagation();containerAct('${esc(c.id)}','upgrade')">${svg('download')}</button>`,
+      `<button class="act-btn tip" data-tip="${run ? '运行中的容器不可删除' : '删除'}" style="color:${run ? '#8b95a7' : '#ef4444'}" ${run ? 'disabled' : ''}${da} onclick="event.stopPropagation();containerAct('${esc(c.id)}','del')">${svg('trash')}</button>`,
+    ].join('');
+    return `<tr class="${on ? '' : 'hostoff'}">
+      <td><b>${esc(c.name)}</b><div class="rsub"><span class="bic">${brandSVG('docker', 12)}</span>${esc(c.image)}</div></td>
+      <td>${srcTag}</td>
+      <td>${hostCell(c.host)}</td>
+      <td><span class="healthcell">${cStateIcon(c, on)}${health}</span></td>
+      <td>${portCell}</td>
+      <td>${cResourceCell(c, on)}</td>
+      <td><span class="cday">${esc(fmtTime(c.createdAt).slice(0, 10))}</span></td>
+      <td><span class="cday">${run ? esc(fmtAgo(c.startedAt)) : '—'}</span></td>
+      <td class="ops">${ops}</td></tr>`;
+  }).join('');
+  return hostBarHTML(counts) + `<div class="grp nocut"><div class="hd"><span class="nm">容器</span><span class="tag">${cs.length} 项</span><span class="sp"></span>
+      <button class="btn" onclick="containerAct('__all__','upgrade-all')">全部升级</button>
+      <button class="btn" onclick="imageAct('pull')">拉取镜像</button></div>
+    <table><thead><tr><th>名称</th><th>来源</th><th>主机</th><th>健康</th><th>端口</th><th>CPU / 内存</th><th>创建时间</th><th>运行时间</th><th class="ops">操作</th></tr></thead>
+    <tbody>${rows || '<tr><td colspan="9" class="empty">该主机暂无容器</td></tr>'}</tbody></table></div>`;
+}
+function containerAct(id, act){
+  if (act === 'upgrade-all') return confirmDialog('全部升级', '将比对全部容器的镜像 tag，只升级有新版本的容器。升级需停止并重建，存在风险。', () => alert('升级操作完成（模拟）'));
+  const c = (window.V41.containers || []).find(x => x.id === id); if (!c) return;
+  if (act === 'logs') return openAct('日志 · ' + c.name, `<div class="logcode"><pre class="ltext" style="max-height:50vh">${esc(fakeContainerLog(c))}</pre></div>`, null, null);
+  if (act === 'exec') return alert(`${c.name} · 打开控制台（模拟，需容器内 shell）`);
+  if (act === 'stop') { c.state = 'exited'; c.hasStats = false; alert(`${c.name} · 已停止（模拟）`); return render(); }
+  if (act === 'start') { c.state = 'running'; c.hasStats = true; c.startedAt = NOW.toISOString(); alert(`${c.name} · 已启动（模拟）`); return render(); }
+  if (act === 'restart') { alert(`${c.name} · 已重启（模拟）`); return; }
+  if (act === 'del') return confirmDialog('删除容器', `确定删除 <b>${esc(c.name)}</b>？此操作不可撤销。`, () => alert(`${c.name} · 已删除（模拟）`));
+  if (act === 'convert') return openAct('转为编排', `<div class="desc">将删除原容器并重建为编排项目，存在数据风险，请核对。</div><div class="field"><label>projectName<span class="req">*</span></label><input type="text" id="convProj" value="${esc(c.id)}"></div>`, '确认转换', () => alert(`${c.name} · 已转为编排（模拟）`));
+  if (act === 'upgrade') return confirmDialog('升级容器', `将比对 <b>${esc(c.name)}</b> 的镜像 tag，有新版本则重建。`, () => alert(`${c.name} · 已升级（模拟）`));
+}
+
+/* ── 镜像 ── */
+function imagePageHTML(){
+  const all = window.V41.images || [];
+  const imgs = all.filter(im => hostMatch(im.host));
+  const counts = {}; all.forEach(im => { counts[im.host] = (counts[im.host] || 0) + 1; });
+  const total = imgs.reduce((a, x) => a + x.size, 0);
+  const rows = imgs.map(im => {
+    const on = hostOnline(im.host);
+    const dangling = !im.names.length;
+    const name = dangling ? '<span class="cday">&lt;无标签&gt;</span>' : `<b>${esc(im.names[0])}</b>`;
+    const sub = im.names.length > 1 ? `+${im.names.length - 1} 个标签` : (im.digests[0] ? esc(String(im.digests[0].split('@')[1] || '').slice(0, 22)) : '');
+    const usage = im.inUse
+      ? `<span class="tip tag" data-tip="被容器使用：${esc((im.containers || []).join(', '))}" style="background:rgba(210,153,34,.16);color:#d29922">使用中</span>`
+      : '<span class="tag">未使用</span>';
+    const del = im.inUse || !on;
+    const tip = !on ? '主机离线（agent 不可达），无法删除' : (im.inUse ? '被容器使用，不可删除' : '删除');
+    const ops = `<button class="act-btn tip" data-tip="${tip}" style="color:${del ? '#8b95a7' : '#ef4444'}" ${del ? 'disabled' : ''} onclick="event.stopPropagation();imageAct('del','${esc(im.id)}')">${svg('trash')}</button>`;
+    return `<tr class="${on ? '' : 'hostoff'}"><td>${name}${dangling ? ' <span class="tag">悬空</span>' : ''}<div class="rsub">${sub}</div></td>
+      <td>${hostCell(im.host)}</td>
+      <td><span class="cday">${esc(im.arch || '—')}</span></td>
+      <td>${esc(fmtBytes(im.size))}</td>
+      <td>${usage}</td>
+      <td><span class="cday">${esc(fmtTime(im.createdAt))}</span></td>
+      <td class="ops">${ops}</td></tr>`;
+  }).join('');
+  return hostBarHTML(counts) + `<div class="bar-row"><span class="cday">共 ${imgs.length} 个镜像 · 合计 ${fmtBytes(total)}</span><span class="sp"></span>
+      <button class="btn" onclick="imageAct('import')">导入镜像</button>
+      <button class="btn" onclick="goto('deploy','registry')">仓库管理</button>
+      <button class="btn p" onclick="imageAct('pull')">拉取镜像</button></div>
+    <div class="grp nocut"><div class="hd"><span class="nm">镜像</span><span class="tag">${imgs.length} 项</span><span class="sp"></span></div>
+    <table><thead><tr><th>名称</th><th>主机</th><th>架构</th><th>大小</th><th>是否使用</th><th>创建时间</th><th class="ops">操作</th></tr></thead>
+    <tbody>${rows || '<tr><td colspan="7" class="empty">该主机暂无镜像</td></tr>'}</tbody></table></div>`;
+}
+function imageAct(act, id){
+  if (act === 'pull') return openAct('拉取镜像',
+    `<div class="field"><label>镜像名<span class="req">*</span></label><input type="text" id="pullName" placeholder="nginx 或 registry.example.com/foo"></div>
+     <div class="fgrid"><div class="field"><label>版本（留空为 latest）</label><input type="text" id="pullTag" placeholder="latest"></div>
+     <div class="field"><label>架构</label><input type="text" id="pullArch" value="linux/amd64"></div></div>
+     <div class="desc">走标准 Registry V2 API；查询失败可自由手填（静默降级）。</div>`,
+    '拉取', () => { const n = ($('#pullName') || {}).value || ''; alert(`已开始拉取 ${n || '镜像'}（模拟，多层并行、按字节加权进度）`); });
+  if (act === 'import') return openAct('导入镜像', `<div class="desc">点击或拖拽 docker save 导出的 .tar 归档到此处（一次最多 10 个）。</div><div class="field"><input type="file" multiple accept=".tar,.tar.gz,.tgz"></div>`, null, null);
+  if (act === 'select') {                                   // 编排抽屉 → 选择镜像
+    const imgs = window.V41.images || [];
+    const body = `<div class="vwrap">` + (imgs.map(im => `<div class="cmp-row" style="justify-content:space-between"><span>${esc(im.names[0] || '<无标签>')}<span class="cday"> · ${esc(im.arch)} · ${esc(fmtBytes(im.size))}</span></span><button class="btn" onclick="cmpPickImage('${esc(im.names[0] || '')}')">选择</button></div>`).join('') || '<div class="cday">暂无镜像</div>') + `</div>`;
+    return openAct('选择镜像', body, null, null);
+  }
+  if (act === 'del') { const im = (window.V41.images || []).find(x => x.id === id); return confirmDialog('删除镜像', `确定删除 <b>${esc((im && im.names[0]) || id)}</b>？`, () => alert('镜像已删除（模拟）')); }
+}
+
+/* ── 网络 ── */
+function networkPageHTML(){
+  const all = window.V41.networks || [];
+  const nets = all.filter(n => hostMatch(n.host));
+  const counts = {}; all.forEach(n => { counts[n.host] = (counts[n.host] || 0) + 1; });
+  const rows = nets.map(n => {
+    const on = hostOnline(n.host);
+    const builtin = ['bridge', 'host', 'none'].includes(n.name);
+    const busy = builtin || (n.containers || []).length;
+    const ipv4 = n.subnet ? `<code>${esc(n.subnet)}</code><div class="cday">${esc(n.internal ? '隔离外部访问' : (n.gateway || ''))}</div>` : '<span class="cday">—</span>';
+    const del = busy || !on;
+    const tip = !on ? '主机离线（agent 不可达），无法删除' : (builtin ? '内置网络不可删除' : ((n.containers || []).length ? '有容器连接，不可删除' : '删除'));
+    const ops = [
+      `<button class="act-btn tip" data-tip="查看" style="color:#1677ff"${hostActAttr(n.host)} onclick="event.stopPropagation();networkAct('view','${esc(n.id)}')">${svg('eye')}</button>`,
+      `<button class="act-btn tip" data-tip="${tip}" style="color:${del ? '#8b95a7' : '#ef4444'}" ${del ? 'disabled' : ''} onclick="event.stopPropagation();networkAct('del','${esc(n.id)}')">${svg('trash')}</button>`,
+    ].join('');
+    return `<tr class="${on ? '' : 'hostoff'}"><td><b>${esc(n.name)}</b></td><td>${hostCell(n.host)}</td><td><span class="tag">${esc(n.driver)}</span></td><td>${ipv4}</td><td><span class="cday">${esc(fmtTime(n.createdAt))}</span></td><td class="ops">${ops}</td></tr>`;
+  }).join('');
+  return hostBarHTML(counts) + `<div class="bar-row"><span class="cday">共 ${nets.length} 个网络</span><span class="sp"></span>
+      <button class="btn add" onclick="networkAct('create')">＋ 创建网络</button></div>
+    <div class="grp nocut"><div class="hd"><span class="nm">网络</span><span class="tag">${nets.length} 项</span><span class="sp"></span></div>
+    <table><thead><tr><th>名称</th><th>主机</th><th>驱动</th><th>IPv4</th><th>创建时间</th><th class="ops">操作</th></tr></thead>
+    <tbody>${rows || '<tr><td colspan="6" class="empty">该主机暂无网络</td></tr>'}</tbody></table></div>`;
+}
+function networkAct(act, id){
+  if (act === 'create') return openAct('创建网络',
+    `<div class="field"><label>名称<span class="req">*</span></label><input type="text" id="netName" placeholder="my-network"></div>
+     <div class="field"><label>驱动</label><select id="netDriver"><option>bridge</option><option>host</option><option>overlay</option><option>macvlan</option><option>ipvlan</option><option>none</option></select></div>
+     <div class="field"><label>隔离外部访问</label><input type="checkbox" class="sw" id="netInternal"></div>
+     <div class="field"><label>允许手动附加容器</label><input type="checkbox" class="sw" id="netAttach"></div>`,
+    '创建', () => alert('网络已创建（模拟）'));
+  if (act === 'view') { const n = (window.V41.networks || []).find(x => x.id === id) || {}; const cs = n.containers || [];
+    return openAct('网络详情 · ' + (n.name || ''), `<div class="vwrap">
+      <div class="vline">驱动 ${esc(n.driver)} · 作用域 ${esc(n.scope || 'local')} · ${n.internal ? '隔离外部访问' : '可访问外网'}</div>
+      <div class="vline">子网 ${esc(n.subnet || '—')} · 网关 ${esc(n.gateway || '—')}</div>
+      <div class="dw-label" style="margin-top:8px">已连接容器（${cs.length}）</div>
+      ${cs.length ? cs.map(x => `<div class="vline">${esc(x.name)} · ${esc(x.ipv4)}</div>`).join('') : '<div class="cday">无容器连接</div>'}
+    </div>`, null, null); }
+  if (act === 'del') { const n = (window.V41.networks || []).find(x => x.id === id) || {}; return confirmDialog('删除网络', `确定删除网络 <b>${esc(n.name)}</b>？`, () => alert('网络已删除（模拟）')); }
+}
+
+/* ── 存储卷 ── */
+function volumePageHTML(){
+  const all = window.V41.volumes || [];
+  const vols = all.filter(v => hostMatch(v.host));
+  const counts = {}; all.forEach(v => { counts[v.host] = (counts[v.host] || 0) + 1; });
+  const unused = vols.filter(v => !v.inUse).length;
+  const rows = vols.map(v => {
+    const on = hostOnline(v.host);
+    const usage = v.inUse
+      ? `<span class="tip tag" data-tip="被容器使用：${esc((v.containers || []).join(', '))}" style="background:rgba(210,153,34,.16);color:#d29922">使用中</span>`
+      : '<span class="tag">未使用</span>';
+    const del = v.inUse || !on;
+    const tip = !on ? '主机离线（agent 不可达），无法删除' : (v.inUse ? '被容器使用，不可删除' : '删除');
+    const ops = `<button class="act-btn tip" data-tip="${tip}" style="color:${del ? '#8b95a7' : '#ef4444'}" ${del ? 'disabled' : ''} onclick="event.stopPropagation();volumeAct('del','${esc(v.name)}')">${svg('trash')}</button>`;
+    return `<tr class="${on ? '' : 'hostoff'}"><td><b>${esc(v.displayName || '—')}</b></td>
+      <td>${hostCell(v.host)}</td>
+      <td><span class="tip cday" data-tip="${esc(v.name)}" style="font-family:ui-monospace,monospace">${esc(v.name.slice(0, 8))}</span></td>
+      <td><span class="tag">${esc(v.driver)}</span></td>
+      <td><span class="tip cday" data-tip="${esc(v.mountpoint)}" style="font-family:ui-monospace,monospace">${esc(v.mountpoint)}</span></td>
+      <td>${usage}</td>
+      <td><span class="cday">${esc(fmtTime(v.createdAt))}</span></td>
+      <td class="ops">${ops}</td></tr>`;
+  }).join('');
+  return hostBarHTML(counts) + `<div class="bar-row"><span class="cday">共 ${vols.length} 个卷 · ${unused} 个未使用</span><span class="sp"></span>
+      <button class="btn" ${unused ? '' : 'disabled'} onclick="volumeAct('prune')">清理未使用</button>
+      <button class="btn add" onclick="volumeAct('create')">＋ 创建卷</button></div>
+    <div class="grp nocut"><div class="hd"><span class="nm">存储卷</span><span class="tag">${vols.length} 项</span><span class="sp"></span></div>
+    <table><thead><tr><th>名称</th><th>主机</th><th>ID</th><th>驱动</th><th>挂载点</th><th>是否使用</th><th>创建时间</th><th class="ops">操作</th></tr></thead>
+    <tbody>${rows || '<tr><td colspan="8" class="empty">该主机暂无存储卷</td></tr>'}</tbody></table></div>`;
+}
+function volumeAct(act, name){
+  if (act === 'create') return openAct('创建卷', `<div class="field"><label>卷名<span class="req">*</span></label><input type="text" id="volName" placeholder="my-volume"></div>
+     <div class="field"><label>驱动</label><select id="volDriver"><option>local</option><option>nfs</option></select></div>`, '创建', () => alert('卷已创建（模拟）'));
+  if (act === 'prune') return confirmDialog('清理未使用的卷', `将删除全部 <b>${(window.V41.volumes || []).filter(v => !v.inUse).length}</b> 个未被任何容器使用的卷。孤儿卷是磁盘被吃满的常见原因。`, () => alert('已清理未使用卷（模拟）'));
+  if (act === 'del') { const v = (window.V41.volumes || []).find(x => x.name === name) || {}; return confirmDialog('删除卷', `确定删除卷 <b>${esc(v.displayName || name)}</b>？卷内数据将丢失且不可恢复。`, () => alert('卷已删除（模拟）')); }
+}
+
 function certStatusOf(s){
   if (!s.hasCert) return { key: 'unissued', label: '未签发', color: '#8b95a7' };
   const t = new Date(s.notAfter);
@@ -783,21 +1711,64 @@ function certPageHTML(){
     <table><thead><tr><th>二级域名</th><th>路由</th><th>服务</th><th>证书</th><th class="ops">操作</th></tr></thead>
     <tbody>${rows || '<tr><td colspan="5" class="empty">无匹配</td></tr>'}</tbody></table></div>`;
 }
+function mwUsingUser(userId){                                      // 引用该用户的 basic_auth 中间件
+  return ((OBJ.middleware || {}).data || []).filter(m => m.type === 'basic_auth' && (m.users || []).includes(userId));
+}
+function extraCell(key, item){
+  if (key === 'container'){                                   // 部署向：docker logo 蓝=已关联容器 / 灰=未关联
+    const st = item.status || {};
+    const name = st.container;
+    const tip = name ? (st.host ? st.host + ' · ' + name : name) : '非容器';
+    const b = (window.BRANDS || {}).docker || {};
+    const color = name ? (b.color || '#2496ED') : 'var(--ws)';
+    const g = b.path ? `<svg viewBox="0 0 24 24" width="15" height="15" fill="${color}" style="display:block"><path d="${b.path}"/></svg>` : '';
+    return `<span class="tip" data-tip="${esc(tip)}" style="display:inline-flex;align-items:center;vertical-align:middle">${g}</span>`;
+  }
+  if (key === 'users'){                                       // 中间件 → 关联的用户（basic_auth）
+    const ids = item.users || [];
+    if (!ids.length) return item.type === 'basic_auth' ? '<span class="cday">未选择账户</span>' : '<span class="cday">—</span>';
+    return ids.map(id => {                                     // 悬停显示密码状态（哈希算法）
+      const u = byId('user', id), s = (u && u.status) || {};
+      const tip = u ? (s.passwordSet ? '已设置密码 · ' + (s.hashAlgorithm || 'bcrypt') : '未设置密码（登录将被拒绝）') : '引用缺失：用户已删除';
+      return `<span class="chip tip" data-tip="${esc(tip)}">${esc(u ? u.name : id)}${u && !u.enabled ? ' <span class="cday">停用</span>' : ''}</span>`;
+    }).join(' ');
+  }
+  if (key === 'usedBy'){                                      // 用户 → 引用它的 basic_auth 中间件
+    const mws = mwUsingUser(idOf('user', item));
+    if (!mws.length) return '<span class="cday">未被引用</span>';
+    return mws.map(m => `<span class="chip tip" data-tip="中间件 ${esc(m.name)}（type=basic_auth）">${esc(m.name)}</span>`).join(' ');
+  }
+  return '';
+}
 function renderGroup(kind){
   const o = OBJ[kind], derived = o.status || [], actions = o.actions || [], rows = o.list ? o.data : [o.data];
-  const head = o.schema.map(c => `<th>${esc(c.label)}${c.advanced ? ' <span class="adv">·高级</span>' : ''}</th>`).join('')
-    + derived.map(d => `<th>${esc(d.label)}</th>`).join('') + (actions.length ? '<th class="ops">操作</th>' : '');
+  const extra = o.extraCols || [];
+  const findSpec = k => (o.schema || []).find(x => x.key === k);
+  const findStat = k => derived.find(x => x.key === k);
+  const findExtra = k => extra.find(x => x.key === k);
+  const keys = o.listCols || (o.schema || []).map(f => f.key).concat(derived.map(d => d.key));   // 列表列 ≠ schema 全字段
+  const head = keys.map(k => {
+      const f = findSpec(k); if (f) return `<th>${esc(f.label)}${f.advanced ? ' <span class="adv">·高级</span>' : ''}</th>`;
+      const d = findStat(k); if (d) return `<th>${esc(d.label)}</th>`;
+      const e = findExtra(k); if (e) return `<th>${esc(e.label)}</th>`;
+      return '';
+    }).join('') + (actions.length ? '<th class="ops">操作</th>' : '');
   const cls = o.noEdit ? '' : 'clk';
   const body = rows.map((item, i) => `<tr class="${cls}" data-kind="${kind}" data-i="${i}">` +
-    o.schema.map(c => `<td>${c.editable ? inlineCell(kind, i, c, item[c.key]) : cell(c, item[c.key])}</td>`).join('')
-    + derived.map(d => `<td>${derivedCell(d.key, item.status ? item.status[d.key] : item[d.key], item)}</td>`).join('')
+    keys.map(k => {
+      const f = findSpec(k); if (f) return `<td>${f.editable ? inlineCell(kind, i, f, item[f.key]) : cell(f, item[f.key])}</td>`;
+      const d = findStat(k); if (d) return `<td>${derivedCell(d, item.status ? item.status[d.key] : item[d.key], item)}</td>`;
+      const e = findExtra(k); if (e) return `<td>${extraCell(e.key, item)}</td>`;
+      return '';
+    }).join('')
     + (actions.length ? `<td class="ops">${actions.filter(a => !a.when || a.when(item)).map(a => actionCell(kind, i, a)).join('')}</td>` : '')
     + '</tr>').join('');
   const chk = o.checkUpdate ? `<button class="btn" onclick="event.stopPropagation();checkUpdate()">检查更新</button>` : '';
-  const add = o.list && !o.readonly ? `<button class="btn p" onclick="event.stopPropagation();onAdd('${kind}')">＋ 新增</button>` : '';
-  return `<div class="grp"><div class="hd"><span class="nm">${esc(o.title)}</span>
+  const exp = o.list ? `<button class="btn" onclick="event.stopPropagation();exportObj('${kind}')">导出</button>` : '';
+  const add = o.list && !o.readonly ? `<button class="btn add" onclick="event.stopPropagation();onAdd('${kind}')">＋ 新增</button>` : '';
+  return `<div class="grp nocut"><div class="hd"><span class="nm">${esc(o.title)}</span>
       <span class="tag">${o.list ? rows.length + ' 项' : '单例'}</span>
-      <span class="tag file">${esc(o.file)}</span><span class="sp"></span>${chk}${add}</div>
+      <span class="tag file">${esc(o.file)}</span><span class="sp"></span>${chk}${exp}${add}</div>
     <table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
 
@@ -835,25 +1806,444 @@ function closeAll(){
 }
 
 /* ── 表单渲染/绑定（抽屉与叠加弹窗共用）── */
+/* 类型驱动的字段：所选类型的 fields（来自 catalog） */
+function typeFields(o, item){
+  if (!o.typeField || !o.typesFrom) return [];
+  const t = (CATALOG[o.typesFrom] || []).find(x => x.id === item[o.typeField]);
+  return (t && t.fields) || [];
+}
+/* 中间件：内置（参数可改 + 只读片段）/ 自定义（自由片段编辑器） */
+function renderMiddlewareForm(container, o, item, onChange){
+  const isBuiltin = !!item.builtin;
+  const fld = k => (o.schema || []).find(x => x.key === k) || { key: k, label: k };
+  const nameF = isBuiltin
+    ? `<div class="field"><label>名称</label><input type="text" value="${esc(item.name)}" disabled><div class="desc">内置中间件（名称不可改）</div></div>`
+    : field(fld('name'), item.name, o, item);
+  const descF = field(fld('description'), item.description, o, item);
+  const enF = field(fld('defaultEnabled'), item.defaultEnabled, o, item);
+  let paramF = '';
+  if (isBuiltin) {
+    const t = (CATALOG.middleware_types || []).find(x => x.id === item.type);
+    const pfields = (t && t.fields) || [];
+    paramF = `<div class="objgrp">` + (pfields.length ? pfields.map(f => field(f, item[f.key], o, item)).join('') : '<div class="cday">该中间件无可调参数</div>') + `</div>`;
+    paramF += field({ key: 'code', label: '片段体（只读）', type: 'textarea', editor: 'code' }, item.code, o, item);
+  } else {
+    paramF = field({ key: 'code', label: '片段体', type: 'textarea', editor: 'code' }, item.code, o, item);
+  }
+  container.innerHTML = nameF + descF + enF + paramF;
+  bindFields(container, o, item, onChange);
+  initCodeEditors(container);
+  if (isBuiltin) { const ta = container.querySelector('.ce-ta'); if (ta) ta.readOnly = true; }
+}
 function renderObjForm(container, o, item, onChange){
-  if (o.uiHint === 'dns-credential') { container.innerHTML = renderDnsForm(item); bindDnsInto(container, o, item, onChange); }
-  else { container.innerHTML = o.schema.map(f => field(f, item[f.key], o, item)).join(''); bindFields(container, o, item, onChange); }
+  if (o.uiHint === 'dns-credential') { container.innerHTML = renderDnsForm(item); bindDnsInto(container, o, item, onChange); return; }
+  if (o.uiHint === 'user') { renderUserForm(container, o, item, onChange); return; }
+  if (o.uiHint === 'middleware') { renderMiddlewareForm(container, o, item, onChange); return; }
+  if (o.uiHint === 'compose') { renderComposeForm(container, o, item, onChange); return; }
+  const tf = typeFields(o, item);
+  tf.forEach(f => { if (item[f.key] === undefined && f.default !== undefined) item[f.key] = f.default; });   // default 落数据，供 showIf 判断
+  const extra = tf.filter(f => !f.showIf || Object.entries(f.showIf).every(([k, v]) => item[k] === v));
+  const groups = [], idx = {};                                  // 按 group 分段（区隔清晰）
+  const add = f => { const g = f.group || ''; if (idx[g] === undefined) { idx[g] = groups.length; groups.push({ g, list: [] }); } groups[idx[g]].list.push(f); };
+  o.schema.forEach(add); extra.forEach(f => { f.group = f.group || ''; add(f); });
+  container.innerHTML = groups.map(gr => `<div class="fsec">` +
+    (gr.g ? `<div class="fsec-h">${esc(gr.g)}</div>` : '') +
+    `<div class="fgrid${gr.g ? '' : ' tabcontent'}">` + gr.list.map(f => field(f, item[f.key], o, item)).join('') + `</div></div>`).join('');
+  container.querySelectorAll('.fgrid').forEach(grid => {         // 落单控件占满整行
+    const nonFull = [...grid.children].filter(el => !el.classList.contains('full'));
+    if (nonFull.length % 2 === 1) nonFull[nonFull.length - 1].classList.add('full');
+  });
+  bindFields(container, o, item, onChange);
+  initCodeEditors(container);
+  container.querySelectorAll('[data-tf]').forEach(b => b.onclick = () => {   // 类型 tab（抽屉 / 叠加弹窗均适用）
+    setPath(item, b.dataset.tf.split('.'), b.dataset.val);
+    renderObjForm(container, o, item, onChange);
+  });
+  [o.typeField, 'kind'].filter(Boolean).forEach(k => {                 // 类型 / 后端类型变化 → 重渲染
+    container.querySelectorAll(`[data-key="${k}"]`).forEach(el => {
+      const prev = el.onchange; el.onchange = e => { prev && prev(e); renderObjForm(container, o, item, onChange); };
+    });
+  });
 }
 function exclusiveTaken(f, o, item){ const arr = (o && o.data) || []; return arr.some(x => x[f.key] === f.exclusive && x !== item); }
-function rerenderDrawerForm(){ renderObjForm($('#drForm'), OBJ[cur.kind], cur.item, setYaml); }
+function rerenderDrawerForm(){ renderObjForm($('#drForm'), OBJ[cur.kind], cur.item, setYaml); renderObs(); }
+function renderObs(){                                        // 抽屉：观测（只读）——status 不进编辑面
+  const box = $('#drObs'); if (!box) return;
+  const o = OBJ[cur.kind], ds = o.status || [];
+  if (!ds.length || !cur.item.status) { box.innerHTML = ''; return; }
+  const rows = ds.map(d => { const v = cur.item.status[d.key];
+    const shown = d.tone && d.tone[v] ? statusTag(d, v) : typeof v === 'boolean' ? (v ? '<span class="yes">✓</span>' : '<span class="no">✗</span>') : esc(v ?? '—');
+    return `<div class="obs-row"><span class="k">${esc(d.label)}${d.kind ? ` <span class="tag">${{ observed: '观测', derived: '派生', linked: '关联' }[d.kind] || d.kind}</span>` : ''}</span><span class="v">${shown}</span></div>`; }).join('');
+  const src = cur.item.status.source;
+  const notice = src === 'docker' ? `<div class="dr-notice">此对象由「部署」派生（status.source = docker）：手动修改可能在下次部署时被覆盖，或需先「接管」。</div>` : '';
+  box.innerHTML = notice + `<div class="fsec"><div class="fsec-h">观测（只读 · 自动记录）</div><div class="obs-list">${rows}</div></div>`;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 编排抽屉表单（仿已开发的 ComposeEditorModal.vue）
+ * 结构：服务 tab → 基本信息 → 基本配置 / 运行配置 / 关联配置
+ * YAML 区 = 等价的 docker-compose.yaml（由 serializeComposeYaml 生成）
+ * ══════════════════════════════════════════════════════════════════════════ */
+function cmpSvc(){ const svcs = cur.item.services || {}; return svcs[cur.cmpActive]; }
+function cmpRefresh(){ rerenderDrawerForm(); setYaml(); }
+function cmpActive(n){ cur.cmpActive = n; cmpRefresh(); }
+function cmpTab(t){ cur.cmpTab = t; cmpRefresh(); }
+function cmpSet(k, v){ const s = cmpSvc(); if (!s) return; s[k] = v; setYaml(); }
+function cmpMeta(k, v){ cur.item[k] = v; setYaml(); }                    // 部署单元级字段（主机 / 来源模板）
+function hostOptions(sel){ return hosts().map(h => `<option value="${esc(h.host)}"${h.host === sel ? ' selected' : ''}>${esc(h.host)}（${esc(h.role)}${h.status && h.status.online ? ' · 在线' : ' · 离线'}）</option>`).join(''); }
+function cmpAddService(){
+  const svcs = cur.item.services; let n = 1; while (svcs['Ser-' + n]) n++;
+  const name = 'Ser-' + n;
+  svcs[name] = { image: '', container_name: '', restart: 'unless-stopped', environment: [], volumes: [], ports: [], caddyRoutes: [],
+    logging: { driver: 'json-file', options: { 'max-size': '2m', 'max-file': '5' } }, healthcheck: {}, user: '', pid: '',
+    command: [], cap_add: [], depends_on: [], networks: [], extra_hosts: [], devices: [], network_mode: '' };
+  cur.cmpActive = name; cmpRefresh();
+}
+function cmpRemoveService(n){ const svcs = cur.item.services; if (Object.keys(svcs).length <= 1) return; delete svcs[n]; if (cur.cmpActive === n) cur.cmpActive = Object.keys(svcs)[0]; cmpRefresh(); }
+
+/* 行编辑器：所有行数组统一为「对象数组」 */
+const CMP_ROW_DEFAULTS = {
+  environment: { key: '', value: '' }, volumes: { mode: 'default', name: '', target: '', readonly: false },
+  ports: { host: '', container: '', protocol: 'tcp' }, caddyRoutes: { subdomain: '', roots: [], entrypoint: 'https', upstream: '', middlewares: [] },
+  command: { v: '' }, cap_add: { v: '' }, depends_on: { v: '' },
+  networks: { name: '', alias: '', ipv4: '' }, extra_hosts: { hostname: '', ip: '' }, devices: { hostPath: '', containerPath: '' },
+};
+function cmpRowAdd(kind){ const s = cmpSvc(); if (!s) return; (s[kind] = s[kind] || []).push(JSON.parse(JSON.stringify(CMP_ROW_DEFAULTS[kind] || {}))); cmpRefresh(); }
+function cmpRowDel(kind, i){ const s = cmpSvc(); if (!s) return; (s[kind] || []).splice(i, 1); cmpRefresh(); }
+function cmpRowSet(kind, i, key, val){ const s = cmpSvc(); if (!s) return; const arr = s[kind] || (s[kind] = []); arr[i] = arr[i] || JSON.parse(JSON.stringify(CMP_ROW_DEFAULTS[kind] || {})); arr[i][key] = val; setYaml(); }
+/* 端口映射变化 → 实时刷新「域名访问 → 服务端口」下拉（内容 = 端口映射） */
+function cmpPortSet(i, key, val){ cmpRowSet('ports', i, key, val); cmpRefreshUpstreams(); }
+function cmpUpstreamOptions(s, selected){
+  const opts = (s.ports || []).filter(p => p.container);
+  return `<option value="">（未指定）</option>` + opts.map(p => `<option value="${esc(p.container)}"${String(selected) === String(p.container) ? ' selected' : ''}>宿主 ${p.host ? ':' + esc(p.host) : '(随机)'} → 容器 ${esc(p.container)}${p.protocol && p.protocol !== 'tcp' ? '/' + esc(p.protocol) : ''}</option>`).join('');
+}
+function cmpRefreshUpstreams(){
+  const s = cmpSvc(); if (!s) return;
+  document.querySelectorAll('#drForm [data-upstream]').forEach(sel => {
+    const r = (s.caddyRoutes || [])[+sel.dataset.upstream] || {};
+    sel.innerHTML = cmpUpstreamOptions(s, r.upstream);
+  });
+}
+function cmpRm(kind, i){ return `<button type="button" class="rm tip" data-tip="删除" onclick="cmpRowDel('${kind}',${i})">✕</button>`; }
+function cmpText(kind, i, key, val, ph, w){ return `<input type="text" value="${esc(val ?? '')}" placeholder="${esc(ph || '')}" style="flex:${w || 1}" oninput="cmpRowSet('${kind}',${i},'${key}',this.value)">`; }
+function cmpSelect(kind, i, key, val, options, w){ return `<select style="flex:${w || 1}" onchange="cmpRowSet('${kind}',${i},'${key}',this.value)">${options.map(o => `<option value="${esc(o.v)}"${String(val) === String(o.v) ? ' selected' : ''}>${esc(o.l)}</option>`).join('')}</select>`; }
+function cmpRow(kind, i, cells){ return `<div class="cmp-row">${cells}${cmpRm(kind, i)}</div>`; }
+
+function renderComposeForm(container, o, item, onChange){
+  const svcs = item.services || (item.services = {});
+  let active = (cur.cmpActive && svcs[cur.cmpActive]) ? cur.cmpActive : Object.keys(svcs)[0];
+  if (!active) { svcs['Ser-1'] = { image: '', container_name: '', restart: 'unless-stopped', environment: [], volumes: [], ports: [], caddyRoutes: [], logging: {}, healthcheck: {}, command: [], cap_add: [], depends_on: [], networks: [], extra_hosts: [], devices: [] }; active = 'Ser-1'; }
+  cur.cmpActive = active;
+  const s = svcs[active] || {};
+  const tab = cur.cmpTab || 'basic';
+  const restartMap = { no: '不重启', always: '总是', 'on-failure': '失败时', 'unless-stopped': '除非手动停止' };
+  const restartOpts = Object.keys(restartMap).map(v => `<option value="${v}"${(s.restart || '') === v ? ' selected' : ''}>${restartMap[v]}</option>`).join('');
+  const svcTabs = Object.keys(svcs).map(n => `<div class="cmp-tab${n === active ? ' on' : ''}" onclick="cmpActive('${esc(n)}')">${esc(svcs[n].container_name || n)}${Object.keys(svcs).length > 1 ? `<i onclick="event.stopPropagation();cmpRemoveService('${esc(n)}')">✕</i>` : ''}</div>`).join('');
+  const tabs = [['basic', '基本配置'], ['runtime', '运行配置'], ['relation', '关联配置']];
+  container.innerHTML =
+    `<div class="cmp-svctabs">${svcTabs}<div class="cmp-tab add" onclick="cmpAddService()">＋ 服务</div></div>
+     <div class="cmp-scroll">
+       <div class="cmp-sec">
+         <div class="cmp-h"><span class="nm">基本信息</span></div>
+         <div class="field"><label>镜像</label><div class="ref">
+           <input list="cmpImageList" type="text" style="flex:1;min-width:0" value="${esc(s.image || '')}" placeholder="输入或选择本地镜像" oninput="cmpSet('image',this.value)">
+           <datalist id="cmpImageList">${((window.V41.images || []).filter(im => im.names[0]).map(im => `<option value="${esc(im.names[0])}">`).join(''))}</datalist>
+           <button type="button" class="btn cmp-imgbtn" onclick="imageAct('pull')">拉取镜像</button></div></div>
+         <div class="fgrid">
+           <div class="field"><label>应用名称（容器名）</label><input type="text" value="${esc(s.container_name || '')}" placeholder="${esc(active)}" oninput="cmpSet('container_name',this.value)" onchange="cmpRefresh()"></div>
+           <div class="field"><label>重启策略</label><select onchange="cmpSet('restart',this.value)">${restartOpts}</select></div>
+         </div>
+         <div class="fgrid" style="margin-top:10px">
+           <div class="field"><label>主机</label><select onchange="cmpMeta('host',this.value)">${hostOptions(item.host)}</select>
+             <div class="desc">编排固定部署到该主机；worker 由 gatebox-agent 执行${item.host && !hostOnline(item.host) ? ' · <b style="color:var(--err)">该主机离线</b>' : ''}</div></div>
+           <div class="field"><label>来源模板</label><input type="text" value="${esc(item.template || '')}" placeholder="手工 compose" oninput="cmpMeta('template',this.value)"></div>
+         </div>
+       </div>
+       <div class="typetabs">${tabs.map(([k, l]) => `<button type="button" class="tt${k === tab ? ' on' : ''}" onclick="cmpTab('${k}')">${l}</button>`).join('')}</div>
+       <div class="tabcontent">${tab === 'basic' ? cmpBasicHTML(s, active) : tab === 'runtime' ? cmpRuntimeHTML(s) : cmpRelationHTML(s)}</div>
+     </div>`;
+}
+
+/* 空数组 → 落一个待填写的默认行（YAML 序列化会跳过空行） */
+function cmpEnsure(s, kind, def){ if (!(s[kind] || []).length) s[kind] = [ JSON.parse(JSON.stringify(def)) ]; return s[kind]; }
+function defaultMiddlewareNames(){ return ((window.V41.objects.middleware || {}).data || []).filter(m => m.defaultEnabled).map(m => m.name); }
+function cmpDefaultRoute(s, active){
+  const first = (s.ports || []).find(p => p.container);
+  return { subdomain: s.container_name || active || '', roots: [], entrypoint: 'https', upstream: first ? first.container : '', middlewares: defaultMiddlewareNames() };
+}
+function entrypointOptions(selected){
+  const eps = (window.V41.objects.entrypoint || {}).data || [];
+  return eps.map(e => `<option value="${esc(e.protocol)}"${e.protocol === selected ? ' selected' : ''}${e.enabled === false ? ' disabled' : ''}>${esc((e.protocol || '').toUpperCase())} (${esc(e.port)})</option>`).join('');
+}
+/* 多选下拉（复用 .mselect 外观；选中项即时更新 tags，不整表重渲染） */
+function cmpMulti(kind, i, key, selected, options, ph){
+  const sel = selected || [];
+  const tags = sel.map(v => `<span class="msel-tag">${esc(v)}<i onclick="event.stopPropagation();cmpMultiToggle('${kind}',${i},'${key}','${esc(v)}',false,this)">×</i></span>`).join('');
+  const opts = options.map(o => `<label class="msel-opt"><input type="checkbox" value="${esc(o.v)}"${sel.includes(o.v) ? ' checked' : ''} onchange="cmpMultiToggle('${kind}',${i},'${key}','${esc(o.v)}',this.checked,this)">${esc(o.l)}</label>`).join('') || '<div class="cday" style="padding:6px 8px">无可选项</div>';
+  return `<div class="mselect"><div class="msel-box" onclick="openMsel(this)"><span class="msel-tags">${tags || `<span class="msel-ph">${esc(ph || '选择…')}</span>`}</span><span class="msel-caret">▾</span></div><div class="msel-drop">${opts}</div></div>`;
+}
+function cmpMultiToggle(kind, i, key, val, checked, el){
+  const s = cmpSvc(); if (!s) return;
+  const arr = s[kind] || (s[kind] = []);
+  const row = arr[i] = arr[i] || JSON.parse(JSON.stringify(CMP_ROW_DEFAULTS[kind] || {}));
+  const list = row[key] = row[key] || [];
+  if (checked) { if (!list.includes(val)) list.push(val); } else { const k = list.indexOf(val); if (k >= 0) list.splice(k, 1); }
+  const box = el.closest('.mselect');
+  if (box) {
+    box.querySelectorAll('.msel-opt input').forEach(cb => { if (cb.value === val) cb.checked = checked; });
+    const tags = box.querySelector('.msel-tags');
+    if (tags) tags.innerHTML = list.map(v => `<span class="msel-tag">${esc(v)}<i onclick="event.stopPropagation();cmpMultiToggle('${kind}',${i},'${key}','${esc(v)}',false,this)">×</i></span>`).join('') || '<span class="msel-ph">选择…</span>';
+  }
+  setYaml();
+}
+function cmpBasicHTML(s, active){
+  const envs = cmpEnsure(s, 'environment', CMP_ROW_DEFAULTS.environment);
+  const vols = cmpEnsure(s, 'volumes', CMP_ROW_DEFAULTS.volumes);
+  const ports = cmpEnsure(s, 'ports', CMP_ROW_DEFAULTS.ports);
+  if (!(s.caddyRoutes || []).length) s.caddyRoutes = [ cmpDefaultRoute(s, active) ];
+  const envRows = envs.map((e, i) => cmpRow('environment', i, cmpText('environment', i, 'key', e.key, '变量名') + cmpText('environment', i, 'value', e.value, '变量值'))).join('');
+  const volRows = vols.map((v, i) => cmpRow('volumes', i,
+    cmpSelect('volumes', i, 'mode', v.mode, [ { v: 'default', l: '默认路径' }, { v: 'custom', l: '自定义路径' }, { v: 'volume', l: '存储卷' } ], 0.9) +
+    cmpText('volumes', i, 'name', v.name, v.mode === 'default' ? '文件夹名，如 logs' : v.mode === 'volume' ? '卷名' : '绝对路径，如 /var/run/docker.sock', 1.6) +
+    `<span class="sep">:</span>` + cmpText('volumes', i, 'target', v.target, '容器内路径', 1.4) +
+    `<select style="flex:0 0 74px" onchange="cmpRowSet('volumes',${i},'readonly',this.value==='ro')"><option value="rw"${!v.readonly ? ' selected' : ''}>读写</option><option value="ro"${v.readonly ? ' selected' : ''}>只读</option></select>`)).join('');
+  const portRows = ports.map((p, i) => `<div class="cmp-row"><span class="idx">${i + 1}</span>` +
+    `<input type="text" value="${esc(p.host || '')}" placeholder="外部端口(留空随机)" style="flex:1" oninput="cmpPortSet(${i},'host',this.value)">` +
+    `<span class="sep">:</span>` +
+    `<input type="text" value="${esc(p.container || '')}" placeholder="内部端口" style="flex:1" oninput="cmpPortSet(${i},'container',this.value)">` +
+    cmpSelect('ports', i, 'protocol', p.protocol, [ { v: 'tcp', l: 'tcp' }, { v: 'udp', l: 'udp' } ], 0.7) + cmpRm('ports', i) + `</div>`).join('');
+  const routeRows = s.caddyRoutes.map((r, i) => cmpRouteRow(r, i, s, active)).join('');
+  return `<div class="cmp-sec"><div class="cmp-h"><span class="nm">环境变量</span><button type="button" class="btn add" onclick="cmpRowAdd('environment')">＋ 添加变量</button></div>
+      <div class="cmp-rows">${envRows}</div></div>
+    <div class="cmp-sec"><div class="cmp-h"><span class="nm">挂载或存储卷</span><button type="button" class="btn add" onclick="cmpRowAdd('volumes')">＋ 添加目录</button></div>
+      <div class="cmp-rows">${volRows}</div></div>
+    <div class="cmp-sec"><div class="cmp-h"><span class="nm">端口映射</span><button type="button" class="btn add" onclick="cmpRowAdd('ports')">＋ 添加端口</button></div>
+      <div class="cmp-rows">${portRows}</div></div>
+    <div class="cmp-sec"><div class="cmp-h"><span class="nm">域名访问</span><button type="button" class="btn add" onclick="cmpRowAdd('caddyRoutes')">＋ 添加域名访问</button></div>
+      <div class="cmp-rows">${routeRows}</div></div>`;
+}
+function cmpRouteRow(r, i, s, active){
+  const portOpts = cmpUpstreamOptions(s, r.upstream).replace('<option value="">（未指定）</option>', '');
+  const rootOpts = ((window.V41.objects.domain || {}).data || []).map(d => ({ v: d.name, l: d.name }));
+  const mwOpts = ((window.V41.objects.middleware || {}).data || []).map(m => ({ v: m.name, l: m.name }));
+  const roots = r.roots || [];
+  const addr = roots.length ? roots.map(rt => '//' + (r.subdomain || s.container_name || active) + '.' + rt).join(' · ') : '（请选择根域名）';
+  return `<div class="cmp-droute">
+    <div class="cmp-row">
+      <input type="text" value="${esc(r.subdomain || '')}" placeholder="${esc(s.container_name || active || '子域名')}" style="flex:0 0 auto;width:150px" oninput="cmpRowSet('caddyRoutes',${i},'subdomain',this.value)">
+      <span class="sep">.</span>
+      <div style="flex:1;min-width:0">${cmpMulti('caddyRoutes', i, 'roots', roots, rootOpts, '选择根域名')}</div>
+      ${cmpRm('caddyRoutes', i)}
+    </div>
+    <div class="cmp-row" style="margin-top:6px">
+      <span class="cmp-lbl">服务端口</span>
+      <select data-upstream="${i}" style="flex:0 0 200px" onchange="cmpRowSet('caddyRoutes',${i},'upstream',this.value)"><option value="">（未指定）</option>${portOpts}</select>
+      <span class="cmp-lbl">入口点</span>
+      <select style="flex:0 0 150px" onchange="cmpRowSet('caddyRoutes',${i},'entrypoint',this.value)">${entrypointOptions(r.entrypoint)}</select>
+      <button type="button" class="btn cmp-imgbtn" onclick="cmpAddProtocol()">＋ 添加协议</button>
+    </div>
+    <div class="cmp-row" style="margin-top:6px">
+      <span class="cmp-lbl">中间件</span>
+      <div style="flex:1;min-width:0">${cmpMulti('caddyRoutes', i, 'middlewares', r.middlewares || [], mwOpts, '选择中间件（Caddy 片段）')}</div>
+    </div>
+    <div class="cmp-note">访问地址 ${esc(addr)}</div>
+  </div>`;
+}
+function cmpLog(key, val){ const s = cmpSvc(); if (!s) return; s.logging = s.logging || {}; s.logging[key] = val; setYaml(); }
+function cmpLogOpt(key, val){ const s = cmpSvc(); if (!s) return; s.logging = s.logging || {}; s.logging.options = s.logging.options || {}; s.logging.options[key] = val; setYaml(); }
+function cmpHc(key, val){ const s = cmpSvc(); if (!s) return; s.healthcheck = s.healthcheck || {}; s.healthcheck[key] = key === 'retries' ? Number(val) : val; setYaml(); }
+function cmpRes(key, val){ cmpSet(key, val); }
+function cmpPid(v){ cmpSet('pid', v ? 'host' : ''); }
+function cmpRuntimeHTML(s){
+  const lg = s.logging || {}, o = lg.options || {}, hc = s.healthcheck || {};
+  return `<div class="cmp-sec"><div class="cmp-h"><span class="nm">日志配置</span></div><div class="fgrid">
+      <div class="field"><label>日志格式</label><select onchange="cmpLog('driver',this.value)"><option value="json-file"${lg.driver === 'json-file' ? ' selected' : ''}>json-file</option><option value="journald"${lg.driver === 'journald' ? ' selected' : ''}>journald</option></select></div>
+      <div class="field"><label>单文件大小(MiB)</label><input type="text" value="${esc(o['max-size'] || '2')}" oninput="cmpLogOpt('max-size',this.value)"></div>
+      <div class="field"><label>最大保留数</label><input type="text" value="${esc(o['max-file'] || '5')}" oninput="cmpLogOpt('max-file',this.value)"></div>
+    </div></div>
+    <div class="cmp-sec"><div class="cmp-h"><span class="nm">健康检查</span></div>
+      <div class="field"><label>执行脚本</label><input type="text" value="${esc(hc.test || '')}" placeholder="curl -f http://localhost:${(s.ports[0] && s.ports[0].container) || 'PORT'}/ || exit 1" oninput="cmpHc('test',this.value)"><div class="desc">默认不注入健康检查（镜像可能无 curl/wget）；留空则不写 test。</div></div>
+      <div class="fgrid">
+        <div class="field"><label>间隔(秒)</label><input type="text" value="${esc(hc.interval || '')}" placeholder="30" oninput="cmpHc('interval',this.value)"></div>
+        <div class="field"><label>超时(秒)</label><input type="text" value="${esc(hc.timeout || '')}" placeholder="10" oninput="cmpHc('timeout',this.value)"></div>
+        <div class="field"><label>重试次数</label><input type="text" value="${esc(hc.retries ?? '')}" placeholder="3" oninput="cmpHc('retries',this.value)"></div>
+      </div></div>
+    <div class="cmp-sec"><div class="cmp-h"><span class="nm">资源限制</span></div><div class="fgrid">
+      <div class="field"><label>共享内存(MiB)</label><input type="text" value="${esc(s.shm_size || '')}" placeholder="64" oninput="cmpRes('shm_size',this.value)"></div>
+      <div class="field"><label>CPU 配额</label><input type="text" value="${esc(s.cpus || '')}" placeholder="如 2" oninput="cmpRes('cpus',this.value)"></div>
+      <div class="field"><label>内存</label><input type="text" value="${esc(s.mem_limit || '')}" placeholder="如 512m" oninput="cmpRes('mem_limit',this.value)"></div>
+    </div></div>
+    <div class="cmp-sec"><div class="cmp-h"><span class="nm">用户与权限</span></div><div class="fgrid">
+      <div class="field"><label>user(PUID:PGID)</label><input type="text" value="${esc(s.user || '')}" placeholder="如 1000:1000" oninput="cmpRes('user',this.value)"></div>
+      <div class="field"><label>关联宿主机 PID</label><div style="display:flex;align-items:center;gap:8px;padding-top:6px"><input type="checkbox" class="sw" ${s.pid === 'host' ? 'checked' : ''} onchange="cmpPid(this.checked)"><span class="cday">${s.pid === 'host' ? '已开启' : '已关闭'}</span></div></div>
+    </div></div>
+    <div class="cmp-sec"><div class="cmp-h"><span class="nm">启动命令 command</span><button type="button" class="btn add" onclick="cmpRowAdd('command')">＋ 添加参数</button></div>
+      <div class="cmp-rows">${(s.command || []).map((c, i) => cmpRow('command', i, cmpText('command', i, 'v', c.v, i === 0 ? '如 nginx -g daemon off' : '参数 ' + (i + 1)))).join('') || '<div class="cmp-note">不填写则使用镜像默认入口点</div>'}</div></div>
+    <div class="cmp-sec"><div class="cmp-h"><span class="nm">Linux 能力 cap_add</span><button type="button" class="btn add" onclick="cmpRowAdd('cap_add')">＋ 添加能力</button></div>
+      <div class="cmp-rows">${(s.cap_add || []).map((c, i) => cmpRow('cap_add', i, cmpText('cap_add', i, 'v', c.v, '如 SYS_ADMIN, NET_ADMIN'))).join('') || '<div class="cmp-note">添加容器所需的 Linux 能力</div>'}</div></div>`;
+}
+function cmpRelationHTML(s){
+  const dep = (s.depends_on || []).map(x => x.v).filter(Boolean).join(', ');
+  const netRows = (s.networks || []).map((n, i) => cmpRow('networks', i, cmpText('networks', i, 'name', n.name, '网络名') + cmpText('networks', i, 'alias', n.alias, '容器别名') + cmpText('networks', i, 'ipv4', n.ipv4, 'IPv4 地址'))).join('');
+  const hostRows = (s.extra_hosts || []).map((h, i) => cmpRow('extra_hosts', i, cmpText('extra_hosts', i, 'hostname', h.hostname, 'Hostname') + cmpText('extra_hosts', i, 'ip', h.ip, 'IP 地址'))).join('');
+  const devRows = (s.devices || []).map((d, i) => cmpRow('devices', i, cmpText('devices', i, 'hostPath', d.hostPath, '设备路径，如 /dev/dri') + `<span class="sep">:</span>` + cmpText('devices', i, 'containerPath', d.containerPath, '容器内路径'))).join('');
+  return `<div class="cmp-sec"><div class="cmp-h"><span class="nm">启动依赖 depends_on</span></div>
+      <div class="field"><input type="text" value="${esc(dep)}" placeholder="本编排内服务名，逗号分隔" oninput="cmpDepends(this.value)"></div></div>
+    <div class="cmp-sec"><div class="cmp-h"><span class="nm">关联网络</span><button type="button" class="btn add" onclick="cmpJoinNetwork()">加入现有网络</button><button type="button" class="btn add" onclick="cmpRowAdd('networks')">＋ 添加</button></div>
+      <div class="cmp-rows">${netRows || '<div class="cmp-note">暂无</div>'}</div></div>
+    <div class="cmp-sec"><div class="cmp-h"><span class="nm">关联宿主机网络</span><button type="button" class="btn add" onclick="cmpRowAdd('extra_hosts')">＋ 添加宿主机网络</button></div>
+      <div class="cmp-rows">${hostRows || '<div class="cmp-note">暂无</div>'}</div></div>
+    <div class="cmp-sec"><div class="cmp-h"><span class="nm">关联设备</span><button type="button" class="btn add" onclick="cmpRowAdd('devices')">＋ 添加关联设备</button></div>
+      <div class="cmp-rows">${devRows || '<div class="cmp-note">暂无</div>'}</div></div>
+    <div class="cmp-sec"><div class="cmp-h"><span class="nm">network_mode</span></div>
+      <div class="field"><input type="text" value="${esc(s.network_mode || '')}" placeholder="如 host（与 ports/networks 互斥）" oninput="cmpSet('network_mode',this.value)"></div></div>`;
+}
+function cmpDepends(v){ cmpSet('depends_on', v.split(',').map(x => x.trim()).filter(Boolean).map(x => ({ v: x }))); }
+function cmpJoinNetwork(){
+  const nets = window.V41.networks || [];
+  const body = `<div class="vwrap">` + (nets.map(n => `<div class="cmp-row" style="justify-content:space-between"><span>${esc(n.name)}<span class="cday"> · ${esc(n.driver)} · ${esc(n.subnet || '-')}</span></span><button class="btn" onclick="cmpAddNetwork('${esc(n.name)}')">加入</button></div>`).join('') || '<div class="cday">暂无网络</div>') + `</div>`;
+  openAct('加入现有网络', body, null, null);
+}
+function cmpAddNetwork(name){ closeAct(); const s = cmpSvc(); if (!s) return; (s.networks = s.networks || []).push({ name, alias: '', ipv4: '' }); cmpRefresh(); }
+function cmpPickImage(name){ closeAct(); const s = cmpSvc(); if (!s) return; s.image = name; cmpRefresh(); }
+function cmpAddProtocol(){
+  openAct('添加协议端口', `<div class="field"><label>协议<span class="req">*</span></label><input type="text" id="cmpProto" placeholder="如 mysql / mqtt / ssh"></div>
+    <div class="field"><label>说明</label><input type="text" id="cmpProtoDesc" placeholder="如 MySQL"></div>
+    <div class="field"><label>实际端口（逗号分隔）</label><input type="text" id="cmpProtoPorts" placeholder="如 3306"></div>
+    <div class="desc">HTTP/HTTPS 为系统默认项；其它协议当前只登记展示。</div>`, '添加', () => alert('协议已添加（模拟）'));
+}
+
+/* 结构化 compose 状态 → 等价 docker-compose.yaml */
+function mountSrc(v){ if (v.mode === 'default') return '${GB_PROJ_FILE}/' + (v.name || '').replace(/^\/+|\/+$/g, '') + '/'; return v.name || ''; }
+function serializeComposeYaml(services){
+  const lines = ['services:'];
+  for (const [name, s] of Object.entries(services || {})) {
+    const key = s.container_name || name;
+    lines.push('  ' + key + ':');
+    if (s.image) lines.push('    image: ' + s.image);
+    if (s.container_name) lines.push('    container_name: ' + s.container_name);
+    if (s.restart && s.restart !== 'no') lines.push('    restart: ' + s.restart);
+    if (s.user) lines.push('    user: ' + s.user);
+    if (s.pid === 'host') lines.push('    pid: host');
+    if (s.network_mode) lines.push('    network_mode: ' + s.network_mode);
+    const cmds = (s.command || []).map(c => c.v).filter(Boolean);
+    if (cmds.length) { lines.push('    command:'); cmds.forEach(c => lines.push('      - ' + JSON.stringify(c))); }
+    const caps = (s.cap_add || []).map(c => c.v).filter(Boolean);
+    if (caps.length) { lines.push('    cap_add:'); caps.forEach(c => lines.push('      - ' + c)); }
+    const envs = (s.environment || []).filter(e => e.key);
+    if (envs.length) { lines.push('    environment:'); envs.forEach(e => lines.push('      ' + e.key + ': ' + (e.value || '""'))); }
+    const ports = (s.ports || []).filter(p => p.container);
+    if (ports.length) { lines.push('    ports:'); ports.forEach(p => lines.push('      - "' + (p.host ? p.host + ':' : '') + p.container + (p.protocol && p.protocol !== 'tcp' ? '/' + p.protocol : '') + '"')); }
+    const vols = (s.volumes || []).filter(v => v.target);
+    if (vols.length) { lines.push('    volumes:'); vols.forEach(v => lines.push('      - "' + mountSrc(v) + ':' + v.target + (v.readonly ? ':ro' : '') + '"')); }
+    const deps = (s.depends_on || []).map(d => d.v).filter(Boolean);
+    if (deps.length) { lines.push('    depends_on:'); deps.forEach(d => lines.push('      - ' + d)); }
+    const hosts = (s.extra_hosts || []).filter(h => h.hostname);
+    if (hosts.length) { lines.push('    extra_hosts:'); hosts.forEach(h => lines.push('      - "' + h.hostname + ':' + (h.ip || '') + '"')); }
+    const devs = (s.devices || []).filter(d => d.hostPath);
+    if (devs.length) { lines.push('    devices:'); devs.forEach(d => lines.push('      - "' + d.hostPath + ':' + d.containerPath + '"')); }
+    const nets = (s.networks || []).filter(n => n.name);
+    if (nets.length) { lines.push('    networks:'); nets.forEach(n => lines.push('      - ' + n.name)); }
+    const labels = []; let ri = 0;
+    (s.caddyRoutes || []).forEach(r => {
+      if (!r.subdomain || !(r.roots || []).length) return;      // 未填子域名/未选根域名的空行不产出
+      r.roots.forEach(root => {
+        const host = r.subdomain + '.' + root;
+        const site = r.entrypoint === 'http' ? 'http://' + host : host;
+        const suffix = ri === 0 ? '' : '_' + ri;
+        labels.push([ 'caddy' + suffix, site ]);
+        if (r.upstream) labels.push([ 'caddy' + suffix + '.reverse_proxy', '{{upstreams ' + r.upstream + '}}' ]);
+        if ((r.middlewares || []).length) labels.push([ 'gatebox.fragments' + suffix, r.middlewares.join(',') ]);
+        ri++;
+      });
+    });
+    if (labels.length) { lines.push('    labels:'); labels.forEach(([k, v]) => lines.push('      ' + k + ': "' + v + '"')); }
+    if (s.logging && s.logging.driver) {
+      lines.push('    logging:'); lines.push('      driver: ' + s.logging.driver);
+      const opts = s.logging.options || {}, keys = Object.keys(opts);
+      if (keys.length) { lines.push('      options:'); keys.forEach(k => lines.push('        ' + k + ': "' + opts[k] + '"')); }
+    }
+    if (s.healthcheck && s.healthcheck.test) {
+      lines.push('    healthcheck:'); lines.push('      test: ' + JSON.stringify(s.healthcheck.test));
+      if (s.healthcheck.interval) lines.push('      interval: ' + s.healthcheck.interval + 's');
+      if (s.healthcheck.timeout) lines.push('      timeout: ' + s.healthcheck.timeout + 's');
+      if (s.healthcheck.retries) lines.push('      retries: ' + s.healthcheck.retries);
+    }
+    if (s.shm_size) lines.push('    shm_size: ' + s.shm_size);
+    if (s.cpus) lines.push('    cpus: ' + s.cpus);
+    if (s.mem_limit) lines.push('    mem_limit: ' + s.mem_limit);
+  }
+  return lines.join('\n');
+}
 
 /* ── 抽屉 ── */
 function openDrawer(kind, i, preset){
   const o = OBJ[kind];
   let pre = preset || {};
   if (kind === 'host' && i < 0 && !pre.role) pre = Object.assign({ role: 'worker' }, pre);   // edge 系统预置，手动新增只能 worker
-  const item = Object.assign({}, o.list ? (i >= 0 ? o.data[i] : {}) : o.data, pre);
-  cur = { kind, item, schema: o.schema };
+  let item = Object.assign({}, o.list ? (i >= 0 ? o.data[i] : {}) : o.data, pre);
+  item = JSON.parse(JSON.stringify(item));                  // 深拷贝：抽屉内编辑不直接改动列表数据（保存才生效）
+  if (o.typeField && !item[o.typeField]) {                 // 新建：默认选第一个类型 → 渲染其参数
+    const t0 = (CATALOG[o.typesFrom] || [])[0];
+    if (t0) item[o.typeField] = t0.id;
+  }
+  if (o.uiHint === 'compose' && !item.services) {           // 新建编排：给一个默认服务骨架
+    item.services = { 'Ser-1': { image: '', container_name: '', restart: 'unless-stopped',
+      environment: [], volumes: [], ports: [], caddyRoutes: [],
+      logging: { driver: 'json-file', options: { 'max-size': '2m', 'max-file': '5' } },
+      healthcheck: {}, user: '', pid: '', command: [], cap_add: [], depends_on: [], networks: [], extra_hosts: [], devices: [], network_mode: '' } };
+  }
+  cur = { kind, item, schema: o.schema, cmpActive: item.services ? Object.keys(item.services)[0] : null, cmpTab: 'basic' };
   $('#drTitle').textContent = o.title + (o.list && i >= 0 ? ' · ' + (item[o.schema[0].key] || '') : '');
   $('#drTag').textContent = o.file;
+  $('#drawer').style.width = o.uiHint === 'compose' ? '1280px' : '';   // 编排抽屉加宽（仿 ComposeEditorModal）
+  $('#drLeft').style.flexBasis = o.uiHint === 'compose' ? '54%' : '';
+  $('#drValidate').style.display = o.uiHint === 'compose' ? '' : 'none';     // 编排：校验 / 保存并部署
+  $('#drSaveDeploy').style.display = o.uiHint === 'compose' ? '' : 'none';
   rerenderDrawerForm();
   setYaml(); paintIcons();
   $('#mask').classList.add('on'); $('#drawer').classList.add('on');
+}
+function drValidate(){ alert('compose 校验通过（模拟：stdin config -q + 端口/路径/镜像本地校验）'); }
+/* 抽屉保存：用户（密码只写，落 status）真正写入；其余对象沿用原型约定（仅关闭） */
+function drSave(){
+  if (cur.kind !== 'user') return closeAll();
+  const it = cur.item, name = (it.name || '').trim();
+  if (!name) return alert('用户名必填');
+  const isNew = !it.id;
+  const pw = pwdPairCheck($('#f_pwd'), $('#f_pwd2'), { required: isNew });   // 两次输入一致才允许保存
+  if (!pw.ok) return alert(pw.msg);
+  if (pw.value) cur.pwd = pw.value;
+  const data = OBJ.user.data, idx = data.findIndex(x => x.name === name);
+  if (idx >= 0 && (isNew || idOf('user', data[idx]) !== idOf('user', it))) return alert(`用户名 ${name} 已存在`);
+  (OBJ.user.schema || []).forEach(f => { if (it[f.key] === undefined && f.default !== undefined) it[f.key] = f.default; });
+  it.status = it.status || {};
+  if (cur.pwd) {                                                     // 输了新密码 → 生成哈希（不回显）
+    it.status.passwordSet = true;
+    it.status.hashAlgorithm = 'bcrypt(cost 14)';
+    it.status.passwordUpdatedAt = NOW.toISOString().slice(0, 19) + 'Z';
+  }
+  if (!it.id) it.id = 'usr-' + Math.random().toString(16).slice(2, 8);
+  it.status.refCount = mwUsingUser(it.id).length;
+  if (!it.status.passwordUpdatedAt) it.status.passwordUpdatedAt = NOW.toISOString().slice(0, 19) + 'Z';
+  const hit = data.findIndex(x => it.id && idOf('user', x) === it.id);
+  if (hit >= 0) data[hit] = JSON.parse(JSON.stringify(it)); else data.push(JSON.parse(JSON.stringify(it)));
+  cur.pwd = null;
+  closeAll(); render();
+  alert(`用户 ${name} 已保存（模拟）：basic_auth 引用已同步`);
+}
+function drSaveDeploy(){
+  if (cur.kind !== 'deployment') return closeAll();
+  cur.item.status = cur.item.status || { serviceCount: 0, runningCount: 0, routeCount: 0, lastDeployedAt: '', createdAt: NOW.toISOString() };
+  cur.item.status.state = '运行中';
+  cur.item.status.serviceCount = Object.keys(cur.item.services || {}).length;
+  cur.item.status.runningCount = cur.item.status.serviceCount;
+  cur.item.status.lastDeployedAt = NOW.toISOString();
+  const idx = (OBJ.deployment.data || []).findIndex(x => x.name === cur.item.name);
+  const saved = JSON.parse(JSON.stringify(cur.item));
+  if (idx >= 0) OBJ.deployment.data[idx] = saved; else OBJ.deployment.data.push(saved);
+  closeAll(); tab = 'compose'; render();
+  alert('已保存并部署（模拟）：逐服务状态在部署进度中展示');
 }
 
 /* ── 叠加弹窗（Modal over Drawer）：嵌套新增 + 自动回填 ── */
@@ -861,6 +2251,7 @@ let stack = null;
 function stackAdd(kind, slot){
   const o = OBJ[kind], item = {};
   if (kind === 'host') item.role = 'worker';
+  if (o.typeField) { const t0 = (CATALOG[o.typesFrom] || [])[0]; if (t0) item[o.typeField] = t0.id; }   // 默认第一个类型
   stack = { kind, item, slot };
   $('#stackTitle').textContent = '新增 · ' + o.title;
   renderObjForm($('#stackForm'), o, item, null);
@@ -872,8 +2263,9 @@ function stackSave(){
   if (!stack) return;
   const o = OBJ[stack.kind], item = stack.item, slot = stack.slot;
   if (o.list) o.data.push(item);                       // 原型：加入数据（真实由 API 保存）
+  const val = item[o.keyField || 'name'];
   closeStack();
-  if (slot && cur) { cur.item[slot] = item.name || item.id; rerenderDrawerForm(); setYaml(); }   // 回填父表单并重渲染
+  if (slot && cur) { setPath(cur.item, slot.split('.'), val); rerenderDrawerForm(); setYaml(); }   // 回填父表单并重渲染
 }
 /* DNS 凭证：按供应商动态渲染字段（只列已启用供应商，来自设置 → DNS 供应商）*/
 function renderDnsForm(item){
@@ -898,6 +2290,62 @@ function renderDnsForm(item){
   }).join('') || '<div class="desc">该供应商无需额外字段</div>';
   return name + prov + `<div class="field"><label>凭证字段</label>${fields}</div>`;
 }
+/* 用户：密码为「只写」字段——不写入对象、不回显；保存时才生成 bcrypt 哈希 */
+function renderUserForm(container, o, item, onChange){
+  const fld = k => (o.schema || []).find(x => x.key === k) || { key: k, label: k };
+  const st = item.status || {}, isNew = !item.id;
+  const used = isNew ? [] : mwUsingUser(idOf('user', item));
+  const pwdDesc = isNew
+    ? '仅写入，不回显；保存时生成 bcrypt（cost 14）哈希'
+    : (st.passwordSet ? `已设置 · ${esc(st.hashAlgorithm || 'bcrypt')} · 留空表示不修改` : '尚未设置密码（该账户将无法登录）');
+  container.innerHTML =
+    `<div class="fgrid tabcontent">` +
+    field(fld('name'), item.name, o, item) +
+    field(fld('displayName'), item.displayName, o, item) +
+    `</div>` +
+    `<div class="fgrid tabcontent">` +
+    `<div class="field"><label>密码<span class="req">*</span></label>` +
+      `<input type="password" id="f_pwd" placeholder="${isNew ? '至少 8 位' : '留空表示不修改'}">` +
+      `<div class="desc">${pwdDesc}</div></div>` +
+    `<div class="field"><label>确认密码<span class="req">*</span></label>` +
+      `<input type="password" id="f_pwd2" placeholder="${isNew ? '再次输入以上密码' : '留空表示不修改'}">` +
+      `<div class="desc" id="pwdHint2">两次输入一致才可保存</div></div>` +
+    `</div>` +
+    `<div class="fgrid tabcontent">` + field(fld('enabled'), item.enabled, o, item) + `</div>` +
+    (used.length ? `<div class="fsec"><div class="fsec-h">被引用的中间件</div><div class="desc">` +
+      used.map(m => `<span class="chip tip" data-tip="type=basic_auth">${esc(m.name)}</span>`).join(' ') +
+      `　改密码后这些中间件引用的哈希同步更新</div></div>` : '');
+  bindFields(container, o, item, onChange);
+  const p1 = container.querySelector('#f_pwd'), p2 = container.querySelector('#f_pwd2');
+  const chk = () => {                                        // 两次输入实时校验；一致才写入 cur.pwd（不进对象）
+    const r = pwdPairCheck(p1, p2, {
+      required: !item.id,
+      onMsg: (ok, msg) => {
+        const h2 = container.querySelector('#pwdHint2');
+        if (h2) { h2.textContent = msg || '两次输入一致才可保存'; h2.style.color = msg ? 'var(--err)' : ''; }
+        const dv = $('#drValid');
+        if (dv && (p1.value || p2.value)) { dv.textContent = ok ? '✓ 密码校验通过' : '✗ ' + msg; dv.style.color = ok ? '' : 'var(--err)'; }
+      },
+    });
+    cur.pwd = r.ok ? r.value : null;
+  };
+  if (p1) p1.oninput = chk;
+  if (p2) p2.oninput = chk;
+}
+/* 密码两次输入一致性校验（抽屉表单 / 重置密码弹窗共用）*/
+function pwdPairCheck(p1, p2, o){
+  o = o || {};
+  const min = o.min == null ? 8 : o.min;
+  const v1 = (p1 && p1.value) || '', v2 = (p2 && p2.value) || '';
+  let msg = '';
+  if (!v1 && !v2) { if (o.required) msg = '密码必填'; }
+  else if (v1 && !v2) msg = '请再次输入密码';
+  else if (v1 !== v2) msg = '两次输入的密码不一致';
+  else if (v1.length < min) msg = `密码至少 ${min} 位`;
+  [p1, p2].forEach(el => { if (el && el.style) el.style.borderColor = (v1 || v2) && msg ? 'var(--err)' : ''; });
+  o.onMsg && o.onMsg(!msg, msg);
+  return { ok: !msg, msg, value: v1 };
+}
 function bindDnsInto(container, o, item, onChange){
   container.querySelectorAll('[data-key]').forEach(el => {
     el.oninput = el.onchange = () => {
@@ -911,57 +2359,206 @@ function bindDnsInto(container, o, item, onChange){
     el.oninput = () => { item.fields = item.fields || {}; item.fields[el.dataset.fkey] = el.value; onChange && onChange(); };
   });
 }
-function field(f, val, o, item){
-  const id = 'f_' + f.key, req = f.required ? '<span class="req">*</span>' : '';
+function insertVarTo(id, text){
+  const el = document.getElementById(id); if (!el) return;
+  const s = el.selectionStart || 0, e = el.selectionEnd || 0;
+  el.value = el.value.slice(0, s) + text + el.value.slice(e);
+  el.selectionStart = el.selectionEnd = s + text.length; el.focus();
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+}
+/* Caddyfile 代码编辑器（行号 + 高亮 + 工具栏） */
+function ceHl(line){
+  return esc(line).replace(/(#.*$)|(&lt;%[A-Za-z_]\w*%&gt;)|(\{\$[A-Za-z_]\w*(?::[^}]*)?\})|("[^"]*")|([{}])/g,
+    (m, com, v, env, str, brace) => {
+      if (com !== undefined) return `<span class="c-com">${com}</span>`;
+      if (v !== undefined) return `<span class="c-var">${v}</span>`;
+      if (env !== undefined) return `<span class="c-env">${env}</span>`;
+      if (str !== undefined) return `<span class="c-str">${str}</span>`;
+      if (brace !== undefined) return `<span class="c-brace">${brace}</span>`;
+      return m;
+    });
+}
+function initCodeEditors(container){
+  container.querySelectorAll('.ce-ta').forEach(ta => {
+    const id = ta.id, gut = document.getElementById('ceg_' + id), hl = document.getElementById('ceh_' + id);
+    const sync = () => {
+      const lines = ta.value.split('\n');
+      if (gut) gut.innerHTML = lines.map((_, i) => `<div>${i + 1}</div>`).join('');
+      if (hl) hl.innerHTML = lines.map(ceHl).join('\n');
+      scroll();
+    };
+    const scroll = () => { if (gut) gut.scrollTop = ta.scrollTop; if (hl) { hl.scrollTop = ta.scrollTop; hl.scrollLeft = ta.scrollLeft; } };
+    ta.addEventListener('input', sync);
+    ta.addEventListener('scroll', scroll);
+    sync();
+  });
+}
+function ceCmd(id, act){ const el = document.getElementById(id); if (!el) return; el.focus(); document.execCommand(act); el.dispatchEvent(new Event('input', { bubbles: true })); }
+function ceFind(id){ const el = document.getElementById(id); const q = prompt('查找'); if (!q) return; const i = el.value.indexOf(q, el.selectionEnd); if (i < 0) { alert('未找到: ' + q); return; } el.focus(); el.setSelectionRange(i, i + q.length); }
+function ceCopy(id){ const el = document.getElementById(id); try { navigator.clipboard.writeText(el.value); } catch (e) {} }
+function openMsel(box){
+  const ms = box.parentNode, drop = ms.querySelector('.msel-drop');
+  const open = ms.classList.toggle('open');
+  if (open) {
+    const r = box.getBoundingClientRect();          // fixed 定位：脱离滚动容器，避免被裁/遮挡
+    drop.style.position = 'fixed'; drop.style.left = r.left + 'px'; drop.style.top = (r.bottom + 4) + 'px'; drop.style.width = r.width + 'px'; drop.style.zIndex = '300';
+  } else closeMsel(ms);
+}
+function closeMsel(ms){ ms.classList.remove('open'); const d = ms.querySelector('.msel-drop'); if (d) { d.style.position = ''; d.style.left = ''; d.style.top = ''; d.style.width = ''; } }
+function msRemove(e){ e.stopPropagation(); const [k, v] = e.target.dataset.rm.split('|'); const box = e.target.closest('.mselect'); const cb = [...box.querySelectorAll('[data-ms]')].find(x => x.value === v && x.dataset.ms === k); if (cb) { cb.checked = false; cb.onchange && cb.onchange(); } }
+/* 引用数组的标签文案：统一用 keyField（引用存 id，展示用 name） */
+function refTagLabel(t, v){
+  const to = OBJ[t] || {}, kf = to.keyField || ((to.schema && to.schema[0] && to.schema[0].key) || 'name');
+  const x = byId(t, v);
+  return x ? (x[kf] + (x.description ? ' · ' + x.description : '')) : v;
+}
+function setTypeField(key, val){ if (!cur) return; cur.item[key] = val; rerenderDrawerForm(); setYaml(); }
+function findField(schema, path){
+  let list = schema, f = null;
+  for (const k of path) { f = (list || []).find(x => x.key === k); if (!f) return null; list = f.fields; }
+  return f;
+}
+function setPath(obj, path, v){
+  let o = obj;
+  for (let i = 0; i < path.length - 1; i++) { o[path[i]] = o[path[i]] || {}; o = o[path[i]]; }
+  o[path[path.length - 1]] = v;
+}
+function field(f, val, o, item, prefix){
+  if (val === undefined && f.default !== undefined) val = f.default;   // 新建：用默认值
+  const key = prefix ? prefix + '.' + f.key : f.key;
+  const id = 'f_' + key.replace(/\./g, '_');
+  const req = f.required ? '<span class="req">*</span>' : '';
   let input;
-  if (f.type === 'select') {
-    let opts;
-    if (f.dynamic && f.key === 'protocol') {
-      const list = CATALOG.entrypoint_protocols || [];
-      opts = list.map(p => `<option value="${esc(p.id)}"${p.id === val ? ' selected' : ''}${p.installed ? '' : ' disabled'}>${esc(p.label || p.id)} · ${esc(p.from)}${p.installed ? '' : '（依赖缺失）'}</option>`).join('');
+  if (f.type === 'tabs') {
+    const list = f.optionsFrom ? (CATALOG[f.optionsFrom] || []) : (f.options || []).map(o2 => ({ id: o2.value, label: o2.label, installed: true }));
+    input = `<div class="typetabs">` + list.map(p =>
+      `<button type="button" class="tt${String(p.id) === String(val) ? ' on' : ''}"${p.installed === false ? ` disabled title="需安装 ${esc(p.from || '')}"` : ''} data-tf="${key}" data-val="${esc(p.id)}">${esc(p.label)}</button>`).join('') + `</div>`;
+  } else if (f.type === 'radio') {
+    input = `<div class="radios">` + (f.options || []).map(o2 =>
+      `<label class="radio"><input type="radio" name="${key}" data-key="${key}" value="${esc(o2.value)}"${o2.value === val ? ' checked' : ''}>${esc(o2.label)}</label>`).join('') + `</div>`;
+  } else if (f.type === 'select') {
+    let opts = '';
+    if (f.optionsFrom) {                                          // 选项来自类型目录 / 容器端口
+      let list;
+      if (f.optionsFrom === 'containerPorts') {
+        const c = (window.V41.containers || []).find(x => x.id === item.container);
+        list = ((c && c.ports) || []).map(p => ({ id: p, label: String(p), installed: true, from: '' }));
+      } else {
+        list = CATALOG[f.optionsFrom] || [];
+      }
+      opts = list.map(p => `<option value="${esc(p.id)}"${String(p.id) === String(val) ? ' selected' : ''}${p.installed ? '' : ' disabled'}>${esc(p.label || p.id)}${p.from ? ' · ' + esc(p.from) : ''}${p.installed ? '' : '（依赖缺失）'}</option>`).join('');
     } else {
       opts = (f.options || []).map(o2 => {
         const dis = f.exclusive && o2.value === f.exclusive && exclusiveTaken(f, o, item);
         return `<option value="${esc(o2.value)}"${o2.value === val ? ' selected' : ''}${dis ? ' disabled' : ''}>${esc(o2.label)}${dis ? '（已存在）' : ''}</option>`;
       }).join('');
     }
-    const dyn = f.dynamic && f.key !== 'protocol' && !(f.options || []).length ? `<option value="${esc(val || '')}" selected>${esc(val || '（动态，来自类型目录）')}</option>` : '';
-    input = `<select id="${id}" data-key="${f.key}">${dyn}${opts}</select>`;
-  } else if (f.type === 'switch') input = `<input type="checkbox" id="${id}" data-key="${f.key}" ${val ? 'checked' : ''}>`;
-  else if (f.type === 'array') input = `<input type="text" id="${id}" data-key="${f.key}" value="${esc((val || []).join(', '))}">`;
-  else if (f.type === 'object') input = `<textarea id="${id}" data-key="${f.key}">${esc(JSON.stringify(val || {}, null, 2))}</textarea>`;
+    input = `<select id="${id}" data-key="${key}">${opts}</select>`;
+  } else if (f.type === 'switch') input = `<input type="checkbox" class="sw" id="${id}" data-key="${key}" ${val ? 'checked' : ''}>`;
+  else if (f.type === 'array' && f.reference) {                   // 引用数组 → 下拉多选（Ant Select 风格）
+    const t = (f.reference.types && f.reference.types[0]) || null;
+    const to = (t && OBJ[t]) || {};
+    const kf = to.keyField || ((to.schema && to.schema[0] && to.schema[0].key) || 'name');
+    const vals = val || [];
+    const tagLabel = v => refTagLabel(t, v);
+    const tags = vals.map(v => `<span class="msel-tag">${esc(tagLabel(v))}<i data-rm="${key}|${esc(v)}" onclick="msRemove(event)">×</i></span>`).join('');
+    const opts = (to.data || []).map(x => { const v = idOf(t, x); const label = x[kf] + (x.description ? ' · ' + x.description : ''); return `<label class="msel-opt"><input type="checkbox" data-ms="${key}" value="${esc(v)}"${vals.includes(v) ? ' checked' : ''}>${esc(label)}</label>`; }).join('');
+    input = `<div class="mselect"><div class="msel-box" onclick="openMsel(this)">` +
+      `<span class="msel-tags">${tags || '<span class="msel-ph">选择…</span>'}</span><span class="msel-caret">▾</span></div>` +
+      `<div class="msel-drop">${opts}</div></div>`;
+  }
+  else if (f.type === 'array') input = `<input type="text" id="${id}" data-key="${key}" value="${esc((val || []).join(', '))}">`;
+  else if (f.type === 'object' && f.fields) {                     // 拆成子表单
+    input = `<div class="objgrp">` + f.fields.map(sf => field(sf, (val || {})[sf.key], o, item, key)).join('') + `</div>`;
+  }
+  else if (f.type === 'object') input = `<textarea id="${id}" data-key="${key}">${esc(JSON.stringify(val || {}, null, 2))}</textarea>`;
   else if (f.type === 'reference') {
     const t = (f.reference && f.reference.types && f.reference.types[0]) || null;
-    const src = (t && OBJ[t]) ? (OBJ[t].data || []) : [];
-    const opts = src.map(x => `<option value="${esc(x.name)}"${x.name === val ? ' selected' : ''}>${esc(x.name)}</option>`).join('');
-    input = `<div class="ref"><select id="${id}" data-key="${f.key}"><option value="">（未选择）</option>${opts}</select>` +
-      (t ? `<button type="button" class="btn" onclick="stackAdd('${t}','${f.key}')">＋新增</button>` : '') + `</div>`;
+    const to = (t && OBJ[t]) || {};
+    const kf = to.keyField || ((to.schema && to.schema[0] && to.schema[0].key) || 'name');
+    const src = to.data || [];
+    const df = to.displayFields;
+    const labelOf = x => df
+      ? df.map(k => Array.isArray(x[k]) ? x[k].join(', ') : x[k]).filter(Boolean).join(to.labelSep || ' · ')
+      : (x[kf] + (x.description ? ' · ' + x.description : ''));
+    const opts = src.map(x => `<option value="${esc(idOf(t, x))}"${idOf(t, x) === val ? ' selected' : ''}>${esc(labelOf(x))}</option>`).join('');
+    input = `<div class="ref"><select id="${id}" data-key="${key}"><option value="">（未选择）</option>${opts}</select>` +
+      (t ? `<button type="button" class="btn add" onclick="stackAdd('${t}','${key}')">＋</button>` : '') + `</div>`;
   }
-  else if (f.type === 'password') input = `<input type="password" id="${id}" data-key="${f.key}" value="${esc(val || '')}">`;
-  else if (f.type === 'number') input = `<input type="number" id="${id}" data-key="${f.key}" value="${esc(val ?? '')}">`;
-  else if (f.type === 'textarea') input = `<textarea id="${id}" data-key="${f.key}" placeholder="${esc(f.placeholder || '')}">${esc(val ?? '')}</textarea>`;
-  else input = `<input type="text" id="${id}" data-key="${f.key}" value="${esc(val ?? '')}" placeholder="${esc(f.placeholder || '')}">`;
-  return `<div class="field"><label>${esc(f.label)}${req}${f.advanced ? ' <span class="adv">·高级</span>' : ''}</label>${input}` +
+  else if (f.type === 'password') input = `<input type="password" id="${id}" data-key="${key}" value="${esc(val || '')}">`;
+  else if (f.type === 'number') input = `<input type="number" id="${id}" data-key="${key}" value="${esc(val ?? '')}">`;
+  else if (f.editor === 'code') {                                 // Caddyfile 片段体（完整 CodeEditor 外观）
+    const vars = ((window.V41.objects.variable || {}).data || []);
+    const chips = vars.map(v => `<span class="varchip tip" data-tip="${esc(v.description || v.value || '')}" onclick="insertVarTo('${id}','<%${esc(v.key)}%>')">${esc(v.key)}</span>`).join('');
+    input = `<div class="ce">
+      <div class="ce-bar">
+        <button type="button" class="ce-btn tip" data-tip="撤销" onclick="ceCmd('${id}','undo')">${svg('undo')}</button>
+        <button type="button" class="ce-btn tip" data-tip="重做" onclick="ceCmd('${id}','redo')">${svg('redo')}</button>
+        <button type="button" class="ce-btn tip" data-tip="查找" onclick="ceFind('${id}')">${svg('search')}</button>
+        <button type="button" class="ce-btn tip" data-tip="复制" onclick="ceCopy('${id}')">${svg('copy')}</button>
+        <span class="sp"></span>
+        <span class="ce-vars">${chips || '<span class="cday">无变量</span>'}</span>
+      </div>
+      <div class="ce-wrap">
+        <div class="ce-gutter" id="ceg_${id}"></div>
+        <div class="ce-body">
+          <textarea class="ce-ta" id="${id}" data-key="${key}" spellcheck="false" wrap="off">${esc(val ?? '')}</textarea>
+          <pre class="ce-hl" id="ceh_${id}"></pre>
+        </div>
+      </div>
+    </div>`;
+  }
+  else if (f.type === 'textarea') input = `<textarea id="${id}" data-key="${key}" placeholder="${esc(f.placeholder || '')}">${esc(val ?? '')}</textarea>`;
+  else input = `<input type="text" id="${id}" data-key="${key}" value="${esc(val ?? '')}" placeholder="${esc(f.placeholder || '')}">`;
+  const full = f.full || ['textarea', 'object', 'tabs', 'radio'].includes(f.type) || (f.type === 'array' && !f.reference) || f.editor === 'code';
+  return `<div class="field${full ? ' full' : ''}"><label>${esc(f.label)}${req}${f.advanced ? ' <span class="adv">·高级</span>' : ''}</label>${input}` +
     (f.description ? `<div class="desc">${esc(f.description)}</div>` : '') + `</div>`;
 }
 function bindFields(container, o, item, onChange){
+  const allFields = formFields(o, item);
+  container.querySelectorAll('[data-ms]').forEach(el => {          // 下拉多选
+    el.onchange = () => {
+      const k = el.dataset.ms, box = el.closest('.mselect');
+      const vals = [...box.querySelectorAll('[data-ms]:checked')].map(x => x.value);
+      setPath(item, k.split('.'), vals);
+      const t = (findField(allFields, k.split('.')) || {}).reference;
+      const tt = t && t.types && t.types[0];
+      box.querySelector('.msel-tags').innerHTML = vals.map(v => `<span class="msel-tag">${esc(tt ? refTagLabel(tt, v) : v)}<i data-rm="${k}|${esc(v)}" onclick="msRemove(event)">×</i></span>`).join('') || '<span class="msel-ph">选择…</span>';
+      onChange && onChange();
+    };
+  });
   container.querySelectorAll('[data-key]').forEach(el => {
-    const f = o.schema.find(x => x.key === el.dataset.key); if (!f) return;
+    const path = el.dataset.key.split('.');
+    const f = findField(allFields, path); if (!f) return;
     el.oninput = el.onchange = () => {
-      let v = el.value;
-      if (f.type === 'switch') v = el.checked;
-      else if (f.type === 'number') v = v === '' ? '' : Number(v);
-      else if (f.type === 'array') v = v.split(',').map(s => s.trim()).filter(Boolean).map(x => (f.item && f.item.type === 'number') ? Number(x) : x);
-      else if (f.type === 'object') { try { v = JSON.parse(v); } catch (e) { return; } }
-      item[f.key] = v; validate(f, el); onChange && onChange();
+      let v;
+      if (el.multiple) v = [...el.selectedOptions].map(o => o.value);
+      else {
+        v = el.value;
+        if (f.type === 'switch') v = el.checked;
+        else if (f.type === 'number') v = v === '' ? '' : Number(v);
+        else if (f.type === 'array') v = v.split(',').map(s => s.trim()).filter(Boolean).map(x => (f.item && f.item.type === 'number') ? Number(x) : x);
+        else if (f.type === 'object' && !f.fields) { try { v = JSON.parse(v); } catch (e) { return; } }
+      }
+      setPath(item, path, v); validate(f, el, item); onChange && onChange();
     };
   });
 }
-function validate(f, el){
-  if (!f.pattern) return;
-  const ok = el.value === '' || new RegExp(f.pattern).test(el.value);
+function validate(f, el, item){
+  let ok = true, msg = '';
+  if (f.pattern) { ok = el.value === '' || new RegExp(f.pattern).test(el.value); if (!ok) msg = f.label + ' 格式不合法'; }
+  if (ok && f.type === 'number' && el.value !== '') {
+    const n = Number(el.value);
+    if (f.min !== undefined && n < f.min) { ok = false; msg = f.label + ' 需 ≥ ' + f.min; }
+    if (f.max !== undefined && n > f.max) { ok = false; msg = f.label + ' 需 ≤ ' + f.max; }
+  }
+  if (ok && f.uniqueIn && el.value !== '') {                  // 值在指定对象内唯一（如入口点端口）
+    const arr = (OBJ[f.uniqueIn] && OBJ[f.uniqueIn].data) || [];
+    if (arr.some(x => x !== item && String(x[f.key]) === String(el.value))) { ok = false; msg = f.label + ' ' + el.value + ' 与已有冲突'; }
+  }
+  if (!f.pattern && f.type !== 'number' && !f.uniqueIn) return;
   el.style.borderColor = ok ? '' : 'var(--err)';
-  $('#drValid').textContent = ok ? '✓ 校验通过' : '✗ ' + f.label + ' 格式不合法';
+  $('#drValid').textContent = ok ? '✓ 校验通过' : '✗ ' + msg;
   $('#drValid').style.color = ok ? '' : 'var(--err)';
 }
 
@@ -979,12 +2576,72 @@ function foldUnits(raw){                                     // 缩进块：后�
   }
   return units;
 }
+/* 表单字段集 = schema + 类型目录参数（中间件：所选类型的参数 + 片段体） */
+function formFields(o, item){
+  const all = [...(o.schema || []), ...typeFields(o, item)];
+  if (o.uiHint === 'middleware') {
+    const t = (CATALOG.middleware_types || []).find(x => x.id === item.type);
+    if (t && t.fields) all.push(...t.fields);
+    all.push({ key: 'code', type: 'textarea', editor: 'code' });
+  }
+  return all;
+}
+function specOf(o, item){                                     // 编辑面 = spec：源字段（排除 status）；引用 id → keyField（可读）
+  const out = {};
+  Object.keys(item).forEach(k => { if (k !== 'status' && k !== 'id') out[k] = item[k]; });   // 排除 status 与元数据 id
+  formFields(o, item).forEach(f => {                          // 含类型参数（basic_auth.users → 用户名）
+    if (!f.reference) return;
+    const t = f.reference.types && f.reference.types[0]; if (!t) return;
+    const to = OBJ[t] || {}, kf = to.keyField || 'name';
+    const nameOf = v => { const x = byId(t, v); return x ? x[kf] : v; };
+    out[f.key] = f.type === 'array' ? (item[f.key] || []).map(nameOf) : nameOf(item[f.key]);
+  });
+  return out;
+}
 function setYaml(){
-  cur.raw = toYaml(cur.item);
+  const o = OBJ[cur.kind];
+  if (cur.kind === 'deployment') {                              // 编排：YAML = 等价的 docker-compose.yaml（仅 compose 内容）
+    cur.raw = serializeComposeYaml(cur.item.services || {});
+    fold = new Set();
+    renderEd();
+    renderComposeVars();                                        // 容器变量框（系统变量 / 项目变量）
+    return;
+  }
+  cur.raw = toYaml(specOf(o, cur.item));                        // 只序列化 spec（status 不进编辑面）
+  if (cur.kind === 'user')                                      // 密码只写：不出现在对象文本里
+    cur.raw += '\n# password 为只写字段：仅保存时生成 bcrypt 哈希，不写入对象文本（编辑时留空表示不修改）\n';
   fold = new Set();
-  const raw = cur.raw.split('\n');
-  for (const u of foldUnits(raw)) if (keyName(raw[u.start]) === 'status') fold.add(u.start);   // status（自动记录）默认折叠
   renderEd();
+  const vars = $('#drVars'); if (vars) vars.style.display = 'none';   // 非编排：不显示变量框
+}
+/* 容器变量框（仿 ComposeEditorModal：系统变量 + 项目变量，点击插入到 YAML 光标处） */
+let cvarsCollapsed = false;
+function cvarsToggle(){ cvarsCollapsed = !cvarsCollapsed; renderComposeVars(); }
+function cvarChip(label, tip, insert, kind){ return `<span class="cvar ${kind} tip" data-tip="${esc(tip)}" onclick="cvarInsert('${esc(insert)}')">${esc(label)}</span>`; }
+function cvarInsert(text){ insertVarTo('drYaml', text); }
+function renderComposeVars(){
+  const box = $('#drVars'); if (!box) return;
+  if (!cur || cur.kind !== 'deployment') { box.style.display = 'none'; return; }
+  box.style.display = '';
+  const svcs = cur.item.services || {};
+  const sys = [
+    { label: 'GB_PROJ_NAME', tip: '项目名：' + (cur.item.name || ''), insert: '${GB_PROJ_NAME}' },
+    { label: 'GB_PROJ_FILE', tip: '项目默认地址 <dataDir>/appData/<项目名>/', insert: '${GB_PROJ_FILE}' },
+  ];
+  Object.keys(svcs).forEach((n, si) => (svcs[n].ports || []).forEach((p, pi) => {
+    if (p.container) sys.push({ label: `GB_SER_${si + 1}_PORT_${pi + 1}`, tip: '第 n 个服务的第 m 个发布端口', insert: `\${GB_SER_${si + 1}_PORT_${pi + 1}}` });
+  }));
+  const uservars = ((window.V41.objects.variable || {}).data || []);
+  const projChips = [ { label: cur.item.name || '（项目名称）', tip: '项目名称', insert: cur.item.name || '' } ];
+  const appChips = Object.keys(svcs).map(n => ({ label: svcs[n].container_name || n, tip: '应用名称（容器名）', insert: svcs[n].container_name || n }));
+  const portChips = [];
+  Object.keys(svcs).forEach(n => (svcs[n].ports || []).forEach(p => { if (p.host) portChips.push({ label: p.host, tip: `外部端口，映射 <${p.container}>/${p.protocol}`, insert: p.host }); }));
+  box.innerHTML = `<div class="cvars-h"><span class="nm">容器变量</span><button type="button" class="btn" onclick="cvarsToggle()">${cvarsCollapsed ? '▶ 展开' : '▼ 收起'}</button></div>` +
+    (cvarsCollapsed ? '' : `<div class="cvars-line"><span class="lb">系统变量：</span>${sys.map(c => cvarChip(c.label, c.tip, c.insert, 'sys')).join('')}${uservars.map(v => cvarChip(v.key, '值：' + (v.value || '（空）') + (v.description ? ' · ' + v.description : ''), '${' + v.key + '}', 'usr')).join('')}</div>
+      <div class="cvars-sep"></div>
+      <div class="cvars-line"><span class="lb">项目变量：</span>${projChips.map(c => cvarChip(c.label, c.tip, c.insert, 'proj')).join('')}</div>
+      <div class="cvars-line"><span class="lb">应用名称：</span>${appChips.map(c => cvarChip(c.label, c.tip, c.insert, 'proj')).join('') || '<span class="cday">-</span>'}</div>
+      <div class="cvars-line"><span class="lb">外部：</span>${portChips.map(c => cvarChip(c.label, c.tip, c.insert, 'proj')).join('') || '<span class="cday">-</span>'}</div>`);
 }
 function syncEd(){ if (cur && cur.raw !== undefined) renderEd(); }
 function renderEd(){
@@ -1068,6 +2725,11 @@ function reloadMock(){ const s = document.createElement('script'); s.src = 'data
 $('#drYaml').addEventListener('input', () => { $('#drBlank').innerHTML = hlAll($('#drYaml').value); });
 $('#drYaml').addEventListener('scroll', syncScroll);
 window.addEventListener('resize', syncEd);
+document.addEventListener('click', e => { if (!e.target.closest('.mselect')) document.querySelectorAll('.mselect.open').forEach(m => closeMsel(m)); });   // 点外部收起下拉多选
+window.addEventListener('scroll', e => {
+  if (e.target && e.target.closest && e.target.closest('.mselect')) return;   // 下拉内部滚动不关闭
+  document.querySelectorAll('.mselect.open').forEach(m => closeMsel(m));
+}, true);   // 页面滚动收起
 
 /* 拖拽分隔条：调整表单 / 编辑器大小（左右、上下布局皆可）*/
 (function initSplitter(){
@@ -1087,11 +2749,13 @@ window.addEventListener('resize', syncEd);
   });
 })();
 
-let pendingView = null, pendingLog = null;
-(function initFromHash(){ const m = location.hash.replace('#', '').split('/'); if (m[0] && PAGES[m[0]]) { page = m[0]; if (m[1]) tab = m[1]; } if (m[2] === 'view' && m[3]) pendingView = decodeURIComponent(m[3]); if (m[2] === 'log' && m[3]) pendingLog = { key: m[3], view: m[4] || 'map' }; })();
+let pendingView = null, pendingLog = null, pendingNew = null, pendingEdit = null;
+(function initFromHash(){ const m = location.hash.replace('#', '').split('/'); if (m[0] && PAGES[m[0]]) { page = m[0]; if (m[1]) tab = m[1]; } if (m[2] === 'view' && m[3]) pendingView = decodeURIComponent(m[3]); if (m[2] === 'log' && m[3]) pendingLog = { key: m[3], view: m[4] || 'map' }; if (m[2] === 'new') pendingNew = { kind: m[1], type: m[3] }; if (m[2] === 'edit') pendingEdit = { kind: m[1], key: decodeURIComponent(m[3]) }; })();
 render(); paintIcons(); applyWs();
 if (pendingView) { const s = (window.V41.subdomains || []).find(x => x.fqdn === pendingView); if (s) viewCert(s); }
 if (pendingLog) openLog(pendingLog.key, pendingLog.view);
+if (pendingNew && OBJ[pendingNew.kind]) { const o = OBJ[pendingNew.kind]; const pre = (pendingNew.type && o.typeField) ? { [o.typeField]: pendingNew.type } : undefined; openDrawer(pendingNew.kind, -1, pre); }
+if (pendingEdit && OBJ[pendingEdit.kind]) { const o = OBJ[pendingEdit.kind]; const idx = (o.data || []).findIndex(x => x[o.keyField || 'name'] === pendingEdit.key); if (idx >= 0) openDrawer(pendingEdit.kind, idx); }
 </script>
 </body>
 </html>

@@ -1,0 +1,30 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# DNS 供应商 · DigitalOcean
+# 规则来源：acme.sh dnsapi（hook dns_dgon）
+# ─────────────────────────────────────────────────────────────────────────────
+
+kind: dns-provider                    # 对象类型标识
+id: digitalocean                      # 供应商标识
+label: DigitalOcean                   # 显示名
+group: 设置                            # 归属：设置 → DNS 供应商
+acmeHook: dns_dgon                    # acme.sh hook
+docs: https://github.com/acmesh-official/acme.sh/wiki/dnsapi#20-use-digitalocean-api-native
+enabled: false                        # 显示开关：默认不选
+
+fields:                               # 凭证字段模型
+  - key: apiKey                       # 字段键：API Token
+    label: API Token                  # 显示标签
+    type: password
+    required: true
+    secret: true
+    env: DO_API_KEY
+    note: 需 domain read/update scope
+
+status:                               # 自动记录（只读）
+  - key: hookInstalled
+    label: hook 可用
+    note: acme.sh 是否带 dns_dgon
+
+example:                              # 凭证示例（掩码）
+  name: do-main
+  fields: { apiKey: "dop_v1_••••" }

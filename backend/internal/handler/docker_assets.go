@@ -31,6 +31,7 @@ type imageView struct {
 	CreatedAt  time.Time `json:"createdAt"`
 	InUse      bool      `json:"inUse"`
 	Containers []string  `json:"containers,omitempty"`
+	Host       string    `json:"host"` // 资源所在主机（V4.1 主机维度，ADR-042 §13）
 }
 
 // networkView 网络列表项。
@@ -44,6 +45,7 @@ type networkView struct {
 	Subnet     string    `json:"subnet,omitempty"`
 	Gateway    string    `json:"gateway,omitempty"`
 	CreatedAt  time.Time `json:"createdAt"`
+	Host       string    `json:"host"` // 资源所在主机（V4.1 主机维度，ADR-042 §13）
 }
 
 // networkContainerView 连接到某网络的容器(查看弹层用)。
@@ -65,6 +67,7 @@ type volumeView struct {
 	InUse       bool      `json:"inUse"`
 	Containers  []string  `json:"containers,omitempty"`
 	CreatedAt   time.Time `json:"createdAt"`
+	Host        string    `json:"host"` // 资源所在主机（V4.1 主机维度，ADR-042 §13）
 }
 
 // volumeDisplayName 计算卷的友好名称:
@@ -115,6 +118,7 @@ func (d *dockerAPI) listImages(w http.ResponseWriter, r *http.Request) {
 	out := make([]imageView, 0, len(images))
 	for _, img := range images {
 		v := imageView{
+			Host:      localHostName,
 			ID:        img.ID,
 			Names:     img.RepoTags,
 			Digests:   img.RepoDigests,
@@ -259,6 +263,7 @@ func (d *dockerAPI) listNetworks(w http.ResponseWriter, r *http.Request) {
 	out := make([]networkView, 0, len(nets))
 	for _, n := range nets {
 		out = append(out, networkView{
+			Host:       localHostName,
 			ID:         n.ID,
 			Name:       n.Name,
 			Driver:     n.Driver,
@@ -374,6 +379,7 @@ func (d *dockerAPI) listVolumes(w http.ResponseWriter, r *http.Request) {
 	out := make([]volumeView, 0, len(vols))
 	for _, v := range vols {
 		vv := volumeView{
+			Host:        localHostName,
 			Name:        v.Name,
 			DisplayName: volumeDisplayName(&v),
 			Driver:      v.Driver,

@@ -30,7 +30,7 @@ components:
       service_types: [reverse_proxy, file_server, redirect, respond],
       middleware_types: [encode, basic_auth, headers, websocket, rewrite, code] }
   - { id: caddy-l4,  from: plugin, installed: false,
-      service_types: [tcp_proxy, udp_proxy] }
+      service_types: [l4_proxy] }      # 四层转发合一，network 参数区分 tcp/udp
 ```
 
 ### 2.2 对象册（用户声明）

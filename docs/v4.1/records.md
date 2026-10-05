@@ -76,7 +76,7 @@ result: { status: 200, totalMs: 86 }
 
 | 项 | 方案 |
 |---|---|
-| 事务 Run/Step | 落盘；**条数 + 天数双限**（如最近 500 条 / 7 天） |
+| 事务 Run/Step | 落盘；**条数 + 天数双限**（ADR-041 §7）。当前实现：最近 **50** 条 / **7** 天（`backend/internal/reconcile/store.go` `runRetentionCount` / `runRetentionDays`）；Step 内 Events 落库裁剪为最近 20 条。条数上限可调 |
 | 调用输入输出 / 证据 | 落盘但**截断**（如每段 64KB）；大输出只存引用 |
 | 访问 RequestRun | **聚合**为主（按路由/时间桶统计），明细只留最近 N 条 |
 | 实时推送 | 事件流（run/step/state/activity）；WebSocket 留给终端/exec |

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, h, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { statCell } from '../../utils/cell'
 import {
   Table, Tag, Button, Space, Modal, Drawer, Alert, Checkbox, Progress, Tooltip, message, Typography,
@@ -12,11 +13,20 @@ import {
   listCompose, downCompose, restartCompose, restoreCompose, deleteCompose, adoptCompose, syncCaddy, wsURL,
   type ComposeView, type DeployProgress,
 } from '../../api/docker'
+import { listObjects, type V41Object } from '../../api/objects'
 import ComposeEditorModal from '../../components/ComposeEditorModal.vue'
+import GroupHeader from '../../app/components/GroupHeader.vue'
+import HostBar from '../../app/components/HostBar.vue'
+import { countByHost, useHostFilter } from '../../app/composables/useHostFilter'
 
+const router = useRouter()
 const [messageApi, contextHolder] = message.useMessage()
 
+// 主机维度（V4.1）：编排本身要选部署到哪台主机，所以操作全在主机离线时禁用。
+const { match: hostMatch, isOnline: hostIsOnline, setCounts, addressOf } = useHostFilter()
+
 const projects = ref<ComposeView[]>([])
+const shownProjects = computed(() => projects.value.filter((p) => hostMatch(p.host)))
 const loading = ref(true)
 const loadError = ref('')
 
@@ -67,6 +77,7 @@ async function load() {
   try {
     projects.value = await listCompose()
     loadError.value = ''
+    setCounts(countByHost(projects.value))
   } catch (e: any) {
     loadError.value = e.message || '加载失败'
   } finally {
@@ -78,6 +89,11 @@ function openCreate() {
   editorProject.value = null
   editorReadOnly.value = false
   editorShow.value = true
+}
+
+/** 组头的「应用商店」入口：新建编排前先去挑现成模板，省得从空白 compose 起步。 */
+function gotoStore() {
+  router.push('/store')
 }
 
 function openEdit(row: ComposeView) {
@@ -208,9 +224,78 @@ function renderStatus(row: ComposeView) {
   return h(Tag, {}, { default: () => row.status || '已停止' })
 }
 
+/**
+ * renderHostCell 主机列：在线点 + 主机名 + 地址（原型 hostCell）。
+ * 离线时不写「已停止」这类状态——主机不可达时容器状态是未知的，原型也这么要求。
+ */
+function renderHostCell(name?: string) {
+  if (!name) return h('span', { style: 'color:#999' }, '—')
+  const on = hostIsOnline(name)
+  return h('div', { style: 'display:flex;align-items:center;gap:6px;min-width:0' }, [
+    h('span', {
+      style: `display:inline-block;width:8px;height:8px;border-radius:50%;flex:0 0 8px;background:${on ? '#52c41a' : '#ff4d4f'}`,
+    }),
+    h('div', { style: 'display:flex;flex-direction:column;line-height:1.25;min-width:0' }, [
+      h('span', { style: 'font-weight:600' }, name),
+      h('span', { style: 'color:#8b95a7;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' },
+        on ? addressOf(name) || '—' : '离线 · 状态未知'),
+    ]),
+  ])
+}
+
+/**
+ * 「路由」列：这个编排对外暴露了哪些域名。
+ *
+ * 链路是 route.service → service.backend.deployment → 编排项目名。数据来自
+ * 对象册里真实存在的路由/服务，没有就说「—」：把没配的路由画成有，比空着更危险。
+ */
+const deploymentRoutes = ref<Record<string, string[]>>({})
+async function loadDeploymentRoutes() {
+  try {
+    const [routes, services] = await Promise.all([listObjects('route'), listObjects('service')])
+    // 服务 id → 其 backend.deployment（= 编排项目名）
+    const byDeployment: Record<string, string[]> = {}
+    for (const s of services) {
+      const dep = String((s.spec?.backend as Record<string, unknown> | undefined)?.deployment ?? '')
+      if (!dep) continue
+      ;(byDeployment[dep] ??= []).push(s.id)
+    }
+    const map: Record<string, string[]> = {}
+    for (const r of routes) {
+      const svcId = String(r.spec?.service ?? '')
+      if (!svcId) continue
+      const dep = Object.entries(byDeployment).find(([, ids]) => ids.includes(svcId))?.[0]
+      if (!dep) continue
+      const sub = String(r.spec?.subdomain ?? '')
+      const roots = Array.isArray(r.spec?.roots) ? (r.spec.roots as unknown[]).map(String) : []
+      const label = String(r.spec?.name ?? r.key ?? r.id)
+      ;(map[dep] ??= []).push(roots.length ? `${sub ? `${sub}.` : ''}${label}（${roots.length} 个域名）` : label)
+    }
+    deploymentRoutes.value = map
+  } catch {
+    deploymentRoutes.value = {}
+  }
+}
+
+function renderRoutes(row: ComposeView) {
+  const list = deploymentRoutes.value[row.projectName] ?? []
+  if (!list.length) return statCell('—', 'color:#999')
+  const shown = list.slice(0, 2).map((t) => h('div', {}, h('span', { style: 'color:#1677ff' }, t)))
+  if (list.length > 2) {
+    shown.push(h(Tooltip, { title: list.join('\n') }, {
+      default: () => h('span', { style: 'color:#1677ff;cursor:pointer' }, `+${list.length - 2}`),
+    }))
+  }
+  return h('div', { style: 'display:flex;flex-direction:column;gap:2px' }, shown)
+}
+
 const columns = computed(() => [
-  { title: '项目名称', dataIndex: 'projectName', key: 'projectName', width: 160, customRender: ({ record }: { record: ComposeView }) => h('div', { style: 'font-weight: 600' }, record.projectName || record.displayName) },
-  { title: '来源', dataIndex: 'source', key: 'source', width: 110, customRender: ({ record }: { record: ComposeView }) => renderSource(record) },
+  // 应用名 = 人类可读名（displayName），项目名 = 机器标识。原型把两者并排成两列：
+  // 排障时看项目名，配路由/仓库时看应用名，合成一列等于逼用户自己猜哪个是哪。
+  { title: '应用名', dataIndex: 'displayName', key: 'displayName', width: 150, customRender: ({ record }: { record: ComposeView }) => h('div', { style: 'font-weight: 600' }, record.displayName || record.projectName) },
+  { title: '项目名', dataIndex: 'projectName', key: 'projectName', width: 150, customRender: ({ record }: { record: ComposeView }) => h('code', {}, record.projectName) },
+  { title: '来源', dataIndex: 'source', key: 'source', width: 100, customRender: ({ record }: { record: ComposeView }) => renderSource(record) },
+  { title: '主机', key: 'host', width: 130, customRender: ({ record }: { record: ComposeView }) => renderHostCell(record.host) },
   {
     title: '服务',
     dataIndex: 'count',
@@ -219,6 +304,7 @@ const columns = computed(() => [
     customRender: ({ record }: { record: ComposeView }) => statCell(record.deployed ? `${record.runningCount}/${record.totalCount}` : '-'),
   },
   { title: '状态', dataIndex: 'status', key: 'status', width: 90, customRender: ({ record }: { record: ComposeView }) => renderStatus(record) },
+  { title: '路由', key: 'routes', width: 170, customRender: ({ record }: { record: ComposeView }) => renderRoutes(record) },
   { title: '上次部署', dataIndex: 'lastDeployedAt', key: 'lastDeployedAt', width: 132, customRender: ({ record }: { record: ComposeView }) => statCell(fmtTime(record.lastDeployedAt)) },
   {
     title: '操作',
@@ -227,6 +313,8 @@ const columns = computed(() => [
     fixed: 'right' as const,
     customRender: ({ record }: { record: ComposeView }) => {
       const isBusy = !!busy.value[record.projectName]
+      // 主机离线 → 部署/停止/重启全部禁用（agent 不可达，请求只会静默失败）
+      const offline = !hostIsOnline(record.host)
       const btns: any[] = []
       // tooltip 图标按钮:危险操作统一红色,其余按语义配色
       const actBtn = (icon: any, label: string, color: string, onClick: () => void) =>
@@ -236,32 +324,49 @@ const columns = computed(() => [
             style: { color },
           }, { icon: () => h(icon) }),
         })
+      if (offline) {
+        // 离线主机只有「查看」可用：读 YAML/配置不碰 daemon。
+        if (record.deployed && !record.editable) {
+          btns.push(actBtn(EyeOutlined, `主机 ${record.host} 离线，仅可查看配置`, '#8c8c8c', () => openView(record)))
+        }
+        return h(Space, { size: 0, wrap: false }, {
+          default: () => [
+            ...btns,
+            h(Tooltip, { title: `主机 ${record.host} 离线（agent 不可达），部署类操作已禁用`, trigger: 'hover' }, {
+              default: () => h('span', { style: 'color:#ff4d4f;font-size:12px;white-space:nowrap' }, '主机离线'),
+            }),
+          ],
+        })
+      }
       // 部署:未部署或托管项目都可一键 up 回盘上 YAML
       if (!record.deployed || record.source === 'managed') {
         btns.push(actBtn(PlayCircleOutlined, '部署', '#52c41a', () => startDeploy(record)))
       }
       if (record.deployed && record.status === 'running') {
-        btns.push(actBtn(PauseCircleOutlined, '停止', '#ff4d4f', () => confirmDown(record)))
-        btns.push(actBtn(ReloadOutlined, '重启', '#ff4d4f', () => act(record, restartCompose, '重启')))
+        btns.push(actBtn(PauseCircleOutlined, '停止', '#fa8c16', () => confirmDown(record)))
+        btns.push(actBtn(ReloadOutlined, '重启', '#13c2c2', () => act(record, restartCompose, '重启')))
       }
       if (record.editable) {
-        btns.push(actBtn(EditOutlined, '编辑', '#1677ff', () => openEdit(record)))
+        btns.push(actBtn(EditOutlined, '编辑', '#722ed1', () => openEdit(record)))
       } else if (record.deployed) {
         if (record.source === 'external') {
-          btns.push(actBtn(SwapOutlined, '接管', '#faad14', () => (adoptTarget.value = record)))
+          btns.push(actBtn(SwapOutlined, '接管', '#fa8c16', () => (adoptTarget.value = record)))
         }
         btns.push(actBtn(EyeOutlined, '查看', '#8c8c8c', () => openView(record)))
       }
       // 托管项目、以及已接管(可编辑)的外部项目都可删除(外部=停止并从 GateBox 移出,不动其文件)。
       if (record.source === 'managed' || record.editable) {
-        btns.push(actBtn(DeleteOutlined, '删除', '#ff4d4f', () => confirmDelete(record)))
+        btns.push(actBtn(DeleteOutlined, '删除', '#ef4444', () => confirmDelete(record)))
       }
       return h(Space, { size: 0, wrap: false }, { default: () => btns })
     },
   },
 ])
 
-onMounted(load)
+onMounted(() => {
+  void load()
+  void loadDeploymentRoutes()
+})
 </script>
 
 <template>
@@ -275,20 +380,36 @@ onMounted(load)
     {{ loadError }}
   </Alert>
 
-  <div style="display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 12px">
-    <Button :loading="syncing" @click="doSyncCaddy">
-      <template #icon><SwapOutlined /></template>
-      同步到网关
-    </Button>
-    <Button type="primary" @click="openCreate">+ 创建应用</Button>
+  <div class="compose-hd">
+    <GroupHeader
+      name="编排项目"
+      :tag="`${shownProjects.length} 项`"
+    >
+      <Button @click="gotoStore">
+        应用商店
+      </Button>
+      <Button :loading="syncing" @click="doSyncCaddy">
+        <template #icon><SwapOutlined /></template>
+        同步到网关
+      </Button>
+      <Button
+        type="primary"
+        class="btn-add"
+        @click="openCreate"
+      >
+        ＋ 新建
+      </Button>
+    </GroupHeader>
   </div>
+
+  <HostBar resource="compose" />
 
   <Table
     :columns="columns"
-    :data-source="projects"
+    :data-source="shownProjects"
     :loading="loading"
     :row-key="(record: ComposeView) => record.projectName"
-    :scroll="{ x: 790 }"
+    :scroll="{ x: 920 }"
     size="small"
   />
 

@@ -1,0 +1,104 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# 对象：日志（Run 记录）
+# 一次「运行」的完整留痕：触发 → 步骤 → 证据。界面展示**最后一份**日志。
+# 两个视图：地图视图（流程卡，默认）/ 文本视图（原始日志，按日志格式高亮）。
+# 参考：ADR-042 §7 观测模型 · records.md · chains.md（acme_sequence）
+# ─────────────────────────────────────────────────────────────────────────────
+
+kind: log                             # 对象类型标识
+title: 日志                            # 显示名
+group: 组件
+
+schema:                               # 头部/触发卡字段
+  - key: chain                        # 所属链（事务链 / 流量链）
+    label: 链
+  - key: trigger                      # 触发方式
+    label: 触发
+    options:                          # 触发卡三类
+      - { label: 第一次启动, value: boot }
+      - { label: 手工触发, value: manual }
+      - { label: 自动更新, value: schedule }
+  - key: state                        # 结果
+    label: 状态
+    options: [ running, success, failed ]
+  - key: startedAt                    # 开始时间
+    label: 开始
+  - key: endedAt                      # 结束时间
+    label: 结束
+  - key: ms                           # 总耗时（毫秒）
+    label: 耗时
+
+# 任务卡：步骤表格（地图视图）
+step:
+  - { key: no,     label: 序号 }
+  - { key: step,   label: 步骤 }
+  - { key: marker, label: 日志标志, note: 该步骤在原始日志中的标志行（用于对账/定位） }
+  - { key: at,     label: 运行时间 }
+  - { key: state,  label: 状态 }
+  - { key: ms,     label: 耗时 }
+
+# 证据（文本视图）：插件原始输出，按日志格式高亮（时间戳 / 级别 / 关键字）
+evidence: 原始日志文本（acme.sh 输出）
+
+# 步骤序列模板（声明式）：由链 / 组件自述提供；marker 为「日志标志」，用于与真实日志对账。
+# 运行时：读日志 → 按 marker 顺序匹配 → 实际步骤（时间/耗时）；未命中的 optional 步骤记「跳过」。
+# 不同流程（签发 / 续期 / 重签 / ddns / docker…）用不同 sequence，序列自然不同。
+sequences:
+  - id: acme_issue                     # 首次签发
+    label: 证书签发（首次）
+    steps:
+      - { no: 1,  step: 注册账户,      marker: "Registering account", optional: true }
+      - { no: 2,  step: 选择 CA,       marker: "Using CA" }
+      - { no: 3,  step: 获取授权,      marker: "Getting webroot for domain" }
+      - { no: 4,  step: 添加 TXT 记录,  marker: "TXT record has been successfully added", optional: true }
+      - { no: 5,  step: 等待解析生效,   marker: "Sleeping for", optional: true }
+      - { no: 6,  step: DNS-01 验证,   marker: "Verifying:" }
+      - { no: 7,  step: 清理 TXT 记录,  marker: "Successfully removed", optional: true }
+      - { no: 8,  step: 最终化订单,     marker: "Let's finalize the order." }
+      - { no: 9,  step: 下载证书,       marker: "Cert success." }
+      - { no: 10, step: 安装证书,       marker: "Installing cert to" }
+      - { no: 11, step: 重载服务,       marker: "Reload successful" }
+  - id: acme_renew                     # 证书续期（步骤更少：复用账户、无等待）
+    label: 证书续期
+    steps:
+      - { no: 1, step: 复用账户,       marker: "Already registered" }
+      - { no: 2, step: 获取授权,       marker: "Getting webroot for domain" }
+      - { no: 3, step: DNS-01 验证,   marker: "Verifying:" }
+      - { no: 4, step: 清理 TXT 记录,  marker: "Successfully removed", optional: true }
+      - { no: 5, step: 最终化订单,     marker: "Let's finalize the order." }
+      - { no: 6, step: 下载证书,       marker: "Cert success." }
+      - { no: 7, step: 安装证书,       marker: "Installing cert to" }
+      - { no: 8, step: 重载服务,       marker: "Reload successful" }
+
+example:                              # 示例：acme 证书签发（dns_ali / DNS-01）
+  chain: acme_sequence
+  trigger: manual
+  state: success
+  startedAt: 2026-09-22T15:00:00Z
+  endedAt: 2026-09-22T15:00:08Z
+  ms: 8400
+  steps:
+    - { no: 1, step: 创建证书申请, marker: "Create CSR ok",            at: "15:00:00", state: success, ms: 120 }
+    - { no: 2, step: 获取授权,     marker: "Get authorizations",        at: "15:00:01", state: success, ms: 210 }
+    - { no: 3, step: DNS-01 验证,  marker: "DNS txt record is valid.",  at: "15:00:02", state: success, ms: 2200 }
+    - { no: 4, step: 通知 CA 验证, marker: "Processing status: valid",  at: "15:00:05", state: success, ms: 900 }
+    - { no: 5, step: 最终化订单,   marker: "Finalize order",            at: "15:00:06", state: success, ms: 480 }
+    - { no: 6, step: 下载证书,     marker: "Downloading fullchain.",    at: "15:00:06", state: success, ms: 350 }
+    - { no: 7, step: 安装证书,     marker: "Installing cert",           at: "15:00:07", state: success, ms: 130 }
+    - { no: 8, step: 重载服务,     marker: "Run reload cmd",            at: "15:00:07", state: success, ms: 260 }
+    - { no: 9, step: 清理 TXT 记录, marker: "Removing TXT record",      at: "15:00:08", state: success, ms: 90 }
+  evidence: |
+    [15:00:00] [INFO]  Using server: https://acme-v02.api.letsencrypt.org/directory
+    [15:00:00] [INFO]  Creating CSR for aria.neob.cn
+    [15:00:00] [INFO]  Create CSR ok
+    [15:00:01] [INFO]  Get authorizations
+    [15:00:01] [INFO]  Performing the following challenges: dns-01
+    [15:00:02] [INFO]  Adding TXT record: _acme-challenge.aria.neob.cn
+    [15:00:04] [INFO]  DNS txt record is valid.
+    [15:00:05] [INFO]  Processing status: valid
+    [15:00:06] [INFO]  Finalize order
+    [15:00:06] [INFO]  Downloading fullchain.
+    [15:00:07] [INFO]  Installing cert
+    [15:00:07] [INFO]  Run reload cmd: caddy reload
+    [15:00:08] [INFO]  Removing TXT record
+    [15:00:08] [INFO]  Cert success.

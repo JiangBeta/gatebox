@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted, h } from 'vue'
+import { ref, onMounted, h, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import {
-  Button, Card, Col, Drawer, Form, Input, Popconfirm, Row, Select, Statistic, Table, Tag, Tooltip, message,
+  Button, Card, Drawer, Form, Input, Popconfirm, Select, Table, Tag, Tooltip, message,
 } from 'ant-design-vue'
 import { EditOutlined, DeleteOutlined } from '@ant-design/icons-vue'
 import {
@@ -11,6 +11,10 @@ import {
 } from '../../api/domains'
 import { listCredentials, type DNSCredential } from '../../api/credentials'
 import CredentialFormModal from '../../components/CredentialFormModal.vue'
+import StatCards, { type StatCard } from '../../app/components/StatCards.vue'
+import {
+  GlobalOutlined, SafetyCertificateOutlined, ShopOutlined, KeyOutlined,
+} from '@ant-design/icons-vue'
 
 const router = useRouter()
 const [messageApi, contextHolder] = message.useMessage()
@@ -31,9 +35,55 @@ const editing = ref<DomainOverview | null>(null)
 const form = ref({ name: '', credentialId: '' })
 const showCredModal = ref(false)
 
-/** 打开「域名管理」(即证书页,tab=cert)。 */
+/** 打开「域名 → 域名」（证书页）。 */
 function goCert() {
-  router.push({ path: '/domain', query: { tab: 'cert' } })
+  router.push({ path: '/domains', query: { tab: 'domains' } })
+}
+
+/**
+ * cards 域名概览统计卡（原型 computeCards('domain-overview') 的四张）。
+ *
+ * 数字全部取自同一份 overview 响应（certTotal / certExpiringSoon / certExpired
+ * 由后端按 notAfter 算好），不自己再数一遍——页面口径和后端口径不一致时，
+ * 用户看到的是"数字对不上"，而不是"实现有问题"。
+ */
+const cards = computed<StatCard[]>(() => [
+  {
+    title: '域名数量',
+    main: data.value.domainCount,
+    sub: `根域名 ${data.value.domainCount}`,
+    icon: GlobalOutlined,
+    tone: '#1677ff',
+    link: { page: '/domains', tab: 'domains' },
+  },
+  {
+    title: '证书数量',
+    main: data.value.certTotal,
+    subHTML: `过期 <b style="color:#ef4444">${data.value.certExpired}</b> · 即将过期 <b style="color:#d29922">${data.value.certExpiringSoon}</b>`,
+    icon: SafetyCertificateOutlined,
+    tone: '#16a34a',
+    link: { page: '/domains', tab: 'domains', filter: 'expiring' },
+  },
+  {
+    title: 'DNS 供应商',
+    main: data.value.providerCount,
+    sub: '已启用',
+    icon: ShopOutlined,
+    tone: '#13c2c2',
+    link: { page: '/domains', tab: 'credentials' },
+  },
+  {
+    title: 'DNS 凭证',
+    main: data.value.credentialCount,
+    sub: '已启用',
+    icon: KeyOutlined,
+    tone: '#fa8c16',
+    link: { page: '/domains', tab: 'credentials' },
+  },
+])
+
+function onCardNavigate(link: { page: string; tab?: string; filter?: string }) {
+  router.push({ path: link.page, query: { tab: link.tab, filter: link.filter } })
 }
 
 const certStatusMap: Record<string, { type: 'success' | 'warning' | 'error' | 'default'; label: string }> = {
@@ -169,28 +219,7 @@ onMounted(() => {
 
 <template>
   <contextHolder />
-  <Row :gutter="[12, 12]">
-    <Col :span="4">
-      <Card><Statistic title="域名数量" :value="data.domainCount" /></Card>
-    </Col>
-    <Col :span="4">
-      <Card hoverable style="cursor: pointer" @click="goCert">
-        <Statistic title="证书总数" :value="data.certTotal" />
-      </Card>
-    </Col>
-    <Col :span="4">
-      <Card><Statistic title="即将过期" :value="data.certExpiringSoon" /></Card>
-    </Col>
-    <Col :span="4">
-      <Card><Statistic title="已过期" :value="data.certExpired" /></Card>
-    </Col>
-    <Col :span="4">
-      <Card><Statistic title="DNS 供应商" :value="data.providerCount" /></Card>
-    </Col>
-    <Col :span="4">
-      <Card><Statistic title="DNS 凭证" :value="data.credentialCount" /></Card>
-    </Col>
-  </Row>
+  <StatCards :cards="cards" @navigate="onCardNavigate" />
 
   <div style="margin: 16px 0; display: flex; justify-content: flex-end">
     <Button type="primary" @click="openAdd">+ 添加域名</Button>

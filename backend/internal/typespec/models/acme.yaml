@@ -1,0 +1,54 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# 对象：ACME / 证书设置
+# 结构：源字段（可编辑，平铺）+ status（自动记录，只读，默认折叠）
+# email / ca 等是字段，不是独立对象。归属：设置 → 系统；被 acme·证书 组件消费。
+# 参考：docs/v4.1/views.md §11 · ADR-042 §13
+# ─────────────────────────────────────────────────────────────────────────────
+
+kind: acme                            # 对象类型标识（factKind）
+title: ACME / 证书设置                 # 显示名
+group: 设置                            # 归属一级页面
+singleton: true                       # 单例：全局仅一份设置
+
+schema:                               # 源字段（可编辑）
+  - key: email                        # 字段键：注册邮箱
+    label: ACME 注册邮箱               # 显示标签
+    type: text                        # 控件：文本框
+    required: false                   # 非必填（签发前必须设置，见 description）
+    placeholder: admin@example.com    # 输入提示
+    description: Let's Encrypt 账户注册与到期通知；签发证书前必须设置
+  - key: ca                           # 字段键：CA
+    label: CA                         # 显示标签
+    type: select                      # 控件：下拉
+    required: true                    # 必填
+    default: letsencrypt              # 默认值
+    options:                          # 下拉选项
+      - { label: "Let's Encrypt", value: letsencrypt }   # 默认 CA
+      - { label: ZeroSSL, value: zerossl }               # 备选
+      - { label: Buypass, value: buypass }               # 备选
+    description: 证书签发机构
+  - key: keyType                      # 字段键：密钥算法
+    label: 密钥类型                    # 显示标签
+    type: select                      # 控件：下拉
+    advanced: true                    # 高级字段：默认折叠
+    default: ec-256                   # 默认值
+    options:                          # 下拉选项
+      - { label: EC-256, value: ec-256 }      # 默认：现代、体积小
+      - { label: EC-384, value: ec-384 }
+      - { label: RSA-2048, value: rsa-2048 }
+      - { label: RSA-4096, value: rsa-4096 }
+
+# 自动记录 status（只读，YAML 默认折叠）
+status:
+  - key: accountReady                 # 账户是否已注册就绪
+    label: 账户就绪
+    note: 已按 email 在 CA 注册账户
+  - key: registeredAt                 # 账户注册时间
+    label: 注册时间
+    note: 最近一次账户注册 / 更新
+
+example:                              # 模拟数据基础
+  email: admin@neob.cn                # 已设置的注册邮箱
+  ca: letsencrypt                     # 使用 Let's Encrypt
+  keyType: ec-256                     # 默认密钥类型
+  status: { accountReady: true, registeredAt: 2026-09-14T10:00:00Z }

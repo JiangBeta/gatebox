@@ -22,9 +22,12 @@ import (
 // --- 视图模型 ---
 
 type composeView struct {
-	ProjectName    string    `json:"projectName"`
-	DisplayName    string    `json:"displayName"`
-	Source         string    `json:"source"` // managed / external
+	ProjectName string `json:"projectName"`
+	DisplayName string `json:"displayName"`
+	Source      string `json:"source"` // managed / external
+	// Host 编排部署到的主机（V4.1 主机维度，ADR-042 §13）。
+	// 本轮只有本机 daemon，所以恒为 edge；字段先给出来，接上 agent 后不改契约。
+	Host           string    `json:"host"`
 	Deployed       bool      `json:"deployed"`
 	Status         string    `json:"status"` // running / exited / ""(未部署)
 	RunningCount   int       `json:"runningCount"`
@@ -178,6 +181,7 @@ func composeViewFromProject(inst *model.ComposeInstance, p compose.Project) comp
 	}
 	return composeView{
 		ProjectName:    inst.ProjectName,
+		Host:           composeHostName(inst.HostID),
 		DisplayName:    inst.DisplayName,
 		Source:         source,
 		Deployed:       p.Name != "",
@@ -189,6 +193,16 @@ func composeViewFromProject(inst *model.ComposeInstance, p compose.Project) comp
 		LastDeployedAt: inst.LastDeployedAt,
 		CreatedAt:      inst.CreatedAt,
 	}
+}
+
+// composeHostName 把编排记录的 hostID 映射成主机名。
+//
+// 存量为 "local"（V3 之前的默认值）时归到本机 edge；接上 agent 后直接返回 worker 名。
+func composeHostName(hostID string) string {
+	if hostID == "" || hostID == "local" {
+		return localHostName
+	}
+	return hostID
 }
 
 // composeInput 创建/保存请求体。

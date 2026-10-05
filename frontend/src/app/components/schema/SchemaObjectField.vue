@@ -13,9 +13,9 @@ const childRefOptions = props.referenceOptions
     <SchemaField
       v-for="child in props.field.fields ?? []"
       :key="child.key"
+      v-model="model[child.key]"
       :field="child"
       :reference-options="childRefOptions"
-      v-model="model[child.key]"
     />
   </div>
 </template>

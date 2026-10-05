@@ -14,7 +14,11 @@ function refOptions(): FieldOption[] {
 </script>
 
 <template>
-  <a-form-item :label="field.label" :required="field.required" :extra="field.description">
+  <a-form-item
+    :label="field.label"
+    :required="field.required"
+    :extra="field.description"
+  >
     <SchemaArrayField
       v-if="field.type === 'array'"
       v-model="model as never"
@@ -33,7 +37,10 @@ function refOptions(): FieldOption[] {
       :field="field"
       :options="refOptions()"
     />
-    <a-switch v-else-if="field.type === 'switch'" v-model:checked="model as never" />
+    <a-switch
+      v-else-if="field.type === 'switch'"
+      v-model:checked="model as never"
+    />
     <a-input-number
       v-else-if="field.type === 'number'"
       v-model:value="model as never"
@@ -59,6 +66,10 @@ function refOptions(): FieldOption[] {
       v-model:value="model as never"
       :placeholder="field.placeholder"
     />
-    <a-input v-else v-model:value="model as never" :placeholder="field.placeholder" />
+    <a-input
+      v-else
+      v-model:value="model as never"
+      :placeholder="field.placeholder"
+    />
   </a-form-item>
 </template>

@@ -42,34 +42,65 @@ function summary(item: ArrayItemValue): string {
 
 <template>
   <div class="schema-array">
-    <div v-for="item in items" :key="item.id" class="schema-array__row">
+    <div
+      v-for="item in items"
+      :key="item.id"
+      class="schema-array__row"
+    >
       <template v-if="isObjectItem">
         <div class="schema-array__head">
-          <a-button type="text" size="small" @click="toggle(item.id)">
+          <a-button
+            type="text"
+            size="small"
+            @click="toggle(item.id)"
+          >
             {{ collapsed[item.id] ? '展开' : '收起' }}
           </a-button>
           <span class="schema-array__summary">{{ summary(item) }}</span>
-          <a-button type="text" danger size="small" @click="removeItem(item.id)">删除</a-button>
+          <a-button
+            type="text"
+            danger
+            size="small"
+            @click="removeItem(item.id)"
+          >
+            删除
+          </a-button>
         </div>
         <div v-show="!collapsed[item.id]">
           <SchemaField
             v-for="child in props.field.item?.fields ?? []"
             :key="child.key"
+            v-model="(item.value as Record<string, unknown>)[child.key]"
             :field="child"
             :reference-options="refOptions"
-            v-model="(item.value as Record<string, unknown>)[child.key]"
           />
         </div>
       </template>
-      <div v-else class="schema-array__scalar">
+      <div
+        v-else
+        class="schema-array__scalar"
+      >
         <SchemaField
-          :field="{ ...(props.field.item ?? { type: 'text' }), key: 'value', label: props.field.item?.label ?? '' }"
           v-model="item.value"
+          :field="{ ...(props.field.item ?? { type: 'text' }), key: 'value', label: props.field.item?.label ?? '' }"
         />
-        <a-button type="text" danger size="small" @click="removeItem(item.id)">删除</a-button>
+        <a-button
+          type="text"
+          danger
+          size="small"
+          @click="removeItem(item.id)"
+        >
+          删除
+        </a-button>
       </div>
     </div>
-    <a-button type="dashed" block @click="addItem">+ 新增</a-button>
+    <a-button
+      type="dashed"
+      block
+      @click="addItem"
+    >
+      + 新增
+    </a-button>
   </div>
 </template>
 
